@@ -40,6 +40,22 @@ where
     shuffle_id: usize,
 }
 
+
+impl<K: Data + Eq + Hash, V: Data, C: Data, RT: 'static> Clone for ShuffledRdd<K, V, C, RT>
+    where
+        RT: Rdd<(K, V)>, {
+    fn clone(&self) -> Self {
+        ShuffledRdd {
+            parent: self.parent.clone(),
+            aggregator: self.aggregator.clone(),
+            vals: self.vals.clone(),
+            part: self.part.clone(),
+            shuffle_id: self.shuffle_id,
+        }
+    }
+}
+
+
 impl<K: Data + Eq + Hash, V: Data, C: Data, RT: 'static> ShuffledRdd<K, V, C, RT>
 where
     RT: Rdd<(K, V)>,
@@ -72,15 +88,6 @@ where
         }
     }
 
-    fn clone(&self) -> Self {
-        ShuffledRdd {
-            parent: self.parent.clone(),
-            aggregator: self.aggregator.clone(),
-            vals: self.vals.clone(),
-            part: self.part.clone(),
-            shuffle_id: self.shuffle_id,
-        }
-    }
 }
 
 impl<K: Data + Eq + Hash, V: Data, C: Data, RT: 'static> RddBase for ShuffledRdd<K, V, C, RT>

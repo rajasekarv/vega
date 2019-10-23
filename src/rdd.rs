@@ -187,6 +187,22 @@ where
     _marker_t: PhantomData<T>, // phantom data is necessary because of type parameter T
 }
 
+// Can't derive clone automatically
+impl<RT: 'static, T: Data, U: Data, F> Clone for MapperRdd<RT,T,U,F>
+    where
+        F: Fn(T) -> U + 'static + Send + Sync + PartialEq + Eq + Clone + Serialize + Deserialize,
+        RT: Rdd<T>,
+{
+    fn clone(&self) -> Self {
+        MapperRdd {
+            prev: self.prev.clone(),
+            vals: self.vals.clone(),
+            f: self.f.clone(),
+            _marker_t: PhantomData,
+        }
+    }
+}
+
 impl<RT: 'static, T: Data, U: Data, F> MapperRdd<RT, T, U, F>
 where
     F: Fn(T) -> U
@@ -213,16 +229,6 @@ where
             f,
             _marker_t: PhantomData,
             //            _marker_u: PhantomData,
-        }
-    }
-    // Due to some problem with auto deriving clone for Arc types, implementing clone manually.
-    // But have to move this to the general Clone trait
-    pub fn clone(&self) -> Self {
-        MapperRdd {
-            prev: self.prev.clone(),
-            vals: self.vals.clone(),
-            f: self.f.clone(),
-            _marker_t: PhantomData,
         }
     }
 }
@@ -346,6 +352,21 @@ where
     _marker_t: PhantomData<T>, // phantom data is necessary because of type parameter T
 }
 
+impl<RT: 'static, T: Data, U: Data, F> Clone for FlatMapperRdd<RT,T,U,F>
+    where
+        F: Fn(T) -> Box<dyn Iterator<Item = U>> + 'static + Send + Sync + PartialEq + Eq + Clone + Serialize + Deserialize,
+        RT: Rdd<T>,
+{
+    fn clone(&self) -> Self {
+        FlatMapperRdd {
+            prev: self.prev.clone(),
+            vals: self.vals.clone(),
+            f: self.f.clone(),
+            _marker_t: PhantomData,
+        }
+    }
+}
+
 impl<RT: 'static, T: Data, U: Data, F> FlatMapperRdd<RT, T, U, F>
 where
     F: Fn(T) -> Box<dyn Iterator<Item = U>>
@@ -370,15 +391,6 @@ where
             vals,
             f,
             _marker_t: PhantomData,
-        }
-    }
-    fn clone(&self) -> Self {
-        FlatMapperRdd {
-            prev: self.prev.clone(),
-            vals: self.vals.clone(),
-            f: self.f.clone(),
-            _marker_t: PhantomData,
-            //            _marker_u: PhantomData,
         }
     }
 }

@@ -22,7 +22,7 @@ fn main() {
     let files = sc.make_rdd(files, len);
     let read = files.flat_map(Fn!(|file| read(file)));
     let sum = read.reduce_by_key(Fn!(|((vl, cl), (vr, cr))| (vl + vr, cl + cr)), 1);
-    let avg = sum.map(Fn!(|(k, (v, c))| (k, v as f64/c)));
+    let avg = sum.map(Fn!(|(k, (v, c))| (k, v as f64 / c)));
     let res = avg.collect();
     println!("{:?}", &res[0]);
     sc.drop_executors();

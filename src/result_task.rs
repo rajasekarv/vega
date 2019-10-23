@@ -28,6 +28,35 @@ where
     _marker: PhantomData<T>,
 }
 
+
+impl<T: Data, U: Data, RT, F> ResultTask<T, U, RT, F>
+    where
+        RT: Rdd<T> + 'static,
+        F: Fn((TasKContext, Box<dyn Iterator<Item = T>>)) -> U
+        + 'static
+        + Send
+        + Sync
+        + PartialEq
+        + Eq
+        + Serialize
+        + Deserialize
+        + Clone, {
+    pub fn clone(&self) -> Self {
+        ResultTask {
+            task_id: self.task_id,
+            run_id: self.run_id,
+            stage_id: self.stage_id,
+            rdd: self.rdd.clone(),
+            func: self.func.clone(),
+            partition: self.partition,
+            locs: self.locs.clone(),
+            output_id: self.output_id,
+            _marker: PhantomData,
+        }
+    }
+}
+
+
 impl<T: Data, U: Data, RT, F> ResultTask<T, U, RT, F>
 where
     RT: Rdd<T> + 'static,
@@ -60,20 +89,6 @@ where
             partition,
             locs,
             output_id,
-            _marker: PhantomData,
-        }
-    }
-
-    pub fn clone(&self) -> Self {
-        ResultTask {
-            task_id: self.task_id,
-            run_id: self.run_id,
-            stage_id: self.stage_id,
-            rdd: self.rdd.clone(),
-            func: self.func.clone(),
-            partition: self.partition,
-            locs: self.locs.clone(),
-            output_id: self.output_id,
             _marker: PhantomData,
         }
     }

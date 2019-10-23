@@ -51,9 +51,19 @@ pub struct ParallelCollectionVals<T> {
     num_slices: usize,
 }
 
+
+
 #[derive(Serialize, Deserialize)]
 pub struct ParallelCollection<T> {
     rdd_vals: Arc<ParallelCollectionVals<T>>,
+}
+
+impl<T: Data> Clone for ParallelCollection<T> {
+     fn clone(&self) -> Self {
+        ParallelCollection {
+            rdd_vals: self.rdd_vals.clone(),
+        }
+    }
 }
 
 impl<T: Data> ParallelCollection<T> {
@@ -95,11 +105,6 @@ impl<T: Data> ParallelCollection<T> {
             //            data.chunks(num_slices)
             //                .map(|x| Arc::new(x.to_vec()))
             //                .collect()
-        }
-    }
-    pub fn clone(&self) -> Self {
-        ParallelCollection {
-            rdd_vals: self.rdd_vals.clone(),
         }
     }
 }

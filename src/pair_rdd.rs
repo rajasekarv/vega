@@ -257,6 +257,21 @@ where
     _marker_u: PhantomData<U>,
 }
 
+impl<RT: 'static, K: Data, V: Data, U: Data> Clone for  MappedValuesRdd<RT, K, V, U>
+    where
+        RT: Rdd<(K, V)>,{
+    fn clone(&self) -> Self {
+        MappedValuesRdd {
+            prev: self.prev.clone(),
+            vals: self.vals.clone(),
+            f: self.f.clone(),
+            _marker_t: PhantomData,
+            _marker_v: PhantomData,
+            _marker_u: PhantomData,
+        }
+    }
+}
+
 impl<RT: 'static, K: Data, V: Data, U: Data> MappedValuesRdd<RT, K, V, U>
 where
     RT: Rdd<(K, V)>,
@@ -273,18 +288,6 @@ where
             prev,
             vals,
             f,
-            _marker_t: PhantomData,
-            _marker_v: PhantomData,
-            _marker_u: PhantomData,
-        }
-    }
-    //    // Due to some problem with auto deriving clone for Arc types, implementing clone manually.
-    //    // But have to move this to the general Clone trait
-    fn clone(&self) -> Self {
-        MappedValuesRdd {
-            prev: self.prev.clone(),
-            vals: self.vals.clone(),
-            f: self.f.clone(),
             _marker_t: PhantomData,
             _marker_v: PhantomData,
             _marker_u: PhantomData,
@@ -353,6 +356,22 @@ where
     _marker_u: PhantomData<U>,
 }
 
+
+impl<RT: 'static, K: Data, V: Data, U: Data> Clone for FlatMappedValuesRdd<RT, K, V, U>
+    where
+        RT: Rdd<(K, V)>, {
+    fn clone(&self) -> Self {
+        FlatMappedValuesRdd {
+            prev: self.prev.clone(),
+            vals: self.vals.clone(),
+            f: self.f.clone(),
+            _marker_t: PhantomData,
+            _marker_v: PhantomData,
+            _marker_u: PhantomData,
+        }
+    }
+}
+
 impl<RT: 'static, K: Data, V: Data, U: Data> FlatMappedValuesRdd<RT, K, V, U>
 where
     RT: Rdd<(K, V)>,
@@ -369,18 +388,6 @@ where
             prev,
             vals,
             f,
-            _marker_t: PhantomData,
-            _marker_v: PhantomData,
-            _marker_u: PhantomData,
-        }
-    }
-    //    // Due to some problem with auto deriving clone for Arc types, implementing clone manually.
-    //    // But have to move this to the general Clone trait
-    fn clone(&self) -> Self {
-        FlatMappedValuesRdd {
-            prev: self.prev.clone(),
-            vals: self.vals.clone(),
-            f: self.f.clone(),
             _marker_t: PhantomData,
             _marker_v: PhantomData,
             _marker_u: PhantomData,
