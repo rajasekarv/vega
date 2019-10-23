@@ -1,4 +1,7 @@
 # fast_spark
+
+[![Join the chat at https://gitter.im/fast_spark/community](https://badges.gitter.im/fast_spark/community.svg)](https://gitter.im/fast_spark/community?utm_source=badge&utm_medium=badge&utm_campaign=pr-badge&utm_content=badge)
+
 A new arguably faster implementation of Apache Spark from scratch in Rust. WIP
 
 Just install Cap'n proto(https://capnproto.org/install.html) and you are good to go. Code is tested only on linux and requires nightly version. It is tested for version 1.39 only, there are some breaking changes in specialization from version to version, so use 1.39 only for now. So just use
