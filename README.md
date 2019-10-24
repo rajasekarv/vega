@@ -15,7 +15,7 @@ master port can be configured in hosts.conf and 10500 in executors should be fre
 
 Since File readers are not done, you have to use manual file reading for now (like manually reading from S3 or hack around local files by distributing copies of all files to all machines and make rdd using filename list).
 
-Ctrl-C handling and panic handling is not done yet. So if there is some problem in runtime, exceutors won't be shut down automatically and you have to manually kill the processes.
+Ctrl-C handling and panic handling is not done yet. So if there is some problem in runtime, executors won't be shut down automatically and you have to manually kill the processes.
 
 One of the limitations of current implementation is that the input and return types of all closures and all input to make_rdd should be owned data. 
 
