@@ -4,8 +4,7 @@ use parking_lot::{Mutex, RwLock};
 use std::collections::{HashMap, HashSet};
 //use std::io::BufReader;
 //use std::iter::FromIterator;
-use std::net::TcpListener;
-use std::net::TcpStream;
+use std::net::{IpAddr, Ipv4Addr, SocketAddr, TcpListener, TcpStream};
 use std::sync::Arc;
 use std::thread;
 use std::time;
@@ -17,25 +16,36 @@ pub enum MapOutputTrackerMessage {
 }
 
 // starts the server in master node and client in slave nodes. Similar to cache tracker
-#[derive(Default, Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct MapOutputTracker {
     is_master: bool,
     server_uris: Arc<RwLock<HashMap<usize, Vec<Option<String>>>>>,
     fetching: Arc<RwLock<HashSet<usize>>>,
     generation: Arc<Mutex<i64>>,
-    master_host: String,
-    master_port: i64,
+    master_addr: SocketAddr,
+}
+
+// Only master_addr doesn't have a default.
+impl Default for MapOutputTracker {
+    fn default() -> Self {
+        MapOutputTracker {
+            is_master: Default::default(),
+            server_uris: Default::default(),
+            fetching: Default::default(),
+            generation: Default::default(),
+            master_addr: SocketAddr::new(IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)), 0),
+        }
+    }
 }
 
 impl MapOutputTracker {
-    pub fn new(is_master: bool, master_host: String, master_port: i64) -> Self {
+    pub fn new(is_master: bool, master_addr: SocketAddr) -> Self {
         let m = MapOutputTracker {
             is_master,
             server_uris: Arc::new(RwLock::new(HashMap::new())),
             fetching: Arc::new(RwLock::new(HashSet::new())),
             generation: Arc::new(Mutex::new(0)),
-            master_host,
-            master_port,
+            master_addr,
         };
         m.server();
         m
@@ -44,12 +54,10 @@ impl MapOutputTracker {
     fn client(&self, shuffle_id: usize) -> Vec<String> {
         //        if !self.is_master {
 
-        while let Err(_) = TcpStream::connect(format!("{}:{}", self.master_host, self.master_port))
-        {
+        while let Err(_) = TcpStream::connect(self.master_addr) {
             continue;
         }
-        let mut stream =
-            TcpStream::connect(format!("{}:{}", self.master_host, self.master_port)).unwrap();
+        let mut stream = TcpStream::connect(self.master_addr).unwrap();
         let shuffle_id_bytes = bincode::serialize(&shuffle_id).unwrap();
         let mut message = ::capnp::message::Builder::new_default();
         let mut shuffle_data = message.init_root::<serialized_data::Builder>();
@@ -85,10 +93,10 @@ impl MapOutputTracker {
     fn server(&self) {
         if self.is_master {
             info!("mapoutput tracker server starting");
+            let master_addr = self.master_addr.clone();
             let server_uris = self.server_uris.clone();
-            let port = self.master_port;
             thread::spawn(move || {
-                let listener = TcpListener::bind(format!("0.0.0.0:{}", port,)).unwrap();
+                let listener = TcpListener::bind(master_addr).unwrap();
                 info!("mapoutput tracker server started");
                 for stream in listener.incoming() {
                     match stream {

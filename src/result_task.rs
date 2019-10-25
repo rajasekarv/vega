@@ -1,5 +1,6 @@
 use super::*;
 use std::marker::PhantomData;
+use std::net::Ipv4Addr;
 use std::sync::Arc;
 
 #[derive(Serialize, Deserialize)]
@@ -23,7 +24,7 @@ where
     pub rdd: Arc<RT>,
     pub func: Arc<F>,
     pub partition: usize,
-    pub locs: Vec<String>,
+    pub locs: Vec<Ipv4Addr>,
     pub output_id: usize,
     _marker: PhantomData<T>,
 }
@@ -77,7 +78,7 @@ where
         rdd: Arc<RT>,
         func: Arc<F>,
         partition: usize,
-        locs: Vec<String>,
+        locs: Vec<Ipv4Addr>,
         output_id: usize,
     ) -> Self {
         ResultTask {
@@ -122,7 +123,7 @@ where
     fn get_task_id(&self) -> usize {
         self.task_id
     }
-    fn preferred_locations(&self) -> Vec<String> {
+    fn preferred_locations(&self) -> Vec<Ipv4Addr> {
         self.locs.clone()
     }
     fn generation(&self) -> Option<i64> {

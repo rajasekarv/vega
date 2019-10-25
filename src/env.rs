@@ -3,6 +3,7 @@ use parking_lot::{Mutex, RwLock};
 use std::collections::HashMap;
 use std::fs::File;
 use std::fs::OpenOptions;
+use std::net::{Ipv4Addr, SocketAddr};
 //use std::io::prelude::*;
 //use std::io::prelude::*;
 //use std::io::Write;
@@ -17,17 +18,25 @@ pub struct Env {
 
 #[derive(Deserialize)]
 struct Hosts {
-    master: String,
-    slaves: Vec<String>,
+    master: SocketAddr,
+    slaves: Vec<SocketAddr>,
+}
+
+impl Hosts {
+    fn load_from<R: Read>(mut reader: R) -> std::io::Result<Self> {
+        let mut data = String::new();
+        reader.read_to_string(&mut data)?;
+        Ok(toml::from_str(&data).expect("unable to process the hosts.conf file"))
+    }
 }
 
 impl Env {
-    pub fn new(master_ip: String, master_port: i64) -> Self {
+    pub fn new(master_addr: SocketAddr) -> Self {
         Env {
-            map_output_tracker: MapOutputTracker::new(*is_master, master_ip.clone(), master_port),
+            map_output_tracker: MapOutputTracker::new(*is_master, master_addr.clone()),
             shuffle_manager: ShuffleManager::new(),
             shuffle_fetcher: ShuffleFetcher,
-            cache_tracker: CacheTracker::new(*is_master, master_ip, master_port, &the_cache),
+            cache_tracker: CacheTracker::new(*is_master, master_addr, &the_cache),
         }
     }
 }
@@ -52,11 +61,11 @@ lazy_static! {
             .read_to_string(&mut hosts)
             .expect(&format!("Unable to read the file: {}", host_path_string));
         let hosts: Hosts = toml::from_str(&hosts).expect(&format!("Unable to process the {} file", host_path_string));
-        let master_address = hosts.master.clone();
-        let master_ip = master_address.split(":").collect::<Vec<_>>()[0];
-        let master_port = master_address.split(":").collect::<Vec<_>>()[1]
-            .parse()
-            .unwrap();
-        Env::new(master_ip.to_string(), master_port)
+        Env::new(hosts.master)
     };
+
+    pub static ref local_ip: Ipv4Addr = std::env::var("SPARK_LOCAL_IP")
+        .expect("You must set the SPARK_LOCAL_IP environment variable")
+        .parse()
+        .unwrap();
 }

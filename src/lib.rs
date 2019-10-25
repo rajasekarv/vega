@@ -106,8 +106,5 @@ use job::*;
 mod serializable_traits;
 use serializable_traits::{AnyData, Data, Func};
 
-mod local_ip;
-//use local_ip::*;
-
 mod env;
 //use env::*;
