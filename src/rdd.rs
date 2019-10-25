@@ -10,6 +10,27 @@ use std::marker::PhantomData;
 use std::sync::Arc;
 //use std::any::Any;
 
+pub trait Reduce<T> {
+    fn reduce<F>(self, f: F) -> Option<T>
+    where
+        Self: Sized,
+        F: FnMut(T, T) -> T;
+}
+
+impl<T, I> Reduce<T> for I
+where
+    I: Iterator<Item = T>,
+{
+    #[inline]
+    fn reduce<F>(mut self, f: F) -> Option<T>
+    where
+        Self: Sized,
+        F: FnMut(T, T) -> T,
+    {
+        self.next().map(|first| self.fold(first, f))
+    }
+}
+
 // Values which are needed for all RDDs
 #[derive(Serialize, Deserialize)]
 pub struct RddVals {
@@ -153,6 +174,33 @@ pub trait Rdd<T: Data>: RddBase + Send + Sync + Serialize + Deserialize {
         self.get_context().run_job_with_context(self.get_rdd(), cl);
     }
 
+    fn reduce<F>(&self, f: F) -> Option<T>
+    where
+        Self: Sized + 'static + Serialize + Deserialize,
+        F: Fn(T, T) -> T
+            + PartialEq
+            + Eq
+            + Clone
+            + Send
+            + Sync
+            + serde::ser::Serialize
+            + serde::de::DeserializeOwned
+            + 'static,
+    {
+        // cloned cause we will use `f` later.
+        let cf = f.clone();
+        let reduce_partition = Fn!([cf] move |iter: Box<dyn Iterator<Item = T>>| {
+        let acc = iter.reduce(cf);
+        match acc {
+            None => vec![],
+            Some(e) => vec![e],
+        }
+
+        });
+        let results = self.get_context().run_job(self.get_rdd(), reduce_partition);
+        results.into_iter().flatten().reduce(f)
+    }
+
     fn collect(&self) -> Vec<T>
     where
         Self: Sized + 'static + Serialize + Deserialize,
@@ -188,10 +236,10 @@ where
 }
 
 // Can't derive clone automatically
-impl<RT: 'static, T: Data, U: Data, F> Clone for MapperRdd<RT,T,U,F>
-    where
-        F: Fn(T) -> U + 'static + Send + Sync + PartialEq + Eq + Clone + Serialize + Deserialize,
-        RT: Rdd<T>,
+impl<RT: 'static, T: Data, U: Data, F> Clone for MapperRdd<RT, T, U, F>
+where
+    F: Fn(T) -> U + 'static + Send + Sync + PartialEq + Eq + Clone + Serialize + Deserialize,
+    RT: Rdd<T>,
 {
     fn clone(&self) -> Self {
         MapperRdd {
@@ -352,10 +400,18 @@ where
     _marker_t: PhantomData<T>, // phantom data is necessary because of type parameter T
 }
 
-impl<RT: 'static, T: Data, U: Data, F> Clone for FlatMapperRdd<RT,T,U,F>
-    where
-        F: Fn(T) -> Box<dyn Iterator<Item = U>> + 'static + Send + Sync + PartialEq + Eq + Clone + Serialize + Deserialize,
-        RT: Rdd<T>,
+impl<RT: 'static, T: Data, U: Data, F> Clone for FlatMapperRdd<RT, T, U, F>
+where
+    F: Fn(T) -> Box<dyn Iterator<Item = U>>
+        + 'static
+        + Send
+        + Sync
+        + PartialEq
+        + Eq
+        + Clone
+        + Serialize
+        + Deserialize,
+    RT: Rdd<T>,
 {
     fn clone(&self) -> Self {
         FlatMapperRdd {
