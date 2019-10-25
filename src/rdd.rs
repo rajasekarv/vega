@@ -7,6 +7,7 @@ use std::fs;
 use std::hash::Hash;
 use std::io::{BufWriter, Write};
 use std::marker::PhantomData;
+use std::net::Ipv4Addr;
 use std::sync::Arc;
 //use std::any::Any;
 
@@ -65,7 +66,7 @@ pub trait RddBase: Send + Sync + Serialize + Deserialize {
     fn get_rdd_id(&self) -> usize;
     fn get_context(&self) -> Context;
     fn get_dependencies(&self) -> &[Dependency];
-    fn preferred_locations(&self, split: Box<dyn Split>) -> Vec<String> {
+    fn preferred_locations(&self, split: Box<dyn Split>) -> Vec<Ipv4Addr> {
         Vec::new()
     }
     fn partitioner(&self) -> Option<Box<dyn Partitioner>> {

@@ -14,7 +14,7 @@ use std::collections::{HashMap, HashSet};
 //use std::io::BufReader;
 use std::iter::FromIterator;
 //use std::net::TcpListener;
-use std::net::TcpStream;
+use std::net::{Ipv4Addr, TcpStream};
 use std::option::Option;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
@@ -39,7 +39,7 @@ pub struct DistributedScheduler {
     next_stage_id: Arc<AtomicUsize>,
     id_to_stage: Arc<Mutex<HashMap<usize, Stage>>>,
     shuffle_to_map_stage: Arc<Mutex<HashMap<usize, Stage>>>,
-    cache_locs: Arc<Mutex<HashMap<usize, Vec<Vec<String>>>>>,
+    cache_locs: Arc<Mutex<HashMap<usize, Vec<Vec<Ipv4Addr>>>>>,
     master: bool,
     framework_name: String,
     is_registered: bool, //TODO check if it is necessary
@@ -106,7 +106,7 @@ impl DistributedScheduler {
         }
     }
 
-    fn get_cache_locs(&self, rdd: Arc<dyn RddBase>) -> Option<Vec<Vec<String>>> {
+    fn get_cache_locs(&self, rdd: Arc<dyn RddBase>) -> Option<Vec<Vec<Ipv4Addr>>> {
         let cache_locs = self.cache_locs.lock();
         let locs_opt = cache_locs.get(&rdd.get_rdd_id());
         match locs_opt {
@@ -779,7 +779,7 @@ impl DistributedScheduler {
         }
     }
 
-    fn get_preferred_locs(&self, rdd: Arc<dyn RddBase>, partition: usize) -> Vec<String> {
+    fn get_preferred_locs(&self, rdd: Arc<dyn RddBase>, partition: usize) -> Vec<Ipv4Addr> {
         //TODO have to implement this completely
         let cached = self.get_cache_locs(rdd.clone());
         if !cached.is_none() {

@@ -5,6 +5,7 @@ use super::*;
 //use std::hash::Hash;
 //use std::io::{BufWriter, Write};
 //use std::marker::PhantomData;
+use std::net::Ipv4Addr;
 use std::sync::Arc;
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -17,7 +18,7 @@ pub struct ShuffleMapTask {
     #[serde(with = "serde_traitobject")]
     pub dep: Arc<dyn ShuffleDependencyTrait>,
     pub partition: usize,
-    pub locs: Vec<String>,
+    pub locs: Vec<Ipv4Addr>,
 }
 
 impl ShuffleMapTask {
@@ -28,7 +29,7 @@ impl ShuffleMapTask {
         rdd: Arc<dyn RddBase>,
         dep: Arc<dyn ShuffleDependencyTrait>,
         partition: usize,
-        locs: Vec<String>,
+        locs: Vec<Ipv4Addr>,
     ) -> Self {
         ShuffleMapTask {
             task_id,
@@ -58,7 +59,7 @@ impl TaskBase for ShuffleMapTask {
     fn get_task_id(&self) -> usize {
         self.task_id
     }
-    fn preferred_locations(&self) -> Vec<String> {
+    fn preferred_locations(&self) -> Vec<Ipv4Addr> {
         self.locs.clone()
     }
     fn generation(&self) -> Option<i64> {

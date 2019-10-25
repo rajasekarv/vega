@@ -4,8 +4,7 @@ use parking_lot::{Mutex, RwLock};
 use std::collections::{HashMap, HashSet};
 //use std::io::BufReader;
 //use std::iter::FromIterator;
-use std::net::TcpListener;
-use std::net::TcpStream;
+use std::net::{Ipv4Addr, TcpListener, TcpStream};
 use std::sync::Arc;
 use std::thread;
 use std::time;
@@ -17,24 +16,38 @@ pub enum MapOutputTrackerMessage {
 }
 
 // starts the server in master node and client in slave nodes. Similar to cache tracker
-#[derive(Default, Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct MapOutputTracker {
     is_master: bool,
     server_uris: Arc<RwLock<HashMap<usize, Vec<Option<String>>>>>,
     fetching: Arc<RwLock<HashSet<usize>>>,
     generation: Arc<Mutex<i64>>,
-    master_host: String,
-    master_port: i64,
+    master_ip: Ipv4Addr,
+    master_port: u16,
+}
+
+// Only master_ip doesn't have a default.
+impl Default for MapOutputTracker {
+    fn default() -> Self {
+        MapOutputTracker {
+            is_master: Default::default(),
+            server_uris: Default::default(),
+            fetching: Default::default(),
+            generation: Default::default(),
+            master_ip: Ipv4Addr::new(0, 0, 0, 0),
+            master_port: Default::default(),
+        }
+    }
 }
 
 impl MapOutputTracker {
-    pub fn new(is_master: bool, master_host: String, master_port: i64) -> Self {
+    pub fn new(is_master: bool, master_ip: Ipv4Addr, master_port: u16) -> Self {
         let m = MapOutputTracker {
             is_master,
             server_uris: Arc::new(RwLock::new(HashMap::new())),
             fetching: Arc::new(RwLock::new(HashSet::new())),
             generation: Arc::new(Mutex::new(0)),
-            master_host,
+            master_ip,
             master_port,
         };
         m.server();
@@ -44,12 +57,10 @@ impl MapOutputTracker {
     fn client(&self, shuffle_id: usize) -> Vec<String> {
         //        if !self.is_master {
 
-        while let Err(_) = TcpStream::connect(format!("{}:{}", self.master_host, self.master_port))
-        {
+        while let Err(_) = TcpStream::connect((self.master_ip, self.master_port)) {
             continue;
         }
-        let mut stream =
-            TcpStream::connect(format!("{}:{}", self.master_host, self.master_port)).unwrap();
+        let mut stream = TcpStream::connect((self.master_ip, self.master_port)).unwrap();
         let shuffle_id_bytes = bincode::serialize(&shuffle_id).unwrap();
         let mut message = ::capnp::message::Builder::new_default();
         let mut shuffle_data = message.init_root::<serialized_data::Builder>();

@@ -19,6 +19,10 @@ Ctrl-C handling and panic handling is not done yet. So if there is some problem 
 
 One of the limitations of current implementation is that the input and return types of all closures and all input to make_rdd should be owned data. 
 
+## Configuration
+
+You can specify the local IP address using the environmental variable `SPARK_LOCAL_IP`.
+
 ## ToDo:
 
 - [ ] Error Handling(Priority)

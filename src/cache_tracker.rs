@@ -1,4 +1,5 @@
 use super::*;
+use crate::env;
 //use crate::cache::CachePutResponse::CachePutSuccess;
 use capnp::serialize_packed;
 use parking_lot::RwLock;
@@ -6,8 +7,7 @@ use std::collections::LinkedList;
 use std::collections::{HashMap, HashSet};
 //use std::io::BufReader;
 //use std::iter::FromIterator;
-use std::net::TcpListener;
-use std::net::TcpStream;
+use std::net::{Ipv4Addr, SocketAddr, TcpListener, TcpStream};
 use std::sync::Arc;
 use std::thread;
 use std::time;
@@ -18,24 +18,24 @@ pub enum CacheTrackerMessage {
     AddedToCache {
         rdd_id: usize,
         partition: usize,
-        host: String,
+        host: Ipv4Addr,
         size: usize,
     },
     DroppedFromCache {
         rdd_id: usize,
         partition: usize,
-        host: String,
+        host: Ipv4Addr,
         size: usize,
     },
     MemoryCacheLost {
-        host: String,
+        host: Ipv4Addr,
     },
     RegisterRdd {
         rdd_id: usize,
         num_partitions: usize,
     },
     SlaveCacheStarted {
-        host: String,
+        host: Ipv4Addr,
         size: usize,
     },
     GetCacheStatus,
@@ -45,29 +45,29 @@ pub enum CacheTrackerMessage {
 
 #[derive(Serialize, Deserialize)]
 pub enum CacheTrackerMessageReply {
-    CacheLocations(HashMap<usize, Vec<LinkedList<String>>>),
-    CacheStatus(Vec<(String, usize, usize)>),
+    CacheLocations(HashMap<usize, Vec<LinkedList<Ipv4Addr>>>),
+    CacheStatus(Vec<(Ipv4Addr, usize, usize)>),
     Ok,
 }
 
 #[derive(Clone, Debug)]
 pub struct CacheTracker {
     is_master: bool,
-    locs: Arc<RwLock<HashMap<usize, Vec<LinkedList<String>>>>>,
-    slave_capacity: Arc<RwLock<HashMap<String, usize>>>,
-    slave_usage: Arc<RwLock<HashMap<String, usize>>>,
+    locs: Arc<RwLock<HashMap<usize, Vec<LinkedList<Ipv4Addr>>>>>,
+    slave_capacity: Arc<RwLock<HashMap<Ipv4Addr, usize>>>,
+    slave_usage: Arc<RwLock<HashMap<Ipv4Addr, usize>>>,
     registered_rdd_ids: Arc<RwLock<HashSet<usize>>>,
     loading: Arc<RwLock<HashSet<(usize, usize)>>>,
     cache: KeySpace<'static>,
-    master_host: String,
-    master_port: i64,
+    master_ip: Ipv4Addr,
+    master_port: u16,
 }
 
 impl CacheTracker {
     pub fn new(
         is_master: bool,
-        master_host: String,
-        master_port: i64,
+        master_ip: Ipv4Addr,
+        master_port: u16,
         the_cache: &'static BoundedMemoryCache,
     ) -> Self {
         let m = CacheTracker {
@@ -78,12 +78,12 @@ impl CacheTracker {
             registered_rdd_ids: Arc::new(RwLock::new(HashSet::new())),
             loading: Arc::new(RwLock::new(HashSet::new())),
             cache: the_cache.new_key_space(),
-            master_host,
+            master_ip,
             master_port: master_port + 1,
         };
         m.server();
         m.client(CacheTrackerMessage::SlaveCacheStarted {
-            host: local_ip::get_v4(),
+            host: env::local_ip.clone(),
             size: m.cache.get_capacity(),
         });
         m
@@ -91,15 +91,13 @@ impl CacheTracker {
 
     // Slave node will ask master node for cache locs
     fn client(&self, message: CacheTrackerMessage) -> CacheTrackerMessageReply {
-        while let Err(_) = TcpStream::connect(format!("{}:{}", self.master_host, self.master_port))
-        {
+        while let Err(_) = TcpStream::connect((self.master_ip, self.master_port)) {
             continue;
         }
-        let mut stream =
-            TcpStream::connect(format!("{}:{}", self.master_host, self.master_port)).unwrap();
+        let mut stream = TcpStream::connect((self.master_ip, self.master_port)).unwrap();
         //        println!(
         //            "connected to mapoutput tracker {}:{}",
-        //            self.master_host, self.master_port
+        //            self.master_ip, self.master_port
         //        );
         let shuffle_id_bytes = bincode::serialize(&message).unwrap();
         let mut message = ::capnp::message::Builder::new_default();
@@ -279,8 +277,8 @@ impl CacheTracker {
         }
     }
     pub fn get_cache_usage(
-        slave_usage: Arc<RwLock<HashMap<String, usize>>>,
-        host: String,
+        slave_usage: Arc<RwLock<HashMap<Ipv4Addr, usize>>>,
+        host: Ipv4Addr,
     ) -> usize {
         match slave_usage.read().get(&host) {
             Some(s) => s.clone(),
@@ -289,8 +287,8 @@ impl CacheTracker {
     }
 
     pub fn get_cache_capacity(
-        slave_capacity: Arc<RwLock<HashMap<String, usize>>>,
-        host: String,
+        slave_capacity: Arc<RwLock<HashMap<Ipv4Addr, usize>>>,
+        host: Ipv4Addr,
     ) -> usize {
         match slave_capacity.read().get(&host) {
             Some(s) => s.clone(),
@@ -309,7 +307,7 @@ impl CacheTracker {
         }
     }
 
-    pub fn get_location_snapshot(&self) -> HashMap<usize, Vec<Vec<String>>> {
+    pub fn get_location_snapshot(&self) -> HashMap<usize, Vec<Vec<Ipv4Addr>>> {
         match self.client(CacheTrackerMessage::GetCacheLocations) {
             CacheTrackerMessageReply::CacheLocations(s) => s
                 .into_iter()
@@ -325,7 +323,7 @@ impl CacheTracker {
         }
     }
 
-    pub fn get_cache_status(&self) -> Vec<(String, usize, usize)> {
+    pub fn get_cache_status(&self) -> Vec<(Ipv4Addr, usize, usize)> {
         match self.client(CacheTrackerMessage::GetCacheStatus) {
             CacheTrackerMessageReply::CacheStatus(s) => s,
             _ => panic!("wrong type from cache tracker"),
@@ -368,7 +366,7 @@ impl CacheTracker {
                     self.client(CacheTrackerMessage::AddedToCache {
                         rdd_id: rdd.get_rdd_id(),
                         partition: split.get_index(),
-                        host: local_ip::get_v4(),
+                        host: env::local_ip.clone(),
                         size,
                     });
                 }

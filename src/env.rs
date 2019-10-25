@@ -3,6 +3,7 @@ use parking_lot::{Mutex, RwLock};
 use std::collections::HashMap;
 use std::fs::File;
 use std::fs::OpenOptions;
+use std::net::Ipv4Addr;
 //use std::io::prelude::*;
 //use std::io::prelude::*;
 //use std::io::Write;
@@ -22,7 +23,7 @@ struct Hosts {
 }
 
 impl Env {
-    pub fn new(master_ip: String, master_port: i64) -> Self {
+    pub fn new(master_ip: Ipv4Addr, master_port: u16) -> Self {
         Env {
             map_output_tracker: MapOutputTracker::new(*is_master, master_ip.clone(), master_port),
             shuffle_manager: ShuffleManager::new(),
@@ -53,10 +54,15 @@ lazy_static! {
             .expect(&format!("Unable to read the file: {}", host_path_string));
         let hosts: Hosts = toml::from_str(&hosts).expect(&format!("Unable to process the {} file", host_path_string));
         let master_address = hosts.master.clone();
-        let master_ip = master_address.split(":").collect::<Vec<_>>()[0];
+        let master_ip: Ipv4Addr = hosts.master.split(":").collect::<Vec<_>>()[0].parse().unwrap();
         let master_port = master_address.split(":").collect::<Vec<_>>()[1]
             .parse()
             .unwrap();
-        Env::new(master_ip.to_string(), master_port)
+        Env::new(master_ip, master_port)
     };
+
+    pub static ref local_ip: Ipv4Addr = std::env::var("SPARK_LOCAL_IP")
+        .expect("You must set the SPARK_LOCAL_IP environment variable")
+        .parse()
+        .unwrap();
 }
