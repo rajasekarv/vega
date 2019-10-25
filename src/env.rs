@@ -45,12 +45,13 @@ lazy_static! {
     pub static ref the_cache: BoundedMemoryCache = { BoundedMemoryCache::new() };
     pub static ref env: Env = {
         let host_path = std::env::home_dir().unwrap().join("hosts.conf");
-        let mut host_file = File::open(host_path).expect("Unable to open the file");
+        let host_path_string = host_path.to_string_lossy();
+        let mut host_file = File::open(&host_path).expect(&format!("Unable to open the file: {}", host_path_string));
         let mut hosts = String::new();
         host_file
             .read_to_string(&mut hosts)
-            .expect("Unable to read the file");
-        let hosts: Hosts = toml::from_str(&hosts).expect("unable to process the hosts.conf file");
+            .expect(&format!("Unable to read the file: {}", host_path_string));
+        let hosts: Hosts = toml::from_str(&hosts).expect(&format!("Unable to process the {} file", host_path_string));
         let master_address = hosts.master.clone();
         let master_ip = master_address.split(":").collect::<Vec<_>>()[0];
         let master_port = master_address.split(":").collect::<Vec<_>>()[1]
