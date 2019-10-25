@@ -59,15 +59,13 @@ pub struct CacheTracker {
     registered_rdd_ids: Arc<RwLock<HashSet<usize>>>,
     loading: Arc<RwLock<HashSet<(usize, usize)>>>,
     cache: KeySpace<'static>,
-    master_ip: Ipv4Addr,
-    master_port: u16,
+    master_addr: SocketAddr,
 }
 
 impl CacheTracker {
     pub fn new(
         is_master: bool,
-        master_ip: Ipv4Addr,
-        master_port: u16,
+        master_addr: SocketAddr,
         the_cache: &'static BoundedMemoryCache,
     ) -> Self {
         let m = CacheTracker {
@@ -78,8 +76,7 @@ impl CacheTracker {
             registered_rdd_ids: Arc::new(RwLock::new(HashSet::new())),
             loading: Arc::new(RwLock::new(HashSet::new())),
             cache: the_cache.new_key_space(),
-            master_ip,
-            master_port: master_port + 1,
+            master_addr: SocketAddr::new(master_addr.ip(), master_addr.port() + 1),
         };
         m.server();
         m.client(CacheTrackerMessage::SlaveCacheStarted {
@@ -91,10 +88,10 @@ impl CacheTracker {
 
     // Slave node will ask master node for cache locs
     fn client(&self, message: CacheTrackerMessage) -> CacheTrackerMessageReply {
-        while let Err(_) = TcpStream::connect((self.master_ip, self.master_port)) {
+        while let Err(_) = TcpStream::connect(self.master_addr) {
             continue;
         }
-        let mut stream = TcpStream::connect((self.master_ip, self.master_port)).unwrap();
+        let mut stream = TcpStream::connect(self.master_addr).unwrap();
         //        println!(
         //            "connected to mapoutput tracker {}:{}",
         //            self.master_ip, self.master_port
@@ -127,9 +124,9 @@ impl CacheTracker {
             let slave_usage = self.slave_usage.clone();
             let registered_rdd_ids = self.registered_rdd_ids.clone();
             let loading = self.loading.clone();
-            let port = self.master_port;
+            let master_addr = self.master_addr.clone();
             thread::spawn(move || {
-                let listener = TcpListener::bind(format!("0.0.0.0:{}", port,)).unwrap();
+                let listener = TcpListener::bind(master_addr).unwrap();
                 //                println!("started mapoutput tracker at {}", port);
                 for stream in listener.incoming() {
                     match stream {
