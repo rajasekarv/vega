@@ -9,6 +9,6 @@ fn main() {
     //Fn! will make the closures serializable. It is necessary. use serde_closure version 0.1.3.
     let vec_iter = col.map(Fn!(|i| (0..i).collect::<Vec<_>>()));
     let res = vec_iter.collect();
-    println!("{:?}", res[100]);
+    println!("{:?}", res);
     sc.drop_executors();
 }
