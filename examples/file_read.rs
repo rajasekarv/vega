@@ -1,3 +1,4 @@
+#![allow(where_clauses_object_safety)]
 use fast_spark::*;
 #[macro_use]
 extern crate serde_closure;

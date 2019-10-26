@@ -1,3 +1,4 @@
+#![allow(where_clauses_object_safety)]
 #[macro_use]
 extern crate serde_closure;
 #[macro_use]
