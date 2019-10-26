@@ -73,6 +73,9 @@ pub trait RddBase: Send + Sync + Serialize + Deserialize {
         None
     }
     fn splits(&self) -> Vec<Box<dyn Split>>;
+    fn number_of_splits(&self) -> usize {
+        self.splits().len()
+    }
     // Analyse whether this is required or not. It requires downcasting while executing tasks which could hurt performance.
     fn iterator_any(&self, split: Box<dyn Split>) -> Box<dyn Iterator<Item = Box<dyn AnyData>>>;
     fn cogroup_iterator_any(
@@ -298,6 +301,9 @@ where
     fn splits(&self) -> Vec<Box<dyn Split>> {
         self.prev.splits()
     }
+    fn number_of_splits(&self) -> usize {
+        self.prev.number_of_splits()
+    }
 
     default fn cogroup_iterator_any(
         &self,
@@ -457,6 +463,9 @@ where
     }
     fn splits(&self) -> Vec<Box<dyn Split>> {
         self.prev.splits()
+    }
+    fn number_of_splits(&self) -> usize {
+        self.prev.number_of_splits()
     }
 
     default fn cogroup_iterator_any(

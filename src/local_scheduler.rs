@@ -145,12 +145,12 @@ impl LocalScheduler {
         info!("inside new stage");
         env::env
             .cache_tracker
-            .register_rdd(rdd_base.get_rdd_id(), rdd_base.splits().len());
+            .register_rdd(rdd_base.get_rdd_id(), rdd_base.number_of_splits());
         if !shuffle_dependency.is_none() {
             info!("shuffle dependcy and registering mapoutput tracker");
             self.map_output_tracker.register_shuffle(
                 shuffle_dependency.clone().unwrap().get_shuffle_id(),
-                rdd_base.splits().len(),
+                rdd_base.number_of_splits(),
             );
             info!("new stage tracker after");
         }
@@ -185,7 +185,7 @@ impl LocalScheduler {
             visited.insert(rdd.clone());
             env::env
                 .cache_tracker
-                .register_rdd(rdd.get_rdd_id(), rdd.splits().len());
+                .register_rdd(rdd.get_rdd_id(), rdd.number_of_splits());
             for dep in rdd.get_dependencies() {
                 match dep {
                     Dependency::ShuffleDependency(shuf_dep) => {
@@ -231,7 +231,7 @@ impl LocalScheduler {
         if !visited.contains(&rdd) {
             visited.insert(rdd.clone());
             // TODO CacheTracker register
-            for p in 0..rdd.splits().len() {
+            for p in 0..rdd.number_of_splits() {
                 let locs = self.get_cache_locs(rdd.clone());
                 info!("cache locs {:?}", locs);
                 if locs == None {
