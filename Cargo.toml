@@ -1,5 +1,5 @@
 [package]
-name = "fast_spark"
+name = "native_spark"
 version = "0.1.0"
 authors = ["raja <rajasekar3eg@gmail.com>"]
 edition = "2018"
