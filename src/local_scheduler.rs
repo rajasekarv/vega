@@ -296,8 +296,6 @@ impl LocalScheduler {
             + 'static
             + Send
             + Sync
-            + PartialEq
-            + Eq
             + Clone
             + serde::ser::Serialize
             + serde::de::DeserializeOwned,
@@ -627,8 +625,6 @@ impl LocalScheduler {
             + 'static
             + Send
             + Sync
-            + PartialEq
-            + Eq
             + Clone
             + serde::ser::Serialize
             + serde::de::DeserializeOwned,
@@ -694,8 +690,6 @@ impl LocalScheduler {
             + 'static
             + Send
             + Sync
-            + PartialEq
-            + Eq
             + Clone
             + serde::ser::Serialize
             + serde::de::DeserializeOwned,
@@ -823,8 +817,6 @@ impl LocalScheduler {
             + 'static
             + Send
             + Sync
-            + PartialEq
-            + Eq
             + Clone
             + serde::ser::Serialize
             + serde::de::DeserializeOwned,
@@ -850,8 +842,6 @@ impl LocalScheduler {
             + 'static
             + Send
             + Sync
-            + PartialEq
-            + Eq
             + Clone
             + serde::ser::Serialize
             + serde::de::DeserializeOwned,

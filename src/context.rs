@@ -55,8 +55,6 @@ impl Schedulers {
             + 'static
             + Send
             + Sync
-            + PartialEq
-            + Eq
             + Clone
             + serde::ser::Serialize
             + serde::de::DeserializeOwned,
@@ -152,8 +150,8 @@ impl Context {
                             .read_to_string(&mut hosts)
                             .expect("Unable to read the file");
                         //                        println!("{:?}", hosts);
-                        let hosts: Hosts =
-                            toml::from_str(&hosts).expect("unable to process the hosts.conf file");
+                        let hosts: Hosts = toml::from_str(&hosts)
+                            .expect("unable to process the hosts.conf file in master");
                         for address in &hosts.slaves {
                             info!("deploying executor at address {:?}", address);
                             let path = std::env::current_exe()
@@ -290,8 +288,6 @@ impl Context {
     pub fn run_job<T: Data, U: Data, RT, F>(&mut self, rdd: Arc<RT>, func: F) -> Vec<U>
     where
         F: Fn(Box<dyn Iterator<Item = T>>) -> U
-            + PartialEq
-            + Eq
             + Send
             + Sync
             + Clone
@@ -311,8 +307,6 @@ impl Context {
     pub fn run_job_with_context<T: Data, U: Data, RT, F>(&mut self, rdd: Arc<RT>, func: F) -> Vec<U>
     where
         F: Fn((TasKContext, Box<dyn Iterator<Item = T>>)) -> U
-            + PartialEq
-            + Eq
             + Send
             + Sync
             + Clone

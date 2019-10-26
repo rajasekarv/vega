@@ -19,7 +19,7 @@ pub struct Env {
 #[derive(Deserialize)]
 struct Hosts {
     master: SocketAddr,
-    slaves: Vec<SocketAddr>,
+    //slaves: Vec<SocketAddr>,
 }
 
 impl Hosts {
@@ -60,7 +60,7 @@ lazy_static! {
         host_file
             .read_to_string(&mut hosts)
             .expect(&format!("Unable to read the file: {}", host_path_string));
-        let hosts: Hosts = toml::from_str(&hosts).expect(&format!("Unable to process the {} file", host_path_string));
+        let hosts: Hosts = toml::from_str(&hosts).expect(&format!("Unable to process the {} file in env", host_path_string));
         Env::new(hosts.master)
     };
 

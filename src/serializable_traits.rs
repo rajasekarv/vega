@@ -112,41 +112,24 @@ impl<'de> serde::de::Deserialize<'de> for boxed::Box<dyn AnyData + Send + 'stati
 #[derive(Clone, Default, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct Box<T: ?Sized>(boxed::Box<T>);
 impl<T> Box<T> {
-    /// Create a new Box wrapper
+    // Create a new Box wrapper
     pub fn new(t: T) -> Self {
         Self(boxed::Box::new(t))
     }
 }
 impl<T: ?Sized> Box<T> {
-    /// Convert to a regular `std::Boxed::Box<T>`. Coherence rules prevent currently prevent `impl Into<std::boxed::Box<T>> for Box<T>`.
+    // Convert to a regular `std::Boxed::Box<T>`. Coherence rules prevent currently prevent `impl Into<std::boxed::Box<T>> for Box<T>`.
     pub fn into_box(self) -> boxed::Box<T> {
         self.0
     }
 }
 impl Box<dyn AnyData> {
-    /// Convert into a `std::boxed::Box<dyn std::any::Any>`.
+    // Convert into a `std::boxed::Box<dyn std::any::Any>`.
     pub fn into_any(self) -> boxed::Box<dyn any::Any> {
         self.0.into_any()
     }
 }
-impl Box<dyn AnyData + Send> {
-    /// Convert into a `std::boxed::Box<dyn std::any::Any + Send>`.
-    pub fn into_any_send(self) -> boxed::Box<dyn any::Any + Send> {
-        self.0.into_any_send()
-    }
-}
-impl Box<dyn AnyData + Sync> {
-    /// Convert into a `std::boxed::Box<dyn std::any::Any + Sync>`.
-    pub fn into_any_sync(self) -> boxed::Box<dyn any::Any + Sync> {
-        self.0.into_any_sync()
-    }
-}
-impl Box<dyn AnyData + Send + Sync> {
-    /// Convert into a `std::boxed::Box<dyn std::any::Any + Send + Sync>`.
-    pub fn into_any_send_sync(self) -> boxed::Box<dyn any::Any + Send + Sync> {
-        self.0.into_any_send_sync()
-    }
-}
+
 impl<T: ?Sized + marker::Unsize<U>, U: ?Sized> ops::CoerceUnsized<Box<U>> for Box<T> {}
 impl<T: ?Sized> Deref for Box<T> {
     type Target = boxed::Box<T>;
@@ -268,17 +251,37 @@ impl<'de, T: Deserialize + ?Sized + 'static> serde::de::Deserialize<'de> for Box
     }
 }
 
-pub trait Func<V, U>:
-    Fn(V) -> U + 'static + Send + Sync + objekt::Clone + Serialize + Deserialize
+pub trait Func<Args>:
+    ops::Fn<Args> + Serialize + Deserialize + Send + Sync + objekt::Clone + 'static
 {
-    fn as_func(self: boxed::Box<Self>) -> boxed::Box<dyn Fn(V) -> U>;
 }
-//objekt::clone_trait_object!(Func<V: Data,U: Data>);
-
-impl<V, U, T: Fn(V) -> U + 'static + Send + Sync + objekt::Clone + Serialize + Deserialize>
-    Func<V, U> for T
+impl<T: ?Sized, Args> Func<Args> for T where
+    T: ops::Fn<Args> + Serialize + Deserialize + Send + Sync + objekt::Clone + 'static
 {
-    fn as_func(self: boxed::Box<Self>) -> boxed::Box<dyn Fn(V) -> U> {
+}
+//objekt::clone_trait_object!(Func<V: Data>);
+
+impl<'a, Args, Output> AsRef<Self> for dyn Func<Args, Output = Output> + 'a {
+    fn as_ref(&self) -> &Self {
         self
+    }
+}
+
+impl<Args: 'static, Output: 'static> serde::ser::Serialize for dyn Func<Args, Output = Output> {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        serialize(self, serializer)
+    }
+}
+impl<'de, Args: 'static, Output: 'static> serde::de::Deserialize<'de>
+    for boxed::Box<dyn Func<Args, Output = Output> + 'static>
+{
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        <Box<dyn Func<Args, Output = Output> + 'static>>::deserialize(deserializer).map(|x| x.0)
     }
 }

@@ -320,8 +320,6 @@ impl DistributedScheduler {
             + 'static
             + Send
             + Sync
-            + PartialEq
-            + Eq
             + Clone
             + serde::ser::Serialize
             + serde::de::DeserializeOwned,
@@ -644,8 +642,6 @@ impl DistributedScheduler {
             + 'static
             + Send
             + Sync
-            + PartialEq
-            + Eq
             + Clone
             + serde::ser::Serialize
             + serde::de::DeserializeOwned,
@@ -711,8 +707,6 @@ impl DistributedScheduler {
             + 'static
             + Send
             + Sync
-            + PartialEq
-            + Eq
             + Clone
             + serde::ser::Serialize
             + serde::de::DeserializeOwned,
@@ -840,8 +834,6 @@ impl DistributedScheduler {
             + 'static
             + Send
             + Sync
-            + PartialEq
-            + Eq
             + Clone
             + serde::ser::Serialize
             + serde::de::DeserializeOwned,

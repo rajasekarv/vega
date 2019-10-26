@@ -156,7 +156,7 @@ pub trait PairRdd<K: Data + Eq + Hash, V: Data>: Rdd<(K, V)> + Send + Sync {
         bufs
     }
 
-    fn map_values<U: Data>(&self, f: Arc<dyn Func<V, U>>) -> MappedValuesRdd<Self, K, V, U>
+    fn map_values<U: Data>(&self, f: Arc<dyn Func(V) -> U>) -> MappedValuesRdd<Self, K, V, U>
     where
         Self: Sized,
     {
@@ -165,7 +165,7 @@ pub trait PairRdd<K: Data + Eq + Hash, V: Data>: Rdd<(K, V)> + Send + Sync {
 
     fn flat_map_values<U: Data>(
         &self,
-        f: Arc<dyn Func<V, Box<dyn Iterator<Item = U>>>>,
+        f: Arc<dyn Func(V) -> Box<dyn Iterator<Item = U>>>,
     ) -> FlatMappedValuesRdd<Self, K, V, U>
     where
         Self: Sized,
@@ -251,15 +251,16 @@ where
     prev: Arc<RT>,
     vals: Arc<RddVals>,
     #[serde(with = "serde_traitobject")]
-    f: Arc<dyn Func<V, U>>,
+    f: Arc<dyn Func(V) -> U>,
     _marker_t: PhantomData<K>, // phantom data is necessary because of type parameter T
     _marker_v: PhantomData<V>,
     _marker_u: PhantomData<U>,
 }
 
-impl<RT: 'static, K: Data, V: Data, U: Data> Clone for  MappedValuesRdd<RT, K, V, U>
-    where
-        RT: Rdd<(K, V)>,{
+impl<RT: 'static, K: Data, V: Data, U: Data> Clone for MappedValuesRdd<RT, K, V, U>
+where
+    RT: Rdd<(K, V)>,
+{
     fn clone(&self) -> Self {
         MappedValuesRdd {
             prev: self.prev.clone(),
@@ -276,7 +277,7 @@ impl<RT: 'static, K: Data, V: Data, U: Data> MappedValuesRdd<RT, K, V, U>
 where
     RT: Rdd<(K, V)>,
 {
-    fn new(prev: Arc<RT>, f: Arc<dyn Func<V, U>>) -> Self {
+    fn new(prev: Arc<RT>, f: Arc<dyn Func(V) -> U>) -> Self {
         let mut vals = RddVals::new(prev.get_context());
         vals.dependencies
             .push(Dependency::OneToOneDependency(Arc::new(
@@ -350,16 +351,16 @@ where
     prev: Arc<RT>,
     vals: Arc<RddVals>,
     #[serde(with = "serde_traitobject")]
-    f: Arc<dyn Func<V, Box<dyn Iterator<Item = U>>>>,
+    f: Arc<dyn Func(V) -> Box<dyn Iterator<Item = U>>>,
     _marker_t: PhantomData<K>, // phantom data is necessary because of type parameter T
     _marker_v: PhantomData<V>,
     _marker_u: PhantomData<U>,
 }
 
-
 impl<RT: 'static, K: Data, V: Data, U: Data> Clone for FlatMappedValuesRdd<RT, K, V, U>
-    where
-        RT: Rdd<(K, V)>, {
+where
+    RT: Rdd<(K, V)>,
+{
     fn clone(&self) -> Self {
         FlatMappedValuesRdd {
             prev: self.prev.clone(),
@@ -376,7 +377,7 @@ impl<RT: 'static, K: Data, V: Data, U: Data> FlatMappedValuesRdd<RT, K, V, U>
 where
     RT: Rdd<(K, V)>,
 {
-    fn new(prev: Arc<RT>, f: Arc<dyn Func<V, Box<dyn Iterator<Item = U>>>>) -> Self {
+    fn new(prev: Arc<RT>, f: Arc<dyn Func(V) -> Box<dyn Iterator<Item = U>>>) -> Self {
         let mut vals = RddVals::new(prev.get_context());
         vals.dependencies
             .push(Dependency::OneToOneDependency(Arc::new(

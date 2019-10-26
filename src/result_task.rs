@@ -11,8 +11,6 @@ where
         + 'static
         + Send
         + Sync
-        + PartialEq
-        + Eq
         + Serialize
         + Deserialize
         + Clone,
@@ -29,19 +27,17 @@ where
     _marker: PhantomData<T>,
 }
 
-
 impl<T: Data, U: Data, RT, F> ResultTask<T, U, RT, F>
-    where
-        RT: Rdd<T> + 'static,
-        F: Fn((TasKContext, Box<dyn Iterator<Item = T>>)) -> U
+where
+    RT: Rdd<T> + 'static,
+    F: Fn((TasKContext, Box<dyn Iterator<Item = T>>)) -> U
         + 'static
         + Send
         + Sync
-        + PartialEq
-        + Eq
         + Serialize
         + Deserialize
-        + Clone, {
+        + Clone,
+{
     pub fn clone(&self) -> Self {
         ResultTask {
             task_id: self.task_id,
@@ -57,7 +53,6 @@ impl<T: Data, U: Data, RT, F> ResultTask<T, U, RT, F>
     }
 }
 
-
 impl<T: Data, U: Data, RT, F> ResultTask<T, U, RT, F>
 where
     RT: Rdd<T> + 'static,
@@ -65,8 +60,6 @@ where
         + 'static
         + Send
         + Sync
-        + PartialEq
-        + Eq
         + Serialize
         + Deserialize
         + Clone,
@@ -106,8 +99,6 @@ where
         + 'static
         + Send
         + Sync
-        + PartialEq
-        + Eq
         + Serialize
         + Deserialize
         + Clone,
@@ -140,8 +131,6 @@ where
         + 'static
         + Send
         + Sync
-        + PartialEq
-        + Eq
         + Serialize
         + Deserialize
         + Clone,

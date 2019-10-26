@@ -25,6 +25,8 @@ use std::io::prelude::*;
 pub mod serialized_data_capnp {
     include!(concat!(env!("OUT_DIR"), "/capnp/serialized_data_capnp.rs"));
 }
+//use serde_closure::Fn;
+use serde_derive::{Deserialize, Serialize};
 use serde_traitobject::{Deserialize, Serialize};
 use serialized_data_capnp::serialized_data;
 

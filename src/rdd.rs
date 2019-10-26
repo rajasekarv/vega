@@ -125,8 +125,6 @@ pub trait Rdd<T: Data>: RddBase + Send + Sync + Serialize + Deserialize {
     fn map<U: Data, F>(&self, f: F) -> MapperRdd<Self, T, U, F>
     where
         F: Fn(T) -> U
-            + PartialEq
-            + Eq
             + Clone
             + Send
             + Sync
@@ -141,8 +139,6 @@ pub trait Rdd<T: Data>: RddBase + Send + Sync + Serialize + Deserialize {
     fn flat_map<U: Data, F>(&self, f: F) -> FlatMapperRdd<Self, T, U, F>
     where
         F: Fn(T) -> Box<dyn Iterator<Item = U>>
-            + PartialEq
-            + Eq
             + Clone
             + Send
             + Sync
@@ -179,8 +175,6 @@ pub trait Rdd<T: Data>: RddBase + Send + Sync + Serialize + Deserialize {
     where
         Self: Sized + 'static + Serialize + Deserialize,
         F: Fn(T, T) -> T
-            + PartialEq
-            + Eq
             + Clone
             + Send
             + Sync
@@ -226,7 +220,7 @@ pub trait Rdd<T: Data>: RddBase + Send + Sync + Serialize + Deserialize {
 #[derive(Serialize, Deserialize)]
 pub struct MapperRdd<RT: 'static, T: Data, U: Data, F>
 where
-    F: Fn(T) -> U + 'static + Send + Sync + PartialEq + Eq + Clone + Serialize + Deserialize,
+    F: Fn(T) -> U + 'static + Send + Sync + Clone + Serialize + Deserialize,
     RT: Rdd<T>,
 {
     #[serde(with = "serde_traitobject")]
@@ -239,7 +233,7 @@ where
 // Can't derive clone automatically
 impl<RT: 'static, T: Data, U: Data, F> Clone for MapperRdd<RT, T, U, F>
 where
-    F: Fn(T) -> U + 'static + Send + Sync + PartialEq + Eq + Clone + Serialize + Deserialize,
+    F: Fn(T) -> U + 'static + Send + Sync + Clone + Serialize + Deserialize,
     RT: Rdd<T>,
 {
     fn clone(&self) -> Self {
@@ -255,13 +249,12 @@ where
 impl<RT: 'static, T: Data, U: Data, F> MapperRdd<RT, T, U, F>
 where
     F: Fn(T) -> U
-        + PartialEq
-        + Eq
         + Clone
         + Send
         + Sync
         + serde::ser::Serialize
-        + serde::de::DeserializeOwned,
+        + serde::de::DeserializeOwned
+        + 'static,
     RT: Rdd<T>,
 {
     fn new(prev: Arc<RT>, f: F) -> Self {
@@ -285,13 +278,12 @@ where
 impl<RT: 'static, T: Data, U: Data, F> RddBase for MapperRdd<RT, T, U, F>
 where
     F: Fn(T) -> U
-        + PartialEq
-        + Eq
         + Clone
         + Send
         + Sync
         + serde::ser::Serialize
-        + serde::de::DeserializeOwned,
+        + serde::de::DeserializeOwned
+        + 'static,
     RT: Rdd<T>,
 {
     fn get_rdd_id(&self) -> usize {
@@ -328,13 +320,12 @@ where
 impl<RT: 'static, T: Data, V: Data, U: Data, F> RddBase for MapperRdd<RT, T, (V, U), F>
 where
     F: Fn(T) -> (V, U)
-        + PartialEq
-        + Eq
         + Clone
         + Send
         + Sync
         + serde::ser::Serialize
-        + serde::de::DeserializeOwned,
+        + serde::de::DeserializeOwned
+        + 'static,
     RT: Rdd<T>,
 {
     fn cogroup_iterator_any(
@@ -352,8 +343,6 @@ where
 impl<RT: 'static, T: Data, U: Data, F: 'static> Rdd<U> for MapperRdd<RT, T, U, F>
 where
     F: Fn(T) -> U
-        + PartialEq
-        + Eq
         + Send
         + Sync
         + Clone
@@ -387,8 +376,6 @@ where
         + 'static
         + Send
         + Sync
-        + PartialEq
-        + Eq
         + Clone
         + Serialize
         + Deserialize,
@@ -407,8 +394,6 @@ where
         + 'static
         + Send
         + Sync
-        + PartialEq
-        + Eq
         + Clone
         + Serialize
         + Deserialize,
@@ -427,8 +412,6 @@ where
 impl<RT: 'static, T: Data, U: Data, F> FlatMapperRdd<RT, T, U, F>
 where
     F: Fn(T) -> Box<dyn Iterator<Item = U>>
-        + PartialEq
-        + Eq
         + Clone
         + Send
         + Sync
@@ -455,13 +438,12 @@ where
 impl<RT: 'static, T: Data, U: Data, F> RddBase for FlatMapperRdd<RT, T, U, F>
 where
     F: Fn(T) -> Box<dyn Iterator<Item = U>>
-        + PartialEq
-        + Eq
         + Clone
         + Send
         + Sync
         + serde::ser::Serialize
-        + serde::de::DeserializeOwned,
+        + serde::de::DeserializeOwned
+        + 'static,
     RT: Rdd<T>,
 {
     fn get_rdd_id(&self) -> usize {
@@ -499,8 +481,6 @@ where
 impl<RT: 'static, T: Data, V: Data, U: Data, F: 'static> RddBase for FlatMapperRdd<RT, T, (V, U), F>
 where
     F: Fn(T) -> Box<dyn Iterator<Item = (V, U)>>
-        + PartialEq
-        + Eq
         + Send
         + Sync
         + Clone
@@ -524,8 +504,6 @@ where
 impl<RT: 'static, T: Data, U: Data, F: 'static> Rdd<U> for FlatMapperRdd<RT, T, U, F>
 where
     F: Fn(T) -> Box<dyn Iterator<Item = U>>
-        + PartialEq
-        + Eq
         + Send
         + Sync
         + Clone
