@@ -97,8 +97,8 @@ impl Context {
                 let args = std::env::args().skip(1).collect::<Vec<_>>();
                 //                println!("args {:?}", args);
                 let mut address_map: Vec<(String, usize)> = Vec::new();
-                match args.get(0) {
-                    Some(_slave_string) => {
+                match args.get(0).as_ref().map(|arg| &arg[..]) {
+                    Some("slave") => {
                         let uuid = Uuid::new_v4().to_string();
                         let _ = CombinedLogger::init(vec![
                             //TermLogger::new(LevelFilter::Info, Config::default(), TerminalMode::Mixed).expect("not able to create term logger"),

@@ -46,8 +46,8 @@ lazy_static! {
     // Too lazy to choose a proper logger. Currently using a static log file to log the whole process. Just a crude version of logger.
     pub static ref is_master: bool = {
         let args = std::env::args().skip(1).collect::<Vec<_>>();
-        match args.get(0) {
-            Some(slave_string) => false,
+        match args.get(0).as_ref().map(|arg| &arg[..]) {
+            Some("slave") => false,
             _ => true,
         }
     };
