@@ -56,11 +56,11 @@ impl BoundedMemoryCache {
         //TODO logging
         let size = value.len() * 8 + 2 * 8; //this number of MB
         if size as f64 / (1000.0 * 1000.0) > self.max_bytes as f64 {
-            return CachePutResponse::CachePutFailure;
+            CachePutResponse::CachePutFailure
         } else {
             //TODO ensure free space needs to be done and this needs to be modified
             self.map.lock().insert(key, (value, size));
-            return CachePutResponse::CachePutSuccess(size);
+            CachePutResponse::CachePutSuccess(size)
         }
     }
 

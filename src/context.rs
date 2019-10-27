@@ -163,7 +163,7 @@ impl Context {
                             //                            let path = path.join("\\ ");
                             //                            println!("{} {:?} slave", address, path);
                             let address_cli = address
-                                .split("@")
+                                .split('@')
                                 .nth(1)
                                 .expect("format of address is wrong")
                                 .to_string();
@@ -179,12 +179,12 @@ impl Context {
                                 .output()
                                 .expect("ls command failed to start");
                             //                            println!("mkdir output {:?}", mkdir_output);
-                            let binary_name = path
-                                .split("/")
-                                .collect::<Vec<_>>()
+
+                            let binary_name: Vec<_> = path.split('/').collect();
+                            let binary_name = binary_name
                                 .last()
-                                .expect("some problem with executable path")
-                                .clone();
+                                .expect("some problem with executable path");
+
                             let remote_path = format!("{}:{}/{}", address, local_dir, binary_name);
                             //                            println!("remote dir {}", remote_path);
                             //                            println!("local binary path {}", path);
@@ -298,10 +298,8 @@ impl Context {
     {
         let cl = Fn!([func] move | (task_context, iter) | (*func)(iter));
         let func = Arc::new(cl);
-        let res =
-            self.scheduler
-                .run_job(func, rdd.clone(), (0..rdd.splits().len()).collect(), false);
-        res
+        self.scheduler
+            .run_job(func, rdd.clone(), (0..rdd.splits().len()).collect(), false)
     }
 
     pub fn run_job_with_context<T: Data, U: Data, RT, F>(&mut self, rdd: Arc<RT>, func: F) -> Vec<U>
@@ -317,9 +315,7 @@ impl Context {
     {
         info!("inside run job in context");
         let func = Arc::new(func);
-        let res =
-            self.scheduler
-                .run_job(func, rdd.clone(), (0..rdd.splits().len()).collect(), false);
-        res
+        self.scheduler
+            .run_job(func, rdd.clone(), (0..rdd.splits().len()).collect(), false)
     }
 }

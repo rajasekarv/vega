@@ -103,7 +103,6 @@ impl Executor {
                                 server_port,
                                 des_task.get_task_id(),
                             );
-                            std::mem::drop(task_data);
                             info!(
                                 "time taken in server for deserializing:{} {}",
                                 server_port,

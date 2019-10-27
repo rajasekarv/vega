@@ -40,10 +40,10 @@ where
     shuffle_id: usize,
 }
 
-
 impl<K: Data + Eq + Hash, V: Data, C: Data, RT: 'static> Clone for ShuffledRdd<K, V, C, RT>
-    where
-        RT: Rdd<(K, V)>, {
+where
+    RT: Rdd<(K, V)>,
+{
     fn clone(&self) -> Self {
         ShuffledRdd {
             parent: self.parent.clone(),
@@ -54,7 +54,6 @@ impl<K: Data + Eq + Hash, V: Data, C: Data, RT: 'static> Clone for ShuffledRdd<K
         }
     }
 }
-
 
 impl<K: Data + Eq + Hash, V: Data, C: Data, RT: 'static> ShuffledRdd<K, V, C, RT>
 where
@@ -87,7 +86,6 @@ where
             shuffle_id,
         }
     }
-
 }
 
 impl<K: Data + Eq + Hash, V: Data, C: Data, RT: 'static> RddBase for ShuffledRdd<K, V, C, RT>
@@ -154,16 +152,14 @@ where
         //        let mut combiners_lock = mp_combiners.lock();
         let merge_pair = |(k, c): (K, C)| {
             //            let old_c = combiners_lock.get(&k);
-            let old_c = combiners.get_mut(&k);
-            if old_c.is_none() {
-                //                combiners_lock.insert(k, Arc::new(Mutex::new(c)));
-                combiners.insert(k, Some(c));
-            } else {
-                let old_c = old_c.unwrap();
+            if let Some(old_c) = combiners.get_mut(&k) {
                 let old = old_c.take().unwrap();
                 let input = ((old, c),);
                 let output = self.aggregator.merge_combiners.call(input);
                 *old_c = Some(output);
+            } else {
+                //                combiners_lock.insert(k, Arc::new(Mutex::new(c)));
+                combiners.insert(k, Some(c));
             }
         };
 
@@ -180,8 +176,8 @@ where
         info!("time taken for fetching {}", dur);
         let dur = time.elapsed().unwrap().as_millis();
         info!("time taken for converting to hashset {}", dur);
-        let res = Box::new(combiners.into_iter().map(|(k, v)| (k, v.unwrap())));
-        res
+        Box::new(combiners.into_iter().map(|(k, v)| (k, v.unwrap())))
+
         //        let res = res.collect::<Vec<_>>();
         //        let log_output = format!("inside iterator shufflerdd {:?}", res.get(0));
         //        env::log_file.lock().write(&log_output.as_bytes());

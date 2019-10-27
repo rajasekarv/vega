@@ -4,7 +4,7 @@ extern crate serde_closure;
 #[macro_use]
 extern crate itertools;
 use chrono::prelude::*;
-use fast_spark::*;
+use native_spark::*;
 use parquet::column::reader::get_typed_column_reader;
 use parquet::data_type::{ByteArrayType, Int32Type, Int64Type};
 use parquet::file::reader::{FileReader, SerializedFileReader};
@@ -16,7 +16,6 @@ fn main() {
     let sc = Context::new("local");
     let files = fs::read_dir("parquet_file_dir")
         .unwrap()
-        .into_iter()
         .map(|x| x.unwrap().path().to_str().unwrap().to_owned())
         .collect::<Vec<_>>();
     let len = files.len();
@@ -33,7 +32,7 @@ fn read(file: String) -> Box<dyn Iterator<Item = ((i32, String, i64), (i64, f64)
     let file = File::open(&Path::new(&file)).unwrap();
     let reader = SerializedFileReader::new(file).unwrap();
     let metadata = reader.metadata();
-    let batch_size = 5_00_000 as usize;
+    let batch_size = 500_000 as usize;
     //let reader = Rc::new(RefCell::new(reader));
     let iter = (0..metadata.num_row_groups()).flat_map(move |i| {
         //let reader = reader.borrow_mut();
@@ -86,7 +85,7 @@ fn read(file: String) -> Box<dyn Iterator<Item = ((i32, String, i64), (i64, f64)
                 .map(|x| unsafe { String::from_utf8_unchecked(x.data().to_vec()) });
             let time = time.into_iter().map(|t| {
                 let t = t / 1000;
-                Utc.timestamp(t, 0).hour() as i64
+                i64::from(Utc.timestamp(t, 0).hour())
             });
             let bytes = bytes.into_iter().map(|b| (b, 1.0));
             let key = izip!(first, second, time);

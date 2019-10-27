@@ -52,7 +52,7 @@ impl Stage {
         Stage {
             id,
             num_partitions: rdd.splits().len(),
-            is_shuffle_map: !shuffle_dependency.clone().is_none(),
+            is_shuffle_map: shuffle_dependency.clone().is_some(),
             shuffle_dependency,
             parents,
             rdd: rdd.clone(),
@@ -66,8 +66,9 @@ impl Stage {
             num_available_outputs: 0,
         }
     }
+
     pub fn is_available(&self) -> bool {
-        if self.parents.len() == 0 && !self.is_shuffle_map {
+        if self.parents.is_empty() && !self.is_shuffle_map {
             true
         } else {
             info!(

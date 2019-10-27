@@ -205,14 +205,17 @@ impl<K: Data + Eq + Hash> Rdd<(K, Vec<Vec<Box<dyn AnyData>>>)> for CoGroupedRdd<
                                 .unwrap();
                             let (k, v) = *b;
                             let k = *(k.into_any().downcast::<K>().unwrap());
-                            agg.entry(k).or_insert(vec![Vec::new(); self.rdds.len()])[dep_num]
+                            agg.entry(k)
+                                .or_insert_with(|| vec![Vec::new(); self.rdds.len()])[dep_num]
                                 .push(v)
                         }
                     }
                     CoGroupSplitDep::ShuffleCoGroupSplitDep { shuffle_id } => {
                         info!("inside iterator cogrouprdd  shuffle dep agg {:?}", agg);
                         let merge_pair = |(k, c): (K, Vec<Box<dyn AnyData>>)| {
-                            let temp = agg.entry(k).or_insert(vec![Vec::new(); self.rdds.len()]);
+                            let temp = agg
+                                .entry(k)
+                                .or_insert_with(|| vec![Vec::new(); self.rdds.len()]);
                             for v in c {
                                 temp[dep_num].push(v);
                             }
