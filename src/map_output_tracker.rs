@@ -74,7 +74,7 @@ impl MapOutputTracker {
             .get_root::<serialized_data::Reader>()
             .unwrap();
         let locs: Vec<String> = bincode::deserialize(&shuffle_data.get_msg().unwrap()).unwrap();
-        return locs;
+        locs
         //        }
         //        else {
         //
@@ -328,7 +328,7 @@ impl MapOutputTracker {
         self.fetching.write().remove(&shuffle_id);
         info!("returning from get server uri");
 
-        return fetched;
+        fetched
         //        } else {
         //TODO Check whether this is correct or not
         //            let string = locs.get(&shuffle_id).unwrap().get(0).unwrap().clone();
@@ -350,7 +350,7 @@ impl MapOutputTracker {
     }
 
     pub fn get_generation(&self) -> i64 {
-        return *self.generation.lock();
+        *self.generation.lock()
     }
 
     pub fn update_generation(&mut self, new_gen: i64) {

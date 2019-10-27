@@ -38,7 +38,7 @@ Most of these except file reader and writer are trivial to implement
 - [ ] glom 
 - [ ] cartesian 
 - [x] group_by 
-- [x] reduceby
+- [x] reduce_by
 - [ ] pipe 
 - [ ] map_partitions 
 - [ ] for_each 

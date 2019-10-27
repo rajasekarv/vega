@@ -6,6 +6,8 @@ edition = "2018"
 
 build = "build.rs"
 
+[lib]
+name = "native_spark"
 
 [dependencies]
 objekt = "0.1.2"

@@ -67,8 +67,7 @@ impl<K: Data + Hash + Eq> Partitioner for HashPartitioner<K> {
     }
     fn get_partition(&self, key: &dyn Any) -> usize {
         let key = key.downcast_ref::<K>().unwrap();
-        let modulus = hash(key) as usize % self.partitions;
-        modulus
+        hash(key) as usize % self.partitions
         //        if modulus < 0 {
         //            modulus + self.partitions
         //        } else {

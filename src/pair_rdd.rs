@@ -67,8 +67,7 @@ pub trait PairRdd<K: Data + Eq + Hash, V: Data>: Rdd<(K, V)> + Send + Sync {
             //            b1
         }
         let merge_combiners = Box::new(Fn!(|(b1, b2)| merge_combiners::<V>(b1, b2)));
-        let bufs = self.combine_by_key(create_combiner, merge_value, merge_combiners, partitioner);
-        bufs
+        self.combine_by_key(create_combiner, merge_value, merge_combiners, partitioner)
         //        unimplemented!()
     }
     fn reduce_by_key<F>(&self, func: F, num_splits: usize) -> ShuffledRdd<K, V, V, Self>
@@ -121,10 +120,7 @@ pub trait PairRdd<K: Data + Eq + Hash, V: Data>: Rdd<(K, V)> + Send + Sync {
                 + 'static,
         {
             let p = buf;
-            let res = func((p, v));
-            //*buf.lock() = res
-            res
-            //            buf
+            func((p, v))
         }
         let func_clone = func.clone();
         let merge_value = Box::new(
@@ -333,8 +329,7 @@ where
     }
     fn compute(&self, split: Box<dyn Split>) -> Box<dyn Iterator<Item = (K, U)>> {
         let f = self.f.clone();
-        let res = Box::new(self.prev.iterator(split).map(move |(k, v)| (k, f(v))));
-        res
+        Box::new(self.prev.iterator(split).map(move |(k, v)| (k, f(v))))
         //        let res = res.collect::<Vec<_>>();
         //        let log_output = format!("inside iterator maprdd values {:?}", res.get(0));
         //        env::log_file.lock().write(&log_output.as_bytes());
@@ -443,14 +438,13 @@ where
     }
     fn compute(&self, split: Box<dyn Split>) -> Box<dyn Iterator<Item = (K, U)>> {
         let f = self.f.clone();
-        let res = Box::new(
+        Box::new(
             self.prev
                 .iterator(split)
                 .flat_map( move |(k,v)| f(v).map(move |x| (k.clone(),x)))
 //                .collect::<Vec<_>>()
 //                .into_iter(),
-        );
-        res
+        )
         //        let res = res.collect::<Vec<_>>();
         //        let log_output = format!("inside iterator flatmaprdd values {:?}", res.get(0));
         //        env::log_file.lock().write(&log_output.as_bytes());

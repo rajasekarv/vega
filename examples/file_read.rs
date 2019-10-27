@@ -1,5 +1,5 @@
 #![allow(where_clauses_object_safety)]
-use fast_spark::*;
+use native_spark::*;
 #[macro_use]
 extern crate serde_closure;
 use chrono::prelude::*;
@@ -10,7 +10,6 @@ fn main() {
     let sc = Context::new("local");
     let files = fs::read_dir("csv_folder")
         .unwrap()
-        .into_iter()
         .map(|x| x.unwrap().path().to_str().unwrap().to_owned())
         .collect::<Vec<_>>();
     let len = files.len();
@@ -21,9 +20,9 @@ fn main() {
         Box::new(f.lines().map(|line| line.unwrap())) as Box<dyn Iterator<Item = String>>
     }));
     let line = lines.map(Fn!(|line: String| {
-        let line = line.split(" ").collect::<Vec<_>>();
+        let line = line.split(' ').collect::<Vec<_>>();
         let mut time: i64 = line[8].parse::<i64>().unwrap();
-        time = time / 1000;
+        time /= 1000;
         let time = Utc.timestamp(time, 0).hour();
         (
             (line[0].to_string(), line[1].to_string(), time),

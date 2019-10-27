@@ -80,7 +80,7 @@ impl CacheTracker {
         };
         m.server();
         m.client(CacheTrackerMessage::SlaveCacheStarted {
-            host: env::local_ip.clone(),
+            host: *env::local_ip,
             size: m.cache.get_capacity(),
         });
         m
@@ -113,7 +113,7 @@ impl CacheTracker {
             .unwrap();
         let reply: CacheTrackerMessageReply =
             bincode::deserialize(&shuffle_data.get_msg().unwrap()).unwrap();
-        return reply;
+        reply
     }
 
     // This will start only in master node and will server all the slave nodes
@@ -124,7 +124,7 @@ impl CacheTracker {
             let slave_usage = self.slave_usage.clone();
             let registered_rdd_ids = self.registered_rdd_ids.clone();
             let loading = self.loading.clone();
-            let master_addr = self.master_addr.clone();
+            let master_addr = self.master_addr;
             thread::spawn(move || {
                 let listener = TcpListener::bind(master_addr).unwrap();
                 //                println!("started mapoutput tracker at {}", port);
@@ -184,18 +184,16 @@ impl CacheTracker {
                                                 host.clone(),
                                                 CacheTracker::get_cache_usage(
                                                     slave_usage.clone(),
-                                                    host.clone(),
+                                                    host,
                                                 ) + size,
                                             );
                                         } else {
                                             //TODO logging
                                         }
-                                        match locs.write().get_mut(&rdd_id) {
-                                            Some(locs_rdd) => match locs_rdd.get_mut(partition) {
-                                                Some(locs_rdd_p) => locs_rdd_p.push_front(host),
-                                                None => {}
-                                            },
-                                            None => {}
+                                        if let Some(locs_rdd) = locs.write().get_mut(&rdd_id) {
+                                            if let Some(locs_rdd_p) = locs_rdd.get_mut(partition) {
+                                                locs_rdd_p.push_front(host);
+                                            }
                                         }
                                         CacheTrackerMessageReply::Ok
                                     }
@@ -208,7 +206,7 @@ impl CacheTracker {
                                         if size > 0 {
                                             let remaining = CacheTracker::get_cache_usage(
                                                 slave_usage.clone(),
-                                                host.clone(),
+                                                host,
                                             ) - size;
                                             slave_usage.write().insert(host.clone(), remaining);
                                         }
@@ -219,18 +217,14 @@ impl CacheTracker {
                                             .get(partition)
                                             .unwrap()
                                             .iter()
-                                            .filter(|x| x.clone() == &host)
-                                            .map(|x| x.clone())
+                                            .filter(|x| *x == &host)
+                                            .copied()
                                             .collect();
-                                        match locs.write().get_mut(&rdd_id) {
-                                            Some(locs_r) => match locs_r.get_mut(partition) {
-                                                Some(locs_p) => {
-                                                    *locs_p = remaining_locs;
-                                                }
-                                                None => {}
-                                            },
-                                            None => {}
-                                        };
+                                        if let Some(locs_r) = locs.write().get_mut(&rdd_id) {
+                                            if let Some(locs_p) = locs_r.get_mut(partition) {
+                                                *locs_p = remaining_locs;
+                                            }
+                                        }
                                         CacheTrackerMessageReply::Ok
                                     }
                                     //TODO memory cache lost needs to be implemented
@@ -248,11 +242,11 @@ impl CacheTracker {
                                             .iter()
                                             .map(|(host, capacity)| {
                                                 (
-                                                    host.clone(),
+                                                    *host,
                                                     *capacity,
                                                     CacheTracker::get_cache_usage(
                                                         slave_usage.clone(),
-                                                        host.clone(),
+                                                        *host,
                                                     ),
                                                 )
                                             })
@@ -278,7 +272,7 @@ impl CacheTracker {
         host: Ipv4Addr,
     ) -> usize {
         match slave_usage.read().get(&host) {
-            Some(s) => s.clone(),
+            Some(s) => *s,
             None => 0,
         }
     }
@@ -288,7 +282,7 @@ impl CacheTracker {
         host: Ipv4Addr,
     ) -> usize {
         match slave_capacity.read().get(&host) {
-            Some(s) => s.clone(),
+            Some(s) => *s,
             None => 0,
         }
     }
@@ -332,19 +326,17 @@ impl CacheTracker {
         rdd: Arc<dyn Rdd<T>>,
         split: Box<dyn Split>,
     ) -> Box<dyn Iterator<Item = T>> {
-        let cached_val = self.cache.get(rdd.get_rdd_id(), split.get_index());
-        if !cached_val.is_none() {
-            let res: Vec<T> = bincode::deserialize(&cached_val.unwrap()).unwrap();
-            return Box::new(res.into_iter());
+        if let Some(cached_val) = self.cache.get(rdd.get_rdd_id(), split.get_index()) {
+            let res: Vec<T> = bincode::deserialize(&cached_val).unwrap();
+            Box::new(res.into_iter())
         } else {
             let key = (rdd.get_rdd_id(), split.get_index());
             while self.loading.read().contains(&key) {
                 let dur = time::Duration::from_millis(1);
                 thread::sleep(dur);
             }
-            let cached_val = self.cache.get(rdd.get_rdd_id(), split.get_index());
-            if !cached_val.is_none() {
-                let res: Vec<T> = bincode::deserialize(&cached_val.unwrap()).unwrap();
+            if let Some(cached_val) = self.cache.get(rdd.get_rdd_id(), split.get_index()) {
+                let res: Vec<T> = bincode::deserialize(&cached_val).unwrap();
                 return Box::new(res.into_iter());
             }
             self.loading.write().insert(key);
@@ -358,18 +350,15 @@ impl CacheTracker {
                 .put(rdd.get_rdd_id(), split.get_index(), res_bytes);
             lock.remove(&key);
 
-            match put_response {
-                CachePutResponse::CachePutSuccess(size) => {
-                    self.client(CacheTrackerMessage::AddedToCache {
-                        rdd_id: rdd.get_rdd_id(),
-                        partition: split.get_index(),
-                        host: env::local_ip.clone(),
-                        size,
-                    });
-                }
-                _ => {}
+            if let CachePutResponse::CachePutSuccess(size) = put_response {
+                self.client(CacheTrackerMessage::AddedToCache {
+                    rdd_id: rdd.get_rdd_id(),
+                    partition: split.get_index(),
+                    host: *env::local_ip,
+                    size,
+                });
             }
-            return Box::new(res.into_iter());
+            Box::new(res.into_iter())
         }
     }
 

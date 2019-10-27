@@ -51,7 +51,7 @@ impl LocalScheduler {
         //        map_output_tracker: MapOutputTracker,
     ) -> Self {
         //        unimplemented!()
-        let l = LocalScheduler {
+        LocalScheduler {
             threads,
             max_failures,
             attempt_id: Arc::new(AtomicUsize::new(0)),
@@ -75,9 +75,8 @@ impl LocalScheduler {
             job_tasks: HashMap::new(),
             slaves_with_executors: HashSet::new(),
             map_output_tracker: env::env.map_output_tracker.clone(),
-        };
+        }
         //        l.update_cache_locs();
-        l
     }
 
     fn get_cache_locs(&self, rdd: Arc<dyn RddBase>) -> Option<Vec<Vec<Ipv4Addr>>> {
@@ -103,19 +102,16 @@ impl LocalScheduler {
         //TODO accumvalues needs to be done
     ) {
         let result = Some(result);
-        match event_queues.lock().get_mut(&(task.get_run_id())) {
-            Some(queue) => {
-                queue.push_back(CompletionEvent {
-                    task,
-                    reason,
-                    //                    result: Some(Box::new(result)),
-                    result: result,
-                    accum_updates: HashMap::new(),
-                });
-            }
-            None => {
-                //                println!("ignoring completion event for DAG Job");
-            }
+        if let Some(queue) = event_queues.lock().get_mut(&(task.get_run_id())) {
+            queue.push_back(CompletionEvent {
+                task,
+                reason,
+                //                    result: Some(Box::new(result)),
+                result,
+                accum_updates: HashMap::new(),
+            });
+        } else {
+            info!("ignoring completion event for DAG Job");
         }
     }
 
@@ -403,129 +399,122 @@ impl LocalScheduler {
                                 finished[rt.output_id] = true;
                                 num_finished += 1;
                             }
-                        } else {
-                            if let Ok(smt) = evt.task.downcast::<ShuffleMapTask>() {
-                                let result = evt
-                                    .result
-                                    .take()
+                        } else if let Ok(smt) = evt.task.downcast::<ShuffleMapTask>() {
+                            let result = evt
+                                .result
+                                .take()
+                                .unwrap()
+                                .downcast_ref::<String>()
+                                .unwrap()
+                                .clone();
+                            //                                let result = *result;
+                            //                                let result: serde_traitobject::Box<serde_traitobject::Any> =
+                            //                                    evt.result.take().unwrap();
+                            //                                //                                let result = result.into_any();
+                            //                                let result: Box<String> =
+                            //                                    Box::<Any>::downcast(result.into_any()).unwrap();
+                            //                                //                                let result = result.downcast::<String>().unwrap();
+                            //                                let result = *result;
+                            info!("result inside queue {:?}", result);
+                            self.id_to_stage
+                                .lock()
+                                .get_mut(&smt.stage_id)
+                                .unwrap()
+                                .add_output_loc(smt.partition, result);
+                            let stage = self.id_to_stage.lock().clone()[&smt.stage_id].clone();
+                            info!(
+                                "pending stages {:?}",
+                                pending_tasks
+                                    .iter()
+                                    .map(|(x, y)| (
+                                        x.id,
+                                        y.iter().map(|k| k.get_task_id()).collect::<Vec<_>>()
+                                    ))
+                                    .collect::<Vec<_>>()
+                            );
+                            info!(
+                                "pending tasks {:?}",
+                                pending_tasks
+                                    .get(&stage)
                                     .unwrap()
-                                    .downcast_ref::<String>()
-                                    .unwrap()
-                                    .clone();
-                                //                                let result = *result;
-                                //                                let result: serde_traitobject::Box<serde_traitobject::Any> =
-                                //                                    evt.result.take().unwrap();
-                                //                                //                                let result = result.into_any();
-                                //                                let result: Box<String> =
-                                //                                    Box::<Any>::downcast(result.into_any()).unwrap();
-                                //                                //                                let result = result.downcast::<String>().unwrap();
-                                //                                let result = *result;
-                                info!("result inside queue {:?}", result);
-                                self.id_to_stage
-                                    .lock()
-                                    .get_mut(&smt.stage_id)
-                                    .unwrap()
-                                    .add_output_loc(smt.partition, result);
-                                let stage = self.id_to_stage.lock().clone()[&smt.stage_id].clone();
-                                info!(
-                                    "pending stages {:?}",
-                                    pending_tasks
-                                        .iter()
-                                        .map(|(x, y)| (
-                                            x.id,
-                                            y.iter().map(|k| k.get_task_id()).collect::<Vec<_>>()
-                                        ))
-                                        .collect::<Vec<_>>()
-                                );
-                                info!(
-                                    "pending tasks {:?}",
-                                    pending_tasks
-                                        .get(&stage)
-                                        .unwrap()
-                                        .iter()
-                                        .map(|x| x.get_task_id())
-                                        .collect::<Vec<_>>()
-                                );
-                                info!(
-                                    "running {:?}",
-                                    running.iter().map(|x| x.id).collect::<Vec<_>>()
-                                );
-                                info!(
-                                    "waiting {:?}",
-                                    waiting.iter().map(|x| x.id).collect::<Vec<_>>()
-                                );
+                                    .iter()
+                                    .map(|x| x.get_task_id())
+                                    .collect::<Vec<_>>()
+                            );
+                            info!(
+                                "running {:?}",
+                                running.iter().map(|x| x.id).collect::<Vec<_>>()
+                            );
+                            info!(
+                                "waiting {:?}",
+                                waiting.iter().map(|x| x.id).collect::<Vec<_>>()
+                            );
 
-                                if running.contains(&stage)
-                                    && pending_tasks.get(&stage).unwrap().is_empty()
-                                {
-                                    info!("here before registering map outputs ");
-                                    //TODO logging
-                                    running.remove(&stage);
-                                    if !stage.shuffle_dependency.is_none() {
-                                        info!(
-                                                "stage output locs before register mapoutput tracker {:?}",
-                                                stage.output_locs
-                                            );
-                                        let locs = stage
-                                            .output_locs
+                            if running.contains(&stage)
+                                && pending_tasks.get(&stage).unwrap().is_empty()
+                            {
+                                info!("here before registering map outputs ");
+                                //TODO logging
+                                running.remove(&stage);
+                                if !stage.shuffle_dependency.is_none() {
+                                    info!(
+                                        "stage output locs before register mapoutput tracker {:?}",
+                                        stage.output_locs
+                                    );
+                                    let locs = stage
+                                        .output_locs
+                                        .iter()
+                                        .map(|x| match x.get(0) {
+                                            Some(s) => Some(s.to_owned()),
+                                            None => None,
+                                        })
+                                        .collect();
+                                    info!(
+                                        "locs for shuffle id {:?} {:?}",
+                                        stage.clone().shuffle_dependency.unwrap().get_shuffle_id(),
+                                        locs
+                                    );
+                                    self.map_output_tracker.register_map_outputs(
+                                        stage.shuffle_dependency.unwrap().get_shuffle_id(),
+                                        locs,
+                                    );
+                                    info!("here after registering map outputs ");
+                                }
+                                //TODO Cache
+                                self.update_cache_locs();
+                                let mut newly_runnable = Vec::new();
+                                for stage in &waiting {
+                                    info!(
+                                        "waiting stage parent stages for stage {} are {:?}",
+                                        stage.id,
+                                        self.get_missing_parent_stages(stage.clone())
                                             .iter()
-                                            .map(|x| match x.get(0) {
-                                                Some(s) => Some(s.to_owned()),
-                                                None => None,
-                                            })
-                                            .collect();
-                                        info!(
-                                            "locs for shuffle id {:?} {:?}",
-                                            stage
-                                                .clone()
-                                                .shuffle_dependency
-                                                .unwrap()
-                                                .get_shuffle_id(),
-                                            locs
-                                        );
-                                        self.map_output_tracker.register_map_outputs(
-                                            stage.shuffle_dependency.unwrap().get_shuffle_id(),
-                                            locs,
-                                        );
-                                        info!("here after registering map outputs ");
+                                            .map(|x| x.id)
+                                            .collect::<Vec<_>>()
+                                    );
+                                    if self.get_missing_parent_stages(stage.clone()).len() == 0 {
+                                        newly_runnable.push(stage.clone())
                                     }
-                                    //TODO Cache
-                                    self.update_cache_locs();
-                                    let mut newly_runnable = Vec::new();
-                                    for stage in &waiting {
-                                        info!(
-                                            "waiting stage parent stages for stage {} are {:?}",
-                                            stage.id,
-                                            self.get_missing_parent_stages(stage.clone())
-                                                .iter()
-                                                .map(|x| x.id)
-                                                .collect::<Vec<_>>()
-                                        );
-                                        if self.get_missing_parent_stages(stage.clone()).len() == 0
-                                        {
-                                            newly_runnable.push(stage.clone())
-                                        }
-                                    }
-                                    for stage in &newly_runnable {
-                                        waiting.remove(stage);
-                                    }
-                                    for stage in &newly_runnable {
-                                        running.insert(stage.clone());
-                                    }
-                                    for stage in newly_runnable {
-                                        self.submit_missing_tasks(
-                                            stage,
-                                            &mut finished,
-                                            &mut pending_tasks,
-                                            output_parts.clone(),
-                                            num_output_parts,
-                                            final_stage.clone(),
-                                            func.clone(),
-                                            final_rdd.clone(),
-                                            run_id,
-                                            thread_pool.clone(),
-                                        );
-                                    }
+                                }
+                                for stage in &newly_runnable {
+                                    waiting.remove(stage);
+                                }
+                                for stage in &newly_runnable {
+                                    running.insert(stage.clone());
+                                }
+                                for stage in newly_runnable {
+                                    self.submit_missing_tasks(
+                                        stage,
+                                        &mut finished,
+                                        &mut pending_tasks,
+                                        output_parts.clone(),
+                                        num_output_parts,
+                                        final_stage.clone(),
+                                        func.clone(),
+                                        final_rdd.clone(),
+                                        run_id,
+                                        thread_pool.clone(),
+                                    );
                                 }
                             }
                         }
@@ -697,7 +686,7 @@ impl LocalScheduler {
     {
         let my_pending = pending_tasks
             .entry(stage.clone())
-            .or_insert(BTreeSet::new());
+            .or_insert_with(BTreeSet::new);
         if stage == final_stage {
             info!("final stage {}", stage.id);
             let mut id_in_job = 0;
@@ -726,7 +715,7 @@ impl LocalScheduler {
             let mut id_in_job = 0;
             for p in 0..stage.num_partitions {
                 info!("shuffle_stage {}", stage.id);
-                if stage.output_locs[p].len() == 0 {
+                if stage.output_locs[p].is_empty() {
                     let locs = self.get_preferred_locs(stage.get_rdd(), p);
                     info!("creating task for {} partition  {}", stage.id, p);
                     let shuffle_map_task = ShuffleMapTask::new(
@@ -758,29 +747,24 @@ impl LocalScheduler {
 
     fn get_preferred_locs(&self, rdd: Arc<dyn RddBase>, partition: usize) -> Vec<Ipv4Addr> {
         //TODO have to implement this completely
-        let cached = self.get_cache_locs(rdd.clone());
-        if !cached.is_none() {
-            let cached = cached.unwrap();
-            let cached = cached.get(partition);
-            if !cached.is_none() {
-                return cached.unwrap().clone();
+
+        if let Some(cached) = self.get_cache_locs(rdd.clone()) {
+            if let Some(cached) = cached.get(partition) {
+                return cached.clone();
             }
         }
         let rdd_prefs = rdd.preferred_locations(rdd.splits()[partition].clone());
-        if rdd_prefs.len() != 0 {
+        if !rdd_prefs.is_empty() {
             return rdd_prefs;
         }
         for dep in rdd.get_dependencies().iter() {
-            match dep {
-                Dependency::NarrowDependency(nar_dep) => {
-                    for in_part in nar_dep.get_parents(partition) {
-                        let locs = self.get_preferred_locs(nar_dep.get_rdd_base(), in_part);
-                        if locs.len() != 0 {
-                            return locs;
-                        }
+            if let Dependency::NarrowDependency(nar_dep) = dep {
+                for in_part in nar_dep.get_parents(partition) {
+                    let locs = self.get_preferred_locs(nar_dep.get_rdd_base(), in_part);
+                    if !locs.is_empty() {
+                        return locs;
                     }
                 }
-                _ => {}
             }
         }
         Vec::new()
@@ -799,14 +783,13 @@ impl LocalScheduler {
                 thread::sleep(dur);
             }
         }
-        let evt = self
-            .event_queues
+        self.event_queues
             .lock()
             .get_mut(&run_id)
             .unwrap()
-            .pop_front();
-        evt
+            .pop_front()
     }
+
     fn submit_task<T: Data, U: Data, RT, F>(
         &self,
         task: TaskOption,

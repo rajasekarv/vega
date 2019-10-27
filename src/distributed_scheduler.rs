@@ -129,19 +129,16 @@ impl DistributedScheduler {
         //TODO accumvalues needs to be done
     ) {
         let result = Some(result);
-        match event_queues.lock().get_mut(&(task.get_run_id())) {
-            Some(queue) => {
-                queue.push_back(CompletionEvent {
-                    task,
-                    reason,
-                    //                    result: Some(Box::new(result)),
-                    result: result,
-                    accum_updates: HashMap::new(),
-                });
-            }
-            None => {
-                //                println!("ignoring completion event for DAG Job");
-            }
+        if let Some(queue) = event_queues.lock().get_mut(&(task.get_run_id())) {
+            queue.push_back(CompletionEvent {
+                task,
+                reason,
+                //                    result: Some(Box::new(result)),
+                result,
+                accum_updates: HashMap::new(),
+            });
+        } else {
+            info!("ignoring completion event for DAG Job");
         }
     }
 
@@ -775,29 +772,23 @@ impl DistributedScheduler {
 
     fn get_preferred_locs(&self, rdd: Arc<dyn RddBase>, partition: usize) -> Vec<Ipv4Addr> {
         //TODO have to implement this completely
-        let cached = self.get_cache_locs(rdd.clone());
-        if !cached.is_none() {
-            let cached = cached.unwrap();
-            let cached = cached.get(partition);
-            if !cached.is_none() {
-                return cached.unwrap().clone();
+        if let Some(cached) = self.get_cache_locs(rdd.clone()) {
+            if let Some(cached) = cached.get(partition) {
+                return cached.clone();
             }
         }
         let rdd_prefs = rdd.preferred_locations(rdd.splits()[partition].clone());
-        if rdd_prefs.len() != 0 {
+        if !rdd_prefs.is_empty() {
             return rdd_prefs;
         }
         for dep in rdd.get_dependencies().iter() {
-            match dep {
-                Dependency::NarrowDependency(nar_dep) => {
-                    for in_part in nar_dep.get_parents(partition) {
-                        let locs = self.get_preferred_locs(nar_dep.get_rdd_base(), in_part);
-                        if locs.len() != 0 {
-                            return locs;
-                        }
+            if let Dependency::NarrowDependency(nar_dep) = dep {
+                for in_part in nar_dep.get_parents(partition) {
+                    let locs = self.get_preferred_locs(nar_dep.get_rdd_base(), in_part);
+                    if !locs.is_empty() {
+                        return locs;
                     }
                 }
-                _ => {}
             }
         }
         Vec::new()
@@ -815,13 +806,11 @@ impl DistributedScheduler {
                 thread::sleep(dur);
             }
         }
-        let evt = self
-            .event_queues
+        self.event_queues
             .lock()
             .get_mut(&run_id)
             .unwrap()
-            .pop_front();
-        evt
+            .pop_front()
     }
 
     fn submit_task<T: Data, U: Data, RT, F>(
@@ -905,7 +894,6 @@ impl DistributedScheduler {
                 );
                 let result: TaskResult =
                     bincode::deserialize(&task_data.get_msg().unwrap()).unwrap();
-                std::mem::drop(task_data);
                 match ser_task {
                     TaskOption::ResultTask(tsk) => {
                         let result = match result {

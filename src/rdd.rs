@@ -163,7 +163,7 @@ pub trait Rdd<T: Data>: RddBase + Send + Sync + Serialize + Deserialize {
             let mut f = BufWriter::new(f);
             for item in iter {
                 let line = format!("{:?}", item);
-                f.write(line.as_bytes())
+                f.write_all(line.as_bytes())
                     .expect("error while writing to file");
             }
         }
@@ -359,8 +359,8 @@ where
     }
     fn compute(&self, split: Box<dyn Split>) -> Box<dyn Iterator<Item = U>> {
         //        let res = Box::new(self.prev.iterator(split).map((*self.f).clone()));
-        let res = Box::new(self.prev.iterator(split).map(self.f.clone()));
-        res
+        Box::new(self.prev.iterator(split).map(self.f.clone()))
+
         //        let res = res.collect::<Vec<_>>();
         //        let log_output = format!("inside iterator maprdd {:?}", res.get(0));
         //        env::log_file.lock().write(&log_output.as_bytes());
@@ -520,14 +520,14 @@ where
     }
     fn compute(&self, split: Box<dyn Split>) -> Box<dyn Iterator<Item = U>> {
         let f = self.f.clone();
-        let res = Box::new(
+        Box::new(
             self.prev
                 .iterator(split)
                 .flat_map(f)
 //                .collect::<Vec<_>>()
 //                .into_iter(),
-        );
-        res
+        )
+
         //        let res = res.collect::<Vec<_>>();
         //        let log_output = format!("inside iterator flatmaprdd {:?}", res.get(0));
         //        env::log_file.lock().write(&log_output.as_bytes());
