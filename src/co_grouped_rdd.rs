@@ -137,6 +137,7 @@ impl<K: Data + Eq + Hash> RddBase for CoGroupedRdd<K> {
     fn get_dependencies(&self) -> &[Dependency] {
         &self.vals.dependencies
     }
+
     fn splits(&self) -> Vec<Box<dyn Split>> {
         let first_rdd = self.rdds[0].clone();
         let mut splits = Vec::new();
@@ -231,9 +232,7 @@ impl<K: Data + Eq + Hash> Rdd<(K, Vec<Vec<Box<dyn AnyData>>>)> for CoGroupedRdd<
                     }
                 }
             }
-
-            let res = Box::new(agg.into_iter().map(|(k, v)| (k, v)));
-            res
+            Box::new(agg.into_iter().map(|(k, v)| (k, v)))
         } else {
             panic!("Got split object from different concrete type other than CoGroupSplit")
         }

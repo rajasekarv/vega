@@ -210,7 +210,87 @@ pub trait Rdd<T: Data>: RddBase + Send + Sync + Serialize + Deserialize {
                 acc
             })
     }
+
+    /// Return the first element in this RDD.
+    fn first(&self) -> Result<T, Box<dyn std::error::Error>>
+    where
+        Self: Sized + 'static + Serialize + Deserialize,
+    {
+        if let Some(result) = self.take(1).into_iter().next() {
+            Ok(result)
+        } else {
+            //FIXME: return a proper error when we add return errors
+            panic!("empty collection")
+        }
+    }
+
+    /// Take the first num elements of the RDD. It works by first scanning one partition, and use the
+    /// results from that partition to estimate the number of additional partitions needed to satisfy
+    /// the limit.
+    ///
+    /// This method should only be used if the resulting array is expected to be small, as
+    /// all the data is loaded into the driver's memory.
+    ///
+    /// Due to complications in the internal implementation, this method will raise
+    /// an exception if called on an RDD of `Nothing` or `Null`.
+    fn take(&self, num: usize) -> Vec<T>
+    where
+        Self: 'static + Sized + Serialize + Deserialize,
+    {
+        //TODO: in original spark this is configurable; see rdd/RDD.scala:1397
+        // Math.max(conf.get(RDD_LIMIT_SCALE_UP_FACTOR), 2)
+        const scale_up_factor: f64 = 2.0;
+        if num == 0 {
+            return vec![];
+        }
+        let mut buf = vec![];
+        let total_parts = self.splits().len() as u32;
+        let mut parts_scanned = 0_u32;
+        while (buf.len() < num && parts_scanned < total_parts) {
+            // The number of partitions to try in this iteration. It is ok for this number to be
+            // greater than total_parts because we actually cap it at total_parts in run_job.
+            let mut num_parts_to_try = 1u32;
+            let left = num - buf.len();
+            if (parts_scanned > 0) {
+                // If we didn't find any rows after the previous iteration, quadruple and retry.
+                // Otherwise, interpolate the number of partitions we need to try, but overestimate
+                // it by 50%. We also cap the estimation in the end.
+                let parts_scanned = f64::from(parts_scanned);
+                num_parts_to_try = if buf.is_empty() {
+                    (parts_scanned * scale_up_factor).ceil() as u32
+                } else {
+                    let num_parts_to_try =
+                        (1.5 * left as f64 * parts_scanned / (buf.len() as f64)).ceil();
+                    num_parts_to_try.min(parts_scanned * scale_up_factor) as u32
+                };
+            }
+
+            let partitions: Vec<_> = (parts_scanned as usize
+                ..total_parts.min(parts_scanned + num_parts_to_try) as usize)
+                .collect();
+            let num_partitions = partitions.len() as u32;
+            let take_from_partion = Fn!([left] move | iter: Box<dyn Iterator<Item = T>> | {
+                iter.take(*left).collect::<Vec<T>>()
+            });
+
+            let res = self.get_context().run_job_on_partitions(
+                self.get_rdd(),
+                take_from_partion,
+                partitions,
+            );
+
+            let current_len = buf.len();
+            buf.extend(
+                res.into_iter()
+                    .flat_map(|r| r.into_iter().take(num - current_len)),
+            );
+            parts_scanned += num_partitions;
+        }
+
+        buf
+    }
 }
+
 //pub trait RddBox<T: Data>: Rdd<T> + Serialize + Deserialize {}
 
 //impl<K, T: Data> RddBox<T> for K where K: Rdd<T> + Serialize + Deserialize {}
@@ -289,12 +369,15 @@ where
     fn get_rdd_id(&self) -> usize {
         self.vals.id
     }
+
     fn get_context(&self) -> Context {
         self.vals.context.clone()
     }
+
     fn get_dependencies(&self) -> &[Dependency] {
         &self.vals.dependencies
     }
+
     fn splits(&self) -> Vec<Box<dyn Split>> {
         self.prev.splits()
     }
@@ -449,12 +532,15 @@ where
     fn get_rdd_id(&self) -> usize {
         self.vals.id
     }
+
     fn get_context(&self) -> Context {
         self.vals.context.clone()
     }
+
     fn get_dependencies(&self) -> &[Dependency] {
         &self.vals.dependencies
     }
+
     fn splits(&self) -> Vec<Box<dyn Split>> {
         self.prev.splits()
     }
