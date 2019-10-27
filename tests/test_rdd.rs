@@ -1,4 +1,4 @@
-use fast_spark::*;
+use native_spark::*;
 #[macro_use]
 extern crate serde_closure;
 
