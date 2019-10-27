@@ -1,6 +1,5 @@
 #![allow(where_clauses_object_safety)]
-use fast_spark::*;
-#[macro_use]
+use native_spark::*;
 extern crate serde_closure;
 
 fn main() {
