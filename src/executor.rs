@@ -21,6 +21,7 @@ impl Executor {
 
     // Worker which spawns threads for received tasks, deserializes it and executes the task and send the result back to the master.
     // Try to pin the threads to particular core of the machine to avoid unnecessary cache misses.
+    #[allow(clippy::drop_copy)]
     pub fn worker(&self) {
         let listener = match TcpListener::bind(format!("0.0.0.0:{}", self.port,)) {
             Ok(s) => {
@@ -103,6 +104,7 @@ impl Executor {
                                 server_port,
                                 des_task.get_task_id(),
                             );
+                            std::mem::drop(task_data);
                             info!(
                                 "time taken in server for deserializing:{} {}",
                                 server_port,

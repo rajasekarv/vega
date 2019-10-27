@@ -137,6 +137,8 @@ impl DistributedScheduler {
                 result,
                 accum_updates: HashMap::new(),
             });
+        } else {
+            info!("ignoring completion event for DAG Job");
         }
     }
 
