@@ -51,14 +51,14 @@ impl Stage {
     ) -> Self {
         Stage {
             id,
-            num_partitions: rdd.splits().len(),
+            num_partitions: rdd.number_of_splits(),
             is_shuffle_map: shuffle_dependency.clone().is_some(),
             shuffle_dependency,
             parents,
             rdd: rdd.clone(),
             output_locs: {
                 let mut v = Vec::new();
-                for i in 0..rdd.splits().len() {
+                for i in 0..rdd.number_of_splits() {
                     v.push(Vec::new());
                 }
                 v

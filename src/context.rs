@@ -299,7 +299,7 @@ impl Context {
         let cl = Fn!([func] move | (task_context, iter) | (*func)(iter));
         let func = Arc::new(cl);
         self.scheduler
-            .run_job(func, rdd.clone(), (0..rdd.splits().len()).collect(), false)
+            .run_job(func, rdd.clone(), (0..rdd.number_of_splits()).collect(), false)
     }
 
     pub fn run_job_with_context<T: Data, U: Data, RT, F>(&mut self, rdd: Arc<RT>, func: F) -> Vec<U>
@@ -316,6 +316,6 @@ impl Context {
         info!("inside run job in context");
         let func = Arc::new(func);
         self.scheduler
-            .run_job(func, rdd.clone(), (0..rdd.splits().len()).collect(), false)
+            .run_job(func, rdd.clone(), (0..rdd.number_of_splits()).collect(), false)
     }
 }

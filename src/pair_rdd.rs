@@ -308,6 +308,9 @@ where
     fn splits(&self) -> Vec<Box<dyn Split>> {
         self.prev.splits()
     }
+    fn number_of_splits(&self) -> usize {
+        self.prev.number_of_splits()
+    }
     fn iterator_any(&self, split: Box<dyn Split>) -> Box<dyn Iterator<Item = Box<dyn AnyData>>> {
         info!("inside iterator_any mapvaluesrdd",);
         Box::new(
@@ -406,6 +409,9 @@ where
     }
     fn splits(&self) -> Vec<Box<dyn Split>> {
         self.prev.splits()
+    }
+    fn number_of_splits(&self) -> usize {
+        self.prev.number_of_splits()
     }
     fn iterator_any(&self, split: Box<dyn Split>) -> Box<dyn Iterator<Item = Box<dyn AnyData>>> {
         info!("inside iterator_any flatmapvaluesrdd",);
