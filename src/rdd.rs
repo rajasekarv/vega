@@ -247,7 +247,7 @@ pub trait Rdd<T: Data>: RddBase + Send + Sync + Serialize + Deserialize {
             return vec![];
         }
         let mut buf = vec![];
-        let total_parts = self.splits().len() as u32;
+        let total_parts = self.number_of_splits() as u32;
         let mut parts_scanned = 0_u32;
         while (buf.len() < num && parts_scanned < total_parts) {
             // The number of partitions to try in this iteration. It is ok for this number to be
