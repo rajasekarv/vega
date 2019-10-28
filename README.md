@@ -46,8 +46,8 @@ Most of these except file reader and writer are trivial to implement
 - [ ] reduce 
 - [ ] fold 
 - [ ] aggregate 
-- [ ] take 
-- [ ] first 
+- [x] take 
+- [x] first 
 - [ ] save_as_text_file(can save only as text file in executors local file system)  
 
 ### Config Files

@@ -233,9 +233,6 @@ pub trait Rdd<T: Data>: RddBase + Send + Sync + Serialize + Deserialize {
     ///
     /// This method should only be used if the resulting array is expected to be small, as
     /// all the data is loaded into the driver's memory.
-    ///
-    /// Due to complications in the internal implementation, this method will raise
-    /// an exception if called on an RDD of `Nothing` or `Null`.
     fn take(&self, num: usize) -> Vec<T>
     where
         Self: 'static + Sized + Serialize + Deserialize,
