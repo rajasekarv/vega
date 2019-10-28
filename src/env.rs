@@ -55,12 +55,12 @@ lazy_static! {
     pub static ref env: Env = {
         let host_path = std::env::home_dir().unwrap().join("hosts.conf");
         let host_path_string = host_path.to_string_lossy();
-        let mut host_file = File::open(&host_path).expect(&format!("Unable to open the file: {}", host_path_string));
+        let mut host_file = File::open(&host_path).unwrap_or_else(|_| panic!("Unable to open the file: {}", host_path_string));
         let mut hosts = String::new();
         host_file
             .read_to_string(&mut hosts)
-            .expect(&format!("Unable to read the file: {}", host_path_string));
-        let hosts: Hosts = toml::from_str(&hosts).expect(&format!("Unable to process the {} file in env", host_path_string));
+            .unwrap_or_else(|_| panic!("Unable to read the file: {}", host_path_string));
+        let hosts: Hosts = toml::from_str(&hosts).unwrap_or_else(|_| panic!("Unable to process the {} file in env", host_path_string));
         Env::new(hosts.master)
     };
 

@@ -126,8 +126,7 @@ impl MapOutputTracker {
                                     .unwrap()
                                     .iter()
                                     .filter(|x| !x.is_none())
-                                    .collect::<Vec<_>>()
-                                    .len()
+                                    .count()
                                     == 0
                                 {
                                     //check whether this will hurt the performance or not

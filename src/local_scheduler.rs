@@ -318,7 +318,7 @@ impl LocalScheduler {
         //TODO update cache
         //TODO logging
 
-        if allow_local && (final_stage.parents.len() == 0) && (num_output_parts == 1) {
+        if allow_local && final_stage.parents.is_empty() && (num_output_parts == 1) {
             let split = (final_rdd.splits()[output_parts[0]]).clone();
             let task_context = TasKContext::new(final_stage.id, output_parts[0], 0);
             return vec![func((task_context, final_rdd.iterator(split)))];
@@ -492,7 +492,7 @@ impl LocalScheduler {
                                             .map(|x| x.id)
                                             .collect::<Vec<_>>()
                                     );
-                                    if self.get_missing_parent_stages(stage.clone()).len() == 0 {
+                                    if self.get_missing_parent_stages(stage.clone()).is_empty() {
                                         newly_runnable.push(stage.clone())
                                     }
                                 }
@@ -561,7 +561,7 @@ impl LocalScheduler {
                     }
                 }
             }
-            if (failed.len() > 0) && (time > (last_fetch_failure_time + self.resubmit_timeout)) {
+            if !failed.is_empty() && (time > (last_fetch_failure_time + self.resubmit_timeout)) {
                 self.update_cache_locs();
                 for stage in &failed {
                     self.submit_stage(
