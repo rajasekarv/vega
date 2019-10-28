@@ -34,7 +34,7 @@ fn test_group_by() {
     assert_eq!(expected, res);
 }
 
-// #[test]
+#[test]
 fn test_join() {
     let sc = Context::new("local");
     let col1 = vec![
