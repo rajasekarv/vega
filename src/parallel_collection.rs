@@ -140,6 +140,9 @@ impl<T: Data> RddBase for ParallelCollection<T> {
             })
             .collect::<Vec<Box<dyn Split>>>()
     }
+    fn number_of_splits(&self) -> usize {
+        self.rdd_vals.splits_.len()
+    }
 
     default fn cogroup_iterator_any(
         &self,

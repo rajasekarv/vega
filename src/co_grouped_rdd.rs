@@ -163,6 +163,9 @@ impl<K: Data + Eq + Hash> RddBase for CoGroupedRdd<K> {
         }
         splits
     }
+    fn number_of_splits(&self) -> usize {
+        self.part.get_num_of_partitions()
+    }
     fn partitioner(&self) -> Option<Box<dyn Partitioner>> {
         let part = self.part.clone() as Box<dyn Partitioner>;
         Some(part)

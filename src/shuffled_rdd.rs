@@ -106,6 +106,9 @@ where
             .map(|x| Box::new(ShuffledRddSplit::new(x)) as Box<dyn Split>)
             .collect()
     }
+    fn number_of_splits(&self) -> usize {
+        self.part.get_num_of_partitions()
+    }
     fn partitioner(&self) -> Option<Box<dyn Partitioner>> {
         Some(self.part.clone())
     }

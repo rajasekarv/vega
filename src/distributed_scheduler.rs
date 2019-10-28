@@ -170,12 +170,12 @@ impl DistributedScheduler {
         info!("inside new stage");
         env::env
             .cache_tracker
-            .register_rdd(rdd_base.get_rdd_id(), rdd_base.splits().len());
+            .register_rdd(rdd_base.get_rdd_id(), rdd_base.number_of_splits());
         if !shuffle_dependency.is_none() {
             info!("shuffle dependcy and registering mapoutput tracker");
             self.map_output_tracker.register_shuffle(
                 shuffle_dependency.clone().unwrap().get_shuffle_id(),
-                rdd_base.splits().len(),
+                rdd_base.number_of_splits(),
             );
             info!("new stage tracker after");
         }
@@ -210,7 +210,7 @@ impl DistributedScheduler {
             visited.insert(rdd.clone());
             env::env
                 .cache_tracker
-                .register_rdd(rdd.get_rdd_id(), rdd.splits().len());
+                .register_rdd(rdd.get_rdd_id(), rdd.number_of_splits());
             for dep in rdd.get_dependencies() {
                 match dep {
                     Dependency::ShuffleDependency(shuf_dep) => {
@@ -256,7 +256,7 @@ impl DistributedScheduler {
         if !visited.contains(&rdd) {
             visited.insert(rdd.clone());
             // TODO CacheTracker register
-            for p in 0..rdd.splits().len() {
+            for p in 0..rdd.number_of_splits() {
                 let locs = self.get_cache_locs(rdd.clone());
                 info!("cache locs {:?}", locs);
                 if locs == None {
@@ -343,7 +343,7 @@ impl DistributedScheduler {
         //TODO update cache
         //TODO logging
 
-        if allow_local && (final_stage.parents.len() == 0) && (num_output_parts == 1) {
+        if allow_local && final_stage.parents.is_empty() && (num_output_parts == 1) {
             let split = (final_rdd.splits()[output_parts[0]]).clone();
             let task_context = TasKContext::new(final_stage.id, output_parts[0], 0);
             return vec![func((task_context, final_rdd.iterator(split)))];
@@ -510,7 +510,7 @@ impl DistributedScheduler {
                                             .map(|x| x.id)
                                             .collect::<Vec<_>>()
                                     );
-                                    if self.get_missing_parent_stages(stage.clone()).len() == 0 {
+                                    if self.get_missing_parent_stages(stage.clone()).is_empty() {
                                         newly_runnable.push(stage.clone())
                                     }
                                 }
@@ -579,7 +579,7 @@ impl DistributedScheduler {
                     }
                 }
             }
-            if (failed.len() > 0) && (time > (last_fetch_failure_time + self.resubmit_timeout)) {
+            if !failed.is_empty() && (time > (last_fetch_failure_time + self.resubmit_timeout)) {
                 self.update_cache_locs();
                 for stage in &failed {
                     self.submit_stage(
@@ -733,7 +733,7 @@ impl DistributedScheduler {
             let mut id_in_job = 0;
             for p in 0..stage.num_partitions {
                 info!("shuffle_stage {}", stage.id);
-                if stage.output_locs[p].len() == 0 {
+                if stage.output_locs[p].is_empty() {
                     let locs = self.get_preferred_locs(stage.get_rdd(), p);
                     info!("creating task for {} partition  {}", stage.id, p);
                     let shuffle_map_task = ShuffleMapTask::new(
