@@ -128,7 +128,7 @@ pub trait Rdd<T: Data>: RddBase + Send + Sync + Serialize + Deserialize {
     fn map<U: Data, F>(&self, f: F) -> MapperRdd<Self, T, U, F>
     where
         F: SerFunc(T) -> U,
-        Self: Sized + 'static + Serialize + Deserialize,
+        Self: Sized + 'static,
     {
         MapperRdd::new(self.get_rdd(), f)
     }
@@ -136,14 +136,14 @@ pub trait Rdd<T: Data>: RddBase + Send + Sync + Serialize + Deserialize {
     fn flat_map<U: Data, F>(&self, f: F) -> FlatMapperRdd<Self, T, U, F>
     where
         F: SerFunc(T) -> Box<dyn Iterator<Item = U>>,
-        Self: Sized + 'static + Serialize + Deserialize,
+        Self: Sized + 'static,
     {
         FlatMapperRdd::new(self.get_rdd(), f)
     }
 
     fn save_as_text_file(&self, path: String)
     where
-        Self: Sized + 'static + Serialize + Deserialize,
+        Self: Sized + 'static,
     {
         fn save<R: Data>(ctx: TasKContext, iter: Box<dyn Iterator<Item = R>>, path: String) {
             //            let path = "/tmp/";
@@ -164,7 +164,7 @@ pub trait Rdd<T: Data>: RddBase + Send + Sync + Serialize + Deserialize {
 
     fn reduce<F>(&self, f: F) -> Option<T>
     where
-        Self: Sized + 'static + Serialize + Deserialize,
+        Self: Sized + 'static,
         F: SerFunc(T, T) -> T,
     {
         // cloned cause we will use `f` later.
@@ -183,7 +183,7 @@ pub trait Rdd<T: Data>: RddBase + Send + Sync + Serialize + Deserialize {
 
     fn collect(&self) -> Vec<T>
     where
-        Self: Sized + 'static + Serialize + Deserialize,
+        Self: Sized + 'static,
     {
         let cl = Fn!(|iter: Box<dyn Iterator<Item = T>>| iter.collect::<Vec<T>>());
         let results = self.get_context().run_job(self.get_rdd(), cl);
