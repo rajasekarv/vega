@@ -285,3 +285,6 @@ impl<'de, Args: 'static, Output: 'static> serde::de::Deserialize<'de>
         <Box<dyn Func<Args, Output = Output> + 'static>>::deserialize(deserializer).map(|x| x.0)
     }
 }
+
+pub trait SerFunc<Args>: Fn<Args> + Send + Sync + Clone + serde::ser::Serialize + serde::de::DeserializeOwned + 'static {}
+impl<Args,T> SerFunc<Args> for T where T: Fn<Args> + Send + Sync + Clone + serde::ser::Serialize + serde::de::DeserializeOwned + 'static {}

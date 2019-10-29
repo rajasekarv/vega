@@ -106,7 +106,7 @@ mod job;
 use job::*;
 
 mod serializable_traits;
-use serializable_traits::{AnyData, Data, Func};
+use serializable_traits::{AnyData, Data, Func, SerFunc};
 
 mod env;
 //use env::*;

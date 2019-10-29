@@ -288,13 +288,7 @@ impl LocalScheduler {
         allow_local: bool,
     ) -> Vec<U>
     where
-        F: Fn((TasKContext, Box<dyn Iterator<Item = T>>)) -> U
-            + 'static
-            + Send
-            + Sync
-            + Clone
-            + serde::ser::Serialize
-            + serde::de::DeserializeOwned,
+        F: SerFunc((TasKContext, Box<dyn Iterator<Item = T>>)) -> U,
         RT: Rdd<T> + 'static,
     {
         info!(
@@ -610,13 +604,7 @@ impl LocalScheduler {
         run_id: usize,
         thread_pool: Arc<ThreadPool>,
     ) where
-        F: Fn((TasKContext, Box<dyn Iterator<Item = T>>)) -> U
-            + 'static
-            + Send
-            + Sync
-            + Clone
-            + serde::ser::Serialize
-            + serde::de::DeserializeOwned,
+        F: SerFunc((TasKContext, Box<dyn Iterator<Item = T>>)) -> U,
         RT: Rdd<T> + 'static,
     {
         info!("submiting stage {}", stage.id);
@@ -675,13 +663,7 @@ impl LocalScheduler {
         run_id: usize,
         thread_pool: Arc<ThreadPool>,
     ) where
-        F: Fn((TasKContext, Box<dyn Iterator<Item = T>>)) -> U
-            + 'static
-            + Send
-            + Sync
-            + Clone
-            + serde::ser::Serialize
-            + serde::de::DeserializeOwned,
+        F: SerFunc((TasKContext, Box<dyn Iterator<Item = T>>)) -> U,
         RT: Rdd<T> + 'static,
     {
         let my_pending = pending_tasks
@@ -796,13 +778,7 @@ impl LocalScheduler {
         id_in_job: usize,
         thread_pool: Arc<ThreadPool>,
     ) where
-        F: Fn((TasKContext, Box<dyn Iterator<Item = T>>)) -> U
-            + 'static
-            + Send
-            + Sync
-            + Clone
-            + serde::ser::Serialize
-            + serde::de::DeserializeOwned,
+        F: SerFunc((TasKContext, Box<dyn Iterator<Item = T>>)) -> U,
         RT: Rdd<T> + 'static,
     {
         info!("inside submit task");
@@ -821,13 +797,7 @@ impl LocalScheduler {
         id_in_job: usize,
         attempt_id: usize,
     ) where
-        F: Fn((TasKContext, Box<dyn Iterator<Item = T>>)) -> U
-            + 'static
-            + Send
-            + Sync
-            + Clone
-            + serde::ser::Serialize
-            + serde::de::DeserializeOwned,
+        F: SerFunc((TasKContext, Box<dyn Iterator<Item = T>>)) -> U,
         RT: Rdd<T> + 'static,
     {
         let des_task: TaskOption = bincode::deserialize(&task).unwrap();

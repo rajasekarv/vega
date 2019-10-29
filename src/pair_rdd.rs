@@ -72,15 +72,7 @@ pub trait PairRdd<K: Data + Eq + Hash, V: Data>: Rdd<(K, V)> + Send + Sync {
     }
     fn reduce_by_key<F>(&self, func: F, num_splits: usize) -> ShuffledRdd<K, V, V, Self>
     where
-        F: Fn((V, V)) -> V
-            + PartialEq
-            + Eq
-            + Send
-            + Sync
-            + std::clone::Clone
-            + serde::ser::Serialize
-            + serde::de::DeserializeOwned
-            + 'static,
+        F: SerFunc((V, V)) -> V,
         Self: Sized + Serialize + Deserialize + 'static,
     {
         self.reduce_by_key_using_partitioner(
@@ -95,29 +87,13 @@ pub trait PairRdd<K: Data + Eq + Hash, V: Data>: Rdd<(K, V)> + Send + Sync {
         partitioner: Box<dyn Partitioner>,
     ) -> ShuffledRdd<K, V, V, Self>
     where
-        F: Fn((V, V)) -> V
-            + PartialEq
-            + Eq
-            + Send
-            + Sync
-            + std::clone::Clone
-            + serde::ser::Serialize
-            + serde::de::DeserializeOwned
-            + 'static,
+        F: SerFunc((V, V)) -> V,
         Self: Sized + Serialize + Deserialize + 'static,
     {
         let create_combiner = Box::new(Fn!(|v: V| v));
         fn merge_value<V: Data, F>(buf: V, v: V, func: F) -> V
         where
-            F: Fn((V, V)) -> V
-                + PartialEq
-                + Eq
-                + Send
-                + Sync
-                + Clone
-                + serde::ser::Serialize
-                + serde::de::DeserializeOwned
-                + 'static,
+            F: SerFunc((V, V)) -> V,
         {
             let p = buf;
             func((p, v))
@@ -128,15 +104,7 @@ pub trait PairRdd<K: Data + Eq + Hash, V: Data>: Rdd<(K, V)> + Send + Sync {
         );
         fn merge_combiners<V: Data, F>(b1: V, b2: V, func: F) -> V
         where
-            F: Fn((V, V)) -> V
-                + PartialEq
-                + Eq
-                + Send
-                + Sync
-                + Clone
-                + serde::ser::Serialize
-                + serde::de::DeserializeOwned
-                + 'static,
+            F: SerFunc((V, V)) -> V,
         {
             let p = b1;
             let res = func((p, b2));
@@ -226,13 +194,6 @@ pub trait PairRdd<K: Data + Eq + Hash, V: Data>: Rdd<(K, V)> + Send + Sync {
         });
         cg_rdd.map_values(Arc::new(f))
     }
-
-    //        fn map_values<U:Data,F>(&self, f: F) -> MappedValuesRdd<Self, K, V, U, F> where
-    //            F: Fn(V) -> U + 'static + Send + Sync + PartialEq + Eq + Clone + serde::ser::Serialize + serde::de::DeserializeOwned,
-    //            Self: Sized,
-    //        {
-    //            MappedValuesRdd::new(self.get_rdd(), f)
-    //        }
 }
 
 // Implementing the PairRdd trait for all types which implements Rdd

@@ -51,13 +51,7 @@ impl Schedulers {
         allow_local: bool,
     ) -> Vec<U>
     where
-        F: Fn((TasKContext, Box<dyn Iterator<Item = T>>)) -> U
-            + 'static
-            + Send
-            + Sync
-            + Clone
-            + serde::ser::Serialize
-            + serde::de::DeserializeOwned,
+        F: SerFunc((TasKContext, Box<dyn Iterator<Item = T>>)) -> U,
         RT: Rdd<T> + 'static,
     {
         use Schedulers::*;
@@ -287,13 +281,7 @@ impl Context {
 
     pub fn run_job<T: Data, U: Data, RT, F>(&mut self, rdd: Arc<RT>, func: F) -> Vec<U>
     where
-        F: Fn(Box<dyn Iterator<Item = T>>) -> U
-            + Send
-            + Sync
-            + Clone
-            + serde::ser::Serialize
-            + serde::de::DeserializeOwned
-            + 'static,
+        F: SerFunc(Box<dyn Iterator<Item = T>>) -> U,
         RT: Rdd<T> + 'static,
     {
         let cl = Fn!([func] move | (task_context, iter) | (*func)(iter));
@@ -304,13 +292,7 @@ impl Context {
 
     pub fn run_job_with_context<T: Data, U: Data, RT, F>(&mut self, rdd: Arc<RT>, func: F) -> Vec<U>
     where
-        F: Fn((TasKContext, Box<dyn Iterator<Item = T>>)) -> U
-            + Send
-            + Sync
-            + Clone
-            + serde::ser::Serialize
-            + serde::de::DeserializeOwned
-            + 'static,
+        F: SerFunc((TasKContext, Box<dyn Iterator<Item = T>>)) -> U,
         RT: Rdd<T> + 'static,
     {
         info!("inside run job in context");
