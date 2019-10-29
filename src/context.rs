@@ -302,6 +302,28 @@ impl Context {
             .run_job(func, rdd.clone(), (0..rdd.number_of_splits()).collect(), false)
     }
 
+    pub fn run_job_on_partitions<T: Data, U: Data, RT, F, P>(
+        &mut self,
+        rdd: Arc<RT>,
+        func: F,
+        partitions: P,
+    ) -> Vec<U>
+    where
+        F: Fn(Box<dyn Iterator<Item = T>>) -> U
+            + Send
+            + Sync
+            + Clone
+            + serde::ser::Serialize
+            + serde::de::DeserializeOwned
+            + 'static,
+        RT: Rdd<T> + 'static,
+        P: IntoIterator<Item = usize>,
+    {
+        let cl = Fn!([func] move | (task_context, iter) | (*func)(iter));
+        self.scheduler
+            .run_job(Arc::new(cl), rdd, partitions.into_iter().collect(), false)
+    }
+
     pub fn run_job_with_context<T: Data, U: Data, RT, F>(&mut self, rdd: Arc<RT>, func: F) -> Vec<U>
     where
         F: Fn((TasKContext, Box<dyn Iterator<Item = T>>)) -> U

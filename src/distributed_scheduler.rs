@@ -418,129 +418,124 @@ impl DistributedScheduler {
                                 num_finished += 1;
                             }
                         } else if let Ok(smt) = evt.task.downcast::<ShuffleMapTask>() {
-    let result = evt
-        .result
-        .take()
-        .unwrap()
-        .downcast_ref::<String>()
-        .unwrap()
-        .clone();
-    //                                let result = *result;
-    //                                let result: serde_traitobject::Box<serde_traitobject::Any> =
-    //                                    evt.result.take().unwrap();
-    //                                //                                let result = result.into_any();
-    //                                let result: Box<String> =
-    //                                    Box::<Any>::downcast(result.into_any()).unwrap();
-    //                                //                                let result = result.downcast::<String>().unwrap();
-    //                                let result = *result;
-    //                                info!("result inside queue {:?}", result);
-    self.id_to_stage
-        .lock()
-        .get_mut(&smt.stage_id)
-        .unwrap()
-        .add_output_loc(smt.partition, result);
-    let stage = self.id_to_stage.lock().clone()[&smt.stage_id].clone();
-    info!(
-        "pending stages {:?}",
-        pending_tasks
-            .iter()
-            .map(|(x, y)| (
-                x.id,
-                y.iter().map(|k| k.get_task_id()).collect::<Vec<_>>()
-            ))
-            .collect::<Vec<_>>()
-    );
-    info!(
-        "pending tasks {:?}",
-        pending_tasks
-            .get(&stage)
-            .unwrap()
-            .iter()
-            .map(|x| x.get_task_id())
-            .collect::<Vec<_>>()
-    );
-    info!(
-        "running {:?}",
-        running.iter().map(|x| x.id).collect::<Vec<_>>()
-    );
-    info!(
-        "waiting {:?}",
-        waiting.iter().map(|x| x.id).collect::<Vec<_>>()
-    );
+                            let result = evt
+                                .result
+                                .take()
+                                .unwrap()
+                                .downcast_ref::<String>()
+                                .unwrap()
+                                .clone();
+                            //                                let result = *result;
+                            //                                let result: serde_traitobject::Box<serde_traitobject::Any> =
+                            //                                    evt.result.take().unwrap();
+                            //                                //                                let result = result.into_any();
+                            //                                let result: Box<String> =
+                            //                                    Box::<Any>::downcast(result.into_any()).unwrap();
+                            //                                //                                let result = result.downcast::<String>().unwrap();
+                            //                                let result = *result;
+                            //                                info!("result inside queue {:?}", result);
+                            self.id_to_stage
+                                .lock()
+                                .get_mut(&smt.stage_id)
+                                .unwrap()
+                                .add_output_loc(smt.partition, result);
+                            let stage = self.id_to_stage.lock().clone()[&smt.stage_id].clone();
+                            info!(
+                                "pending stages {:?}",
+                                pending_tasks
+                                    .iter()
+                                    .map(|(x, y)| (
+                                        x.id,
+                                        y.iter().map(|k| k.get_task_id()).collect::<Vec<_>>()
+                                    ))
+                                    .collect::<Vec<_>>()
+                            );
+                            info!(
+                                "pending tasks {:?}",
+                                pending_tasks
+                                    .get(&stage)
+                                    .unwrap()
+                                    .iter()
+                                    .map(|x| x.get_task_id())
+                                    .collect::<Vec<_>>()
+                            );
+                            info!(
+                                "running {:?}",
+                                running.iter().map(|x| x.id).collect::<Vec<_>>()
+                            );
+                            info!(
+                                "waiting {:?}",
+                                waiting.iter().map(|x| x.id).collect::<Vec<_>>()
+                            );
 
-    if running.contains(&stage)
-        && pending_tasks.get(&stage).unwrap().is_empty()
-    {
-        info!("here before registering map outputs ");
-        //TODO logging
-        running.remove(&stage);
-        if !stage.shuffle_dependency.is_none() {
-            info!(
-                    "stage output locs before register mapoutput tracker {:?}",
-                    stage.output_locs
-                );
-            let locs = stage
-                .output_locs
-                .iter()
-                .map(|x| match x.get(0) {
-                    Some(s) => Some(s.to_owned()),
-                    None => None,
-                })
-                .collect();
-            info!(
-                "locs for shuffle id {:?} {:?}",
-                stage
-                    .clone()
-                    .shuffle_dependency
-                    .unwrap()
-                    .get_shuffle_id(),
-                locs
-            );
-            self.map_output_tracker.register_map_outputs(
-                stage.shuffle_dependency.unwrap().get_shuffle_id(),
-                locs,
-            );
-            info!("here after registering map outputs ");
-        }
-        //TODO Cache
-        self.update_cache_locs();
-        let mut newly_runnable = Vec::new();
-        for stage in &waiting {
-            info!(
-                "waiting stage parent stages for stage {} are {:?}",
-                stage.id,
-                self.get_missing_parent_stages(stage.clone())
-                    .iter()
-                    .map(|x| x.id)
-                    .collect::<Vec<_>>()
-            );
-            if self.get_missing_parent_stages(stage.clone()).is_empty()
-            {
-                newly_runnable.push(stage.clone())
-            }
-        }
-        for stage in &newly_runnable {
-            waiting.remove(stage);
-        }
-        for stage in &newly_runnable {
-            running.insert(stage.clone());
-        }
-        for stage in newly_runnable {
-            self.submit_missing_tasks(
-                stage,
-                &mut finished,
-                &mut pending_tasks,
-                output_parts.clone(),
-                num_output_parts,
-                final_stage.clone(),
-                func.clone(),
-                final_rdd.clone(),
-                run_id,
-                thread_pool.clone(),
-            );
-        }
-    }
-}
+                            if running.contains(&stage)
+                                && pending_tasks.get(&stage).unwrap().is_empty()
+                            {
+                                info!("here before registering map outputs ");
+                                //TODO logging
+                                running.remove(&stage);
+                                if !stage.shuffle_dependency.is_none() {
+                                    info!(
+                                        "stage output locs before register mapoutput tracker {:?}",
+                                        stage.output_locs
+                                    );
+                                    let locs = stage
+                                        .output_locs
+                                        .iter()
+                                        .map(|x| match x.get(0) {
+                                            Some(s) => Some(s.to_owned()),
+                                            None => None,
+                                        })
+                                        .collect();
+                                    info!(
+                                        "locs for shuffle id {:?} {:?}",
+                                        stage.clone().shuffle_dependency.unwrap().get_shuffle_id(),
+                                        locs
+                                    );
+                                    self.map_output_tracker.register_map_outputs(
+                                        stage.shuffle_dependency.unwrap().get_shuffle_id(),
+                                        locs,
+                                    );
+                                    info!("here after registering map outputs ");
+                                }
+                                //TODO Cache
+                                self.update_cache_locs();
+                                let mut newly_runnable = Vec::new();
+                                for stage in &waiting {
+                                    info!(
+                                        "waiting stage parent stages for stage {} are {:?}",
+                                        stage.id,
+                                        self.get_missing_parent_stages(stage.clone())
+                                            .iter()
+                                            .map(|x| x.id)
+                                            .collect::<Vec<_>>()
+                                    );
+                                    if self.get_missing_parent_stages(stage.clone()).is_empty() {
+                                        newly_runnable.push(stage.clone())
+                                    }
+                                }
+                                for stage in &newly_runnable {
+                                    waiting.remove(stage);
+                                }
+                                for stage in &newly_runnable {
+                                    running.insert(stage.clone());
+                                }
+                                for stage in newly_runnable {
+                                    self.submit_missing_tasks(
+                                        stage,
+                                        &mut finished,
+                                        &mut pending_tasks,
+                                        output_parts.clone(),
+                                        num_output_parts,
+                                        final_stage.clone(),
+                                        func.clone(),
+                                        final_rdd.clone(),
+                                        run_id,
+                                        thread_pool.clone(),
+                                    );
+                                }
+                            }
+                        }
                     }
                     FetchFailed(FetchFailedVals {
                         server_uri,
