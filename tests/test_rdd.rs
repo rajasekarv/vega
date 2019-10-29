@@ -22,7 +22,7 @@ fn test_make_rdd() {
 #[test]
 fn test_take() {
     let sc = Context::new("local");
-    let col1 = vec![1, 2, 3, 4];
+    let col1 = vec![1, 2, 3, 4, 5, 6];
     let col1_rdd = sc.parallelize(col1, 4);
 
     let taken_1 = col1_rdd.take(1);
@@ -31,8 +31,8 @@ fn test_take() {
     let taken_3 = col1_rdd.take(3);
     assert_eq!(taken_3.len(), 3);
 
-    let taken_5 = col1_rdd.take(5);
-    assert_eq!(taken_5.len(), 4);
+    let taken_5 = col1_rdd.take(7);
+    assert_eq!(taken_5.len(), 6);
 
     let col2: Vec<i32> = vec![];
     let col2_rdd = sc.parallelize(col2, 4);

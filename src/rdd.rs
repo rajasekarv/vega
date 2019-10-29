@@ -279,11 +279,11 @@ pub trait Rdd<T: Data>: RddBase + Send + Sync + Serialize + Deserialize {
                 partitions,
             );
 
-            let current_len = buf.len();
-            buf.extend(
-                res.into_iter()
-                    .flat_map(|r| r.into_iter().take(num - current_len)),
-            );
+            res.into_iter().for_each(|r| {
+                let take = num - buf.len();
+                buf.extend(r.into_iter().take(take));
+            });
+
             parts_scanned += num_partitions;
         }
 
