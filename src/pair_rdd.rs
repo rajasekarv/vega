@@ -107,17 +107,13 @@ pub trait PairRdd<K: Data + Eq + Hash, V: Data>: Rdd<(K, V)> + Send + Sync {
             F: SerFunc((V, V)) -> V,
         {
             let p = b1;
-            let res = func((p, b2));
-            //            *b1.lock() = func(p, b2)
-            //            b1
-            res
+            func((p, b2))
         }
         let func_clone = func.clone();
         let merge_combiners = Box::new(
             Fn!([func_clone] move | (b1, b2) | merge_combiners::<V, F>(b1, b2, func_clone.clone())),
         );
-        let bufs = self.combine_by_key(create_combiner, merge_value, merge_combiners, partitioner);
-        bufs
+        self.combine_by_key(create_combiner, merge_value, merge_combiners, partitioner)
     }
 
     fn map_values<U: Data>(&self, f: Arc<dyn Func(V) -> U>) -> MappedValuesRdd<Self, K, V, U>
