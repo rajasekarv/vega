@@ -10,7 +10,7 @@ Use this command: `cargo +nightly-2019-09-11 build --release`
 
 Refer make_rdd.rs and other examples in example code to get the basic idea 
 
-You need to have hosts.conf in the format present inside config folder in all of the machines when running in distributed mode and all of them should be ssh-able from master.
+You need to have hosts.conf in the format present inside config folder in the home directory of all of the machines when running in distributed mode and all of them should be ssh-able from master.
 The master port can be configured in hosts.conf and 10500 in executors should be free. Ports 5000-6000 is reserved for shuffle manager. It will be handled internally soon.
 
 Since File readers are not done, you have to use manual file reading for now (like manually reading from S3 or hack around local files by distributing copies of all files to all machines and make rdd using filename list).
