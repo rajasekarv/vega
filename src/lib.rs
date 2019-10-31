@@ -113,3 +113,6 @@ mod env;
 
 pub mod error;
 pub use error::{Error, Result};
+
+mod hosts;
+use hosts::Hosts;

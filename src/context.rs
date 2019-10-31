@@ -20,6 +20,7 @@ use std::sync::Arc;
 //use std::time::{SystemTime, UNIX_EPOCH};
 use toml;
 //use uuid::parser::Expected::Exact;
+use std::path::PathBuf;
 use uuid::Uuid;
 
 // there is a problem with this approach since T needs to satisfy PartialEq, Eq for Range
@@ -71,12 +72,6 @@ pub struct Context {
     distributed_master: bool,
 }
 
-#[derive(Deserialize)]
-struct Hosts {
-    master: String,
-    slaves: Vec<String>,
-}
-
 impl Context {
     // Sends the binary to all nodes present in hosts.conf and starts them
     pub fn new(mode: &str) -> Result<Self> {
@@ -104,17 +99,7 @@ impl Context {
                             ),
                         ]);
                         info!("started client");
-                        let mut host_file =
-                            File::open("hosts.conf").expect("Unable to open the file");
-                        let mut hosts = String::new();
-                        host_file
-                            .read_to_string(&mut hosts)
-                            .expect("Unable to read the file");
-                        //                        let hosts: Hosts =
-                        //                            toml::from_str(&hosts).expect("unable to process the hosts.conf file");
-                        let executor = Executor::new(
-                            args[1].parse().expect("problem with executor arguments"),
-                        );
+                        let executor = Executor::new(args[1].parse().map_err(Error::ExecutorPort)?);
                         executor.worker();
                         info!("initiated executor worker exit");
                         executor.exit_signal();
@@ -137,16 +122,7 @@ impl Context {
                                     .map_err(Error::CreateLogFile)?,
                             ),
                         ]);
-                        let mut host_file =
-                            File::open("hosts.conf").expect("Unable to open the file");
-                        let mut hosts = String::new();
-                        host_file
-                            .read_to_string(&mut hosts)
-                            .expect("Unable to read the file");
-                        //                        println!("{:?}", hosts);
-                        let hosts: Hosts = toml::from_str(&hosts)
-                            .expect("unable to process the hosts.conf file in master");
-                        for address in &hosts.slaves {
+                        for address in &env::hosts.slaves {
                             info!("deploying executor at address {:?}", address);
                             let path = std::env::current_exe()
                                 .map_err(|_| Error::CurrentBinaryPath)?
