@@ -247,18 +247,24 @@ impl Context {
     }
     pub fn drop_executors(self) {
         info!("inside context drop in master {}", self.distributed_master);
+
         for (address, port) in self.address_map.clone() {
             //            while let Err(_) = TcpStream::connect(format!("{}:{}", address, port + 10)) {
             //                continue;
             //            }
-            let mut stream = TcpStream::connect(format!("{}:{}", address, port + 10))
-                .expect("couldn't connect to executor");
-            let signal = true;
-            let signal = bincode::serialize(&signal).unwrap();
-            let mut message = ::capnp::message::Builder::new_default();
-            let mut task_data = message.init_root::<serialized_data::Builder>();
-            task_data.set_msg(&signal);
-            serialize_packed::write_message(&mut stream, &message);
+            if let Ok(mut stream) = TcpStream::connect(format!("{}:{}", address, port + 10)) {
+                let signal = true;
+                let signal = bincode::serialize(&signal).unwrap();
+                let mut message = ::capnp::message::Builder::new_default();
+                let mut task_data = message.init_root::<serialized_data::Builder>();
+                task_data.set_msg(&signal);
+                serialize_packed::write_message(&mut stream, &message);
+            } else {
+                error!(
+                    "Failed to connect to {}:{} in order to stop its executor",
+                    address, port
+                );
+            }
         }
     }
     pub fn new_rdd_id(&self) -> usize {
