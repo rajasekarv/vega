@@ -49,8 +49,8 @@ pub struct DistributedScheduler {
     taskid_to_slaveid: HashMap<String, String>,
     job_tasks: HashMap<usize, HashSet<String>>,
     slaves_with_executors: HashSet<String>,
-    server_uris: Arc<Mutex<VecDeque<(String, usize)>>>,
-    port: usize,
+    server_uris: Arc<Mutex<VecDeque<(String, u16)>>>,
+    port: u16,
     map_output_tracker: MapOutputTracker,
 }
 
@@ -59,8 +59,8 @@ impl DistributedScheduler {
         threads: usize,
         max_failures: usize,
         master: bool,
-        servers: Option<Vec<(String, usize)>>,
-        port: usize,
+        servers: Option<Vec<(String, u16)>>,
+        port: u16,
         //        map_output_tracker: MapOutputTracker,
     ) -> Self {
         //        unimplemented!()

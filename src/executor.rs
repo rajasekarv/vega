@@ -7,12 +7,12 @@ use std::time::SystemTime;
 use threadpool::ThreadPool;
 
 pub struct Executor {
-    port: usize,
+    port: u16,
     //    thread_pool: ThreadPool,
 }
 
 impl Executor {
-    pub fn new(port: usize) -> Self {
+    pub fn new(port: u16) -> Self {
         Executor {
             port,
             //            thread_pool: ThreadPool::new(1),

@@ -67,7 +67,7 @@ pub struct Context {
     next_rdd_id: Arc<AtomicUsize>,
     next_shuffle_id: Arc<AtomicUsize>,
     scheduler: Schedulers,
-    address_map: Vec<(String, usize)>,
+    address_map: Vec<(String, u16)>,
     distributed_master: bool,
 }
 
@@ -87,10 +87,10 @@ impl Context {
         match mode {
             "distributed" => {
                 //TODO proper command line argument parsing
-                let mut port = 10000;
+                let mut port: u16 = 10000;
                 let args = std::env::args().skip(1).collect::<Vec<_>>();
                 //                println!("args {:?}", args);
-                let mut address_map: Vec<(String, usize)> = Vec::new();
+                let mut address_map: Vec<(String, u16)> = Vec::new();
                 match args.get(0).as_ref().map(|arg| &arg[..]) {
                     Some("slave") => {
                         let uuid = Uuid::new_v4().to_string();
