@@ -33,9 +33,6 @@ use serialized_data_capnp::serialized_data;
 pub mod context;
 pub use context::*;
 
-mod dependency;
-use dependency::*;
-
 mod executor;
 use executor::*;
 
@@ -47,6 +44,11 @@ pub use rdd::*;
 
 pub mod pair_rdd;
 pub use pair_rdd::*;
+
+pub mod io;
+
+mod dependency;
+use dependency::*;
 
 mod shuffled_rdd;
 use shuffled_rdd::*;

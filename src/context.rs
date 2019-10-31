@@ -1,4 +1,6 @@
 use super::*;
+use crate::io::ReaderConfiguration;
+
 use capnp::serialize_packed;
 use simplelog::*;
 //use parking_lot::Mutex;
@@ -293,13 +295,7 @@ impl Context {
         partitions: P,
     ) -> Vec<U>
     where
-        F: Fn(Box<dyn Iterator<Item = T>>) -> U
-            + Send
-            + Sync
-            + Clone
-            + serde::ser::Serialize
-            + serde::de::DeserializeOwned
-            + 'static,
+        F: SerFunc(Box<dyn Iterator<Item = T>>) -> U,
         RT: Rdd<T> + 'static,
         P: IntoIterator<Item = usize>,
     {
@@ -321,5 +317,13 @@ impl Context {
             (0..rdd.number_of_splits()).collect(),
             false,
         )
+    }
+
+    pub fn read_files<T: Data, F, C>(&mut self, config: C, func: F) -> ParallelCollection<T>
+    where
+        F: SerFunc(Box<dyn Read>) -> T,
+        C: ReaderConfiguration,
+    {
+        unimplemented!()
     }
 }

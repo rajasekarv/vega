@@ -1,6 +1,9 @@
+use native_spark::io::*;
 use native_spark::*;
+
 #[macro_use]
 extern crate serde_closure;
+extern crate csv;
 
 #[test]
 fn test_make_rdd() {
@@ -31,13 +34,14 @@ fn test_take() {
     let taken_3 = col1_rdd.take(3);
     assert_eq!(taken_3.len(), 3);
 
-    let taken_5 = col1_rdd.take(7);
-    assert_eq!(taken_5.len(), 6);
+    let taken_7 = col1_rdd.take(7);
+    assert_eq!(taken_7.len(), 6);
 
     let col2: Vec<i32> = vec![];
     let col2_rdd = sc.parallelize(col2, 4);
     let taken_0 = col2_rdd.take(1);
     assert!(taken_0.is_empty());
+    sc.drop_executors()
 }
 
 #[test]
@@ -54,6 +58,23 @@ fn test_first() {
     // let col2_rdd = sc.parallelize(col2, 4);
     // let taken_0 = col2_rdd.first();
     // assert!(taken_0.is_err());
+
+    sc.drop_executors()
+}
+
+fn test_read_files() {
+    let mut sc = Context::new("local");
+
+    let processor = Fn!(|reader: Box<dyn std::io::Read>| {
+        csv::Reader::from_reader(reader);
+    });
+
+    sc.read_files(
+        LocalFsReaderConfig::new("/tmp/test_dir".to_string()),
+        processor,
+    );
+
+    sc.drop_executors()
 }
 
 #[test]
