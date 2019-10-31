@@ -58,9 +58,26 @@ fn test_first() {
 
 #[test]
 fn test_distinct() {
+    use std::collections::HashSet;
     let sc = Context::new("local");
-    let rdd = sc.parallelize(vec![1,2,2,2,3,3,3,4,4,5], 3);
+    let rdd = sc.parallelize(vec![1, 2, 2, 2, 3, 3, 3, 4, 4, 5], 3);
     assert!(rdd.distinct().collect().len() == 5);
-    assert!(rdd.distinct().collect() == rdd.distinct().collect());
-    assert!(rdd.distinct_with_num_partitions(3).collect() == rdd.distinct().collect());
+    assert!(
+        rdd.distinct().collect().into_iter().collect::<HashSet<_>>()
+            == rdd.distinct().collect().into_iter().collect::<HashSet<_>>()
+    );
+    assert!(
+        rdd.distinct_with_num_partitions(2)
+            .collect()
+            .into_iter()
+            .collect::<HashSet<_>>()
+            == rdd.distinct().collect().into_iter().collect::<HashSet<_>>()
+    );
+    assert!(
+        rdd.distinct_with_num_partitions(10)
+            .collect()
+            .into_iter()
+            .collect::<HashSet<_>>()
+            == rdd.distinct().collect().into_iter().collect::<HashSet<_>>()
+    );
 }

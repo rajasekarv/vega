@@ -201,8 +201,7 @@ pub trait Rdd<T: Data>: RddBase + Send + Sync + Serialize + Deserialize {
     fn distinct_with_num_partitions(
         &self,
         num_partitions: usize,
-    ) 
-    -> MapperRdd<
+    ) -> MapperRdd<
         ShuffledRdd<
             Option<T>,
             Option<T>,
@@ -228,8 +227,7 @@ pub trait Rdd<T: Data>: RddBase + Send + Sync + Serialize + Deserialize {
     /// return a new Rdd containing the distinct elements in this rdd
     fn distinct(
         &self,
-    ) 
-    -> MapperRdd<
+    ) -> MapperRdd<
         ShuffledRdd<
             Option<T>,
             Option<T>,
