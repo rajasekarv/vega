@@ -128,20 +128,18 @@ mod tests {
         assert!(p1.clone().map(|p| p.equals(&p2_1.clone())) == Some(false));
         assert!(p1.clone().map(|p| p.equals(&p2_2.clone())) == Some(false));
         assert!(p1.clone().map(|p| p.equals(&p1.clone().unwrap())) != None);
-        assert!(
-            p1.clone()
-                .map_or(false, |p| (&p).equals(&p1.clone().unwrap()))
-        );
+        assert!(p1
+            .clone()
+            .map_or(false, |p| (&p).equals(&p1.clone().unwrap())));
         assert!(!p1.clone().map_or(false, |p| p.equals(&p2_1.clone())));
         assert!(!p1.clone().map_or(false, |p| p.equals(&p2_2.clone())));
         p1 = None;
         assert!(p1.clone().map(|p| p.equals(&p1.clone().unwrap())) == None);
         assert!(p1.clone().map(|p| p.equals(&p2_1.clone())) == None);
         assert!(p1.clone().map(|p| p.equals(&p2_2.clone())) == None);
-        assert!(
-            !p1.clone()
-                .map_or(false, |p| (&p).equals(&p1.clone().unwrap()))
-        );
+        assert!(!p1
+            .clone()
+            .map_or(false, |p| (&p).equals(&p1.clone().unwrap())));
         assert!(!p1.clone().map_or(false, |p| p.equals(&p2_1.clone())));
         assert!(!p1.clone().map_or(false, |p| p.equals(&p2_2.clone())));
     }

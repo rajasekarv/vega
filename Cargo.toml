@@ -11,7 +11,6 @@ name = "native_spark"
 
 [dependencies]
 objekt = "0.1.2"
-objekt-clonable-impl = "0.2.2"
 downcast-rs = "1.0.3"
 threadpool = "1.7.1"
 #derivative = "1.0.2"
