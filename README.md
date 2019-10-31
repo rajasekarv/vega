@@ -32,18 +32,19 @@ Most of these except file reader and writer are trivial to implement
 - [x] map
 - [x] flat_map 
 - [x] filter 
+- [x] group_by 
+- [x] reduce_by
+- [x] distinct
 - [ ] step_by 
 - [ ] take_sample 
 - [ ] union 
 - [ ] glom 
 - [ ] cartesian 
-- [x] group_by 
-- [x] reduce_by
 - [ ] pipe 
 - [ ] map_partitions 
 - [ ] for_each 
 - [x] collect 
-- [ ] reduce 
+- [x] reduce 
 - [ ] fold 
 - [ ] aggregate 
 - [x] take 

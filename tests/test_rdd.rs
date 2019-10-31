@@ -55,3 +55,12 @@ fn test_first() {
     // let taken_0 = col2_rdd.first();
     // assert!(taken_0.is_err());
 }
+
+#[test]
+fn test_distinct() {
+    let sc = Context::new("local");
+    let rdd = sc.parallelize(vec![1,2,2,2,3,3,3,4,4,5], 3);
+    assert!(rdd.distinct().collect().len() == 5);
+    assert!(rdd.distinct().collect() == rdd.distinct().collect());
+    assert!(rdd.distinct_with_num_partitions(3).collect() == rdd.distinct().collect());
+}

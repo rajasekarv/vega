@@ -196,10 +196,61 @@ pub trait Rdd<T: Data>: RddBase + Send + Sync + Serialize + Deserialize {
             })
     }
 
+    /// return a new Rdd containing the distinct elements in this rdd
+    // since impl trait is not possible inside Rdd, we have to explicity mention the return type. Extremely ugly but it's ok consideting it is required very less number of times.
+    fn distinct_with_num_partitions(
+        &self,
+        num_partitions: usize,
+    ) 
+    -> MapperRdd<
+        ShuffledRdd<
+            Option<T>,
+            Option<T>,
+            Option<T>,
+            MapperRdd<Self, T, (Option<T>, Option<T>), Box<dyn Func(T) -> (Option<T>, Option<T>)>>,
+        >,
+        (Option<T>, Option<T>),
+        T,
+        Box<dyn Func((Option<T>, Option<T>)) -> T>,
+    >
+    where
+        Self: Sized + 'static,
+        T: Data + Eq + Hash,
+    {
+        self.map(Box::new(Fn!(|x| (Some(x), None))) as Box<dyn Func(T) -> (Option<T>, Option<T>)>)
+            .reduce_by_key(Box::new(Fn!(|(x, y)| y)), num_partitions)
+            .map(Box::new(Fn!(|x: (Option<T>, Option<T>)| {
+                let (x, y) = x;
+                x.unwrap()
+            })))
+    }
+
+    /// return a new Rdd containing the distinct elements in this rdd
+    fn distinct(
+        &self,
+    ) 
+    -> MapperRdd<
+        ShuffledRdd<
+            Option<T>,
+            Option<T>,
+            Option<T>,
+            MapperRdd<Self, T, (Option<T>, Option<T>), Box<dyn Func(T) -> (Option<T>, Option<T>)>>,
+        >,
+        (Option<T>, Option<T>),
+        T,
+        Box<dyn Func((Option<T>, Option<T>)) -> T>,
+    >
+    where
+        Self: Sized + 'static,
+        T: Data + Eq + Hash,
+    {
+        self.distinct_with_num_partitions(self.number_of_splits())
+    }
+
     /// Return the first element in this RDD.
     fn first(&self) -> Result<T, Box<dyn std::error::Error>>
     where
-        Self: Sized + 'static + Serialize + Deserialize,
+        Self: Sized + 'static,
     {
         if let Some(result) = self.take(1).into_iter().next() {
             Ok(result)
@@ -217,7 +268,7 @@ pub trait Rdd<T: Data>: RddBase + Send + Sync + Serialize + Deserialize {
     /// all the data is loaded into the driver's memory.
     fn take(&self, num: usize) -> Vec<T>
     where
-        Self: 'static + Sized + Serialize + Deserialize,
+        Self: 'static + Sized,
     {
         //TODO: in original spark this is configurable; see rdd/RDD.scala:1397
         // Math.max(conf.get(RDD_LIMIT_SCALE_UP_FACTOR), 2)
