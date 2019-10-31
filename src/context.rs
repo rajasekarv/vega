@@ -100,7 +100,7 @@ impl Context {
                                 LevelFilter::Info,
                                 Config::default(),
                                 File::create(format!("/tmp/executor-{}", uuid))
-                                    .expect("not able to create log file"),
+                                    .map_err(Error::CreateLogFile)?,
                             ),
                         ]);
                         info!("started client");
@@ -134,7 +134,7 @@ impl Context {
                                 LevelFilter::Info,
                                 Config::default(),
                                 File::create(format!("/tmp/master-{}", uuid))
-                                    .expect("not able to create log file"),
+                                    .map_err(Error::CreateLogFile)?,
                             ),
                         ]);
                         let mut host_file =
@@ -221,7 +221,7 @@ impl Context {
                         LevelFilter::Info,
                         Config::default(),
                         File::create(format!("/tmp/master-{}", uuid))
-                            .expect("not able to create log file"),
+                            .map_err(Error::CreateLogFile)?,
                     ),
                 ]);
                 let scheduler = Local(LocalScheduler::new(num_cpus::get(), 20, true));
