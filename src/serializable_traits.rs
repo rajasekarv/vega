@@ -228,7 +228,7 @@ where
 }
 impl<A, F: ?Sized> ops::Fn<A> for Box<F>
 where
-    F: Fn<A>,
+    F: Func<A>,
 {
     extern "rust-call" fn call(&self, args: A) -> Self::Output {
         self.0.call(args)
@@ -251,15 +251,52 @@ impl<'de, T: Deserialize + ?Sized + 'static> serde::de::Deserialize<'de> for Box
     }
 }
 
+pub trait SerFunc<Args>:
+    Fn<Args>
+    + Send
+    + Sync
+    + Clone
+    + serde::ser::Serialize
+    + serde::de::DeserializeOwned
+    + 'static
+    + Serialize
+    + Deserialize
+{
+}
+impl<Args, T> SerFunc<Args> for T where
+    T: Fn<Args>
+        + Send
+        + Sync
+        + Clone
+        + serde::ser::Serialize
+        + serde::de::DeserializeOwned
+        + 'static
+        + Serialize
+        + Deserialize
+{
+}
+
 pub trait Func<Args>:
-    ops::Fn<Args> + Serialize + Deserialize + Send + Sync + objekt::Clone + 'static
+    ops::Fn<Args> + Serialize + Deserialize + Send + Sync + 'static + objekt::Clone
 {
 }
 impl<T: ?Sized, Args> Func<Args> for T where
-    T: ops::Fn<Args> + Serialize + Deserialize + Send + Sync + objekt::Clone + 'static
+    T: ops::Fn<Args> + Serialize + Deserialize + Send + Sync + 'static + objekt::Clone
 {
 }
-//objekt::clone_trait_object!(Func<V: Data>);
+
+impl<Args: 'static, Output: 'static> std::clone::Clone for Box<dyn Func<Args, Output = Output>> {
+    fn clone(&self) -> Self {
+        Box::new(*objekt::clone_box(&*self))
+    }
+}
+impl<Args: 'static, Output: 'static> std::clone::Clone
+    for boxed::Box<dyn Func<Args, Output = Output>>
+{
+    fn clone(&self) -> Self {
+        boxed::Box::new(*objekt::clone_box(&*self))
+    }
+}
 
 impl<'a, Args, Output> AsRef<Self> for dyn Func<Args, Output = Output> + 'a {
     fn as_ref(&self) -> &Self {
@@ -285,6 +322,3 @@ impl<'de, Args: 'static, Output: 'static> serde::de::Deserialize<'de>
         <Box<dyn Func<Args, Output = Output> + 'static>>::deserialize(deserializer).map(|x| x.0)
     }
 }
-
-pub trait SerFunc<Args>: Fn<Args> + Send + Sync + Clone + serde::ser::Serialize + serde::de::DeserializeOwned + 'static {}
-impl<Args,T> SerFunc<Args> for T where T: Fn<Args> + Send + Sync + Clone + serde::ser::Serialize + serde::de::DeserializeOwned + 'static {}

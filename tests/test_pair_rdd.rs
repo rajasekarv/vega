@@ -30,7 +30,8 @@ fn test_group_by() {
 
     let expected = vec![
         ("x".to_string(), vec![1, 2, 3, 4, 5, 6, 7]),
-        ("y".to_string(), vec![1, 2, 3, 4, 5, 6, 7, 8])];
+        ("y".to_string(), vec![1, 2, 3, 4, 5, 6, 7, 8]),
+    ];
     assert_eq!(expected, res);
 }
 
@@ -65,9 +66,18 @@ fn test_join() {
         (2, "B1", "C", "D"),
         (2, "B2", "C", "D"),
         (3, "C1", "E", "F"),
-        (3, "C2", "E", "F")]
-        .iter()
-        .map(|tuple| (tuple.0, (tuple.1.to_string(), (tuple.2.to_string(), tuple.3.to_string()))))
-        .collect::<Vec<_>>();
+        (3, "C2", "E", "F"),
+    ]
+    .iter()
+    .map(|tuple| {
+        (
+            tuple.0,
+            (
+                tuple.1.to_string(),
+                (tuple.2.to_string(), tuple.3.to_string()),
+            ),
+        )
+    })
+    .collect::<Vec<_>>();
     assert_eq!(expected, res);
 }

@@ -282,7 +282,7 @@ pub trait Rdd<T: Data>: RddBase + Send + Sync + Serialize + Deserialize {
 #[derive(Serialize, Deserialize)]
 pub struct MapperRdd<RT: 'static, T: Data, U: Data, F>
 where
-    F: Fn(T) -> U + 'static + Send + Sync + Clone + Serialize + Deserialize,
+    F: Func(T) -> U + Clone,
     RT: Rdd<T>,
 {
     #[serde(with = "serde_traitobject")]
@@ -295,7 +295,7 @@ where
 // Can't derive clone automatically
 impl<RT: 'static, T: Data, U: Data, F> Clone for MapperRdd<RT, T, U, F>
 where
-    F: Fn(T) -> U + 'static + Send + Sync + Clone + Serialize + Deserialize,
+    F: Func(T) -> U + Clone,
     RT: Rdd<T>,
 {
     fn clone(&self) -> Self {
@@ -416,13 +416,7 @@ where
 #[derive(Serialize, Deserialize)]
 pub struct FlatMapperRdd<RT: 'static, T: Data, U: Data, F>
 where
-    F: Fn(T) -> Box<dyn Iterator<Item = U>>
-        + 'static
-        + Send
-        + Sync
-        + Clone
-        + Serialize
-        + Deserialize,
+    F: Func(T) -> Box<dyn Iterator<Item = U>> + Clone,
     RT: Rdd<T>,
 {
     #[serde(with = "serde_traitobject")]
@@ -434,13 +428,7 @@ where
 
 impl<RT: 'static, T: Data, U: Data, F> Clone for FlatMapperRdd<RT, T, U, F>
 where
-    F: Fn(T) -> Box<dyn Iterator<Item = U>>
-        + 'static
-        + Send
-        + Sync
-        + Clone
-        + Serialize
-        + Deserialize,
+    F: Func(T) -> Box<dyn Iterator<Item = U>> + Clone,
     RT: Rdd<T>,
 {
     fn clone(&self) -> Self {
