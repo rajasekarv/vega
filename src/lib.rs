@@ -110,3 +110,6 @@ use serializable_traits::{AnyData, Data, Func, SerFunc};
 
 mod env;
 //use env::*;
+
+pub mod error;
+pub use error::{Error, Result};

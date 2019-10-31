@@ -79,7 +79,7 @@ struct Hosts {
 
 impl Context {
     // Sends the binary to all nodes present in hosts.conf and starts them
-    pub fn new(mode: &str) -> Self {
+    pub fn new(mode: &str) -> Result<Self> {
         let next_rdd_id = Arc::new(AtomicUsize::new(0));
         let next_shuffle_id = Arc::new(AtomicUsize::new(0));
         use Schedulers::*;
@@ -149,7 +149,7 @@ impl Context {
                         for address in &hosts.slaves {
                             info!("deploying executor at address {:?}", address);
                             let path = std::env::current_exe()
-                                .expect("couldn't get executable path")
+                                .map_err(|_| Error::CurrentBinaryPath)?
                                 .into_os_string()
                                 .into_string()
                                 .expect("couldn't convert os_string to string");
@@ -194,7 +194,7 @@ impl Context {
                                 .expect("ls command failed to start");
                             port += 5000;
                         }
-                        Context {
+                        Ok(Context {
                             next_rdd_id,
                             next_shuffle_id,
                             scheduler: Distributed(DistributedScheduler::new(
@@ -206,7 +206,7 @@ impl Context {
                             )),
                             address_map,
                             distributed_master: true,
-                        }
+                        })
                         //TODO handle if master is in another node than from where the program is executed
                         //                        ::std::process::exit(0);
                     }
@@ -225,23 +225,23 @@ impl Context {
                     ),
                 ]);
                 let scheduler = Local(LocalScheduler::new(num_cpus::get(), 20, true));
-                Context {
+                Ok(Context {
                     next_rdd_id,
                     next_shuffle_id,
                     scheduler,
                     address_map: Vec::new(),
                     distributed_master: false,
-                }
+                })
             }
             _ => {
                 let scheduler = Local(LocalScheduler::new(num_cpus::get(), 20, true));
-                Context {
+                Ok(Context {
                     next_rdd_id,
                     next_shuffle_id,
                     scheduler,
                     address_map: Vec::new(),
                     distributed_master: false,
-                }
+                })
             }
         }
     }

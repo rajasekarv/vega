@@ -6,8 +6,8 @@ use chrono::prelude::*;
 use std::fs;
 use std::io::{BufRead, BufReader};
 
-fn main() {
-    let sc = Context::new("local");
+fn main() -> Result<()> {
+    let sc = Context::new("local")?;
     let files = fs::read_dir("csv_folder")
         .unwrap()
         .map(|x| x.unwrap().path().to_str().unwrap().to_owned())
@@ -34,4 +34,5 @@ fn main() {
     let res = avg.collect();
     println!("{:?}", &res[0]);
     sc.drop_executors();
+    Ok(())
 }

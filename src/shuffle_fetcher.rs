@@ -72,7 +72,8 @@ impl ShuffleFetcher {
                         fn f(
                             producer: Sender<(Vec<u8>, String)>,
                             url: String,
-                        ) -> Result<(), Box<dyn Error>> {
+                        ) -> std::result::Result<(), Box<dyn std::error::Error>>
+                        {
                             let mut res = reqwest::get(&url)?;
                             let len = &res.content_length();
                             let mut body = vec![0; len.unwrap() as usize];
