@@ -285,16 +285,11 @@ impl<T: ?Sized, Args> Func<Args> for T where
 {
 }
 
-impl<Args: 'static, Output: 'static> std::clone::Clone for Box<dyn Func<Args, Output = Output>> {
-    fn clone(&self) -> Self {
-        Box::new(*objekt::clone_box(&*self))
-    }
-}
 impl<Args: 'static, Output: 'static> std::clone::Clone
     for boxed::Box<dyn Func<Args, Output = Output>>
 {
     fn clone(&self) -> Self {
-        boxed::Box::new(*objekt::clone_box(&*self))
+        objekt::clone_box(&**self)
     }
 }
 
