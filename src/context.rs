@@ -135,7 +135,7 @@ impl Context {
                             let address_cli = address
                                 .split('@')
                                 .nth(1)
-                                .expect("format of address is wrong")
+                                .ok_or(Error::ParseSlaveAddress(address.into()))?
                                 .to_string();
                             address_map.push((address_cli, port));
                             let local_dir_root = "/tmp";

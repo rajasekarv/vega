@@ -35,4 +35,7 @@ pub enum Error {
         source: toml::de::Error,
         path: PathBuf,
     },
+
+    #[error("failed to parse slave address {0}")]
+    ParseSlaveAddress(String),
 }
