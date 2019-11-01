@@ -171,14 +171,14 @@ impl DistributedScheduler {
         env::env
             .cache_tracker
             .register_rdd(rdd_base.get_rdd_id(), rdd_base.number_of_splits());
-        if !shuffle_dependency.is_none() {
+        if let Some(shuffle_dependency) = shuffle_dependency.clone() {
             info!("shuffle dependcy and registering mapoutput tracker");
             self.map_output_tracker.register_shuffle(
-                shuffle_dependency.clone().unwrap().get_shuffle_id(),
+                shuffle_dependency.get_shuffle_id(),
                 rdd_base.number_of_splits(),
             );
             info!("new stage tracker after");
-        }
+        };
         let id = self.next_stage_id.fetch_add(1, Ordering::SeqCst);
         info!("new stage id {}", id);
         let stage = Stage::new(
