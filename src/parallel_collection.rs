@@ -6,6 +6,24 @@ use std::sync::Arc;
 
 // This module implements parallel collection RDD for dividing the input collection for parallel processing
 
+/// A collection of objects which can be sliced into partitions with a partitioning function.
+pub trait Chunkable<D>
+where
+    D: Data,
+{
+    fn slice_with_set_parts<I>(data: I, parts: usize) -> Vec<Arc<Vec<D>>>
+    where
+        I: IntoIterator<Item = D>;
+
+    fn slice<I>(data: I) -> Vec<Arc<Vec<D>>>
+    where
+        I: IntoIterator<Item = D>,
+    {
+        let as_many_parts_as_cpus = num_cpus::get();
+        Self::slice_with_set_parts(data, as_many_parts_as_cpus)
+    }
+}
+
 #[derive(Serialize, Deserialize, Clone)]
 pub struct ParallelCollectionSplit<T> {
     rdd_id: i64,
@@ -69,16 +87,40 @@ impl<T: Data> ParallelCollection<T> {
             rdd_vals: Arc::new(ParallelCollectionVals {
                 vals: Arc::new(RddVals::new(context.clone())),
                 context,
-                splits_: ParallelCollection::slice(data, num_slices),
+                splits_: ParallelCollection::slice_with_set_parts(data, num_slices),
                 num_slices,
             }),
         }
     }
-    fn slice(data: Vec<T>, num_slices: usize) -> Vec<Arc<Vec<T>>> {
+
+    fn from_chunkable<C, I>(context: Context, data: I) -> Self
+    where
+        C: Chunkable<T>,
+        I: IntoIterator<Item = T>,
+    {
+        let splits_ = <C as Chunkable<T>>::slice(data);
+        let rdd_vals = ParallelCollectionVals {
+            vals: Arc::new(RddVals::new(context.clone())),
+            context,
+            num_slices: splits_.len(),
+            splits_,
+        };
+        ParallelCollection {
+            rdd_vals: Arc::new(rdd_vals),
+        }
+    }
+}
+
+impl<T: Data> Chunkable<T> for ParallelCollection<T> {
+    fn slice_with_set_parts<I>(data: I, num_slices: usize) -> Vec<Arc<Vec<T>>>
+    where
+        I: IntoIterator<Item = T>,
+    {
         if num_slices < 1 {
             panic!("Number of slices should be greater than or equal to 1");
         } else {
             let mut slice_count = 0;
+            let data: Vec<_> = data.into_iter().collect();
             let data_len = data.len();
             //let mut start = (count * data.len()) / num_slices;
             let mut end = ((slice_count + 1) * data_len) / num_slices;
@@ -105,6 +147,7 @@ impl<T: Data> ParallelCollection<T> {
         }
     }
 }
+
 impl<K: Data, V: Data> RddBase for ParallelCollection<(K, V)> {
     fn cogroup_iterator_any(
         &self,

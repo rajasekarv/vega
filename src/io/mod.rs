@@ -2,12 +2,18 @@ pub use file_reader::{LocalFsReaderConfig, ReaderConfiguration};
 
 mod file_reader {
     use crate::*;
+
     use std::fs;
     use std::io::prelude::*;
     use std::io::{BufReader, Result};
     use std::path::{Path, PathBuf};
 
-    pub trait ReaderConfiguration {}
+    use log::debug;
+    use rand::prelude::*;
+
+    pub trait ReaderConfiguration {
+        fn build(self) -> Box<dyn Read>;
+    }
 
     pub struct LocalFsReaderConfig {
         filter_ext: Option<std::ffi::OsString>,
@@ -35,16 +41,19 @@ mod file_reader {
         pub fn expect_directory(&mut self, should_exist: bool) {
             self.expect_dir = should_exist;
         }
-        /// Number of partitions to use per executor
+        /// Number of partitions to use per executor, to perform the load tasks,
+        /// ideally one executor is used per host with as many partitions as CPUs available.
+        // TODO: profile this for actual sensible defaults
         pub fn num_partitions_per_executor(&mut self, num: usize) {
             self.executor_partitions = Some(num);
         }
-        fn build(self) -> LocalFsReader {
-            LocalFsReader::new(self)
-        }
     }
 
-    impl ReaderConfiguration for LocalFsReaderConfig {}
+    impl ReaderConfiguration for LocalFsReaderConfig {
+        fn build(self) -> Box<dyn Read> {
+            Box::new(LocalFsReader::new(self))
+        }
+    }
 
     /// Reads all files specified in a given directory from the local directory
     /// on all executors on every worker node.
@@ -92,7 +101,9 @@ mod file_reader {
             }
         }
 
-        fn load_files(&mut self) -> Result<()> {
+        /// Load the files in the current host. This function should be called once per host
+        /// to come with the paralel workload.
+        pub(crate) fn load_local_files(&mut self) -> Result<()> {
             let mut total_size = 0_u64;
             if self.is_single_file {
                 let size = fs::metadata(&self.path)?.len();
@@ -136,17 +147,9 @@ mod file_reader {
             let std_dev =
                 ((ex2 - (ex * ex) / total_files as f32) / total_files as f32).sqrt() as u64;
             let avg_partition_size = (total_size / num_partitions) as u64;
-            let high_part_size_bound = (avg_partition_size + std_dev) as u64;
-            info!(
-                "assigning files from local fs to partitions, file size mean: {}; std_dev: {}",
-                file_size_mean, std_dev
-            );
-            let partitions = self.assign_files_to_partitions(
-                files,
-                file_size_mean,
-                avg_partition_size,
-                high_part_size_bound,
-            );
+
+            let partitions =
+                self.assign_files_to_partitions(files, file_size_mean, avg_partition_size, std_dev);
 
             Ok(())
         }
@@ -170,24 +173,36 @@ mod file_reader {
             files: Vec<(u64, PathBuf)>,
             file_size_mean: u64,
             avg_partition_size: u64,
-            high_part_size_bound: u64,
+            std_dev: u64,
         ) -> Vec<Vec<PathBuf>> {
             let num_partitions = self.executor_partitions as u64;
-            info!(
+            let high_part_size_bound = (avg_partition_size + std_dev) as u64;
+
+            debug!(
                 "the average part size is {} with a high bound of {}",
                 avg_partition_size, high_part_size_bound
+            );
+            debug!(
+                "assigning files from local fs to partitions, file size mean: {}; std_dev: {}",
+                file_size_mean, std_dev
             );
 
             let mut partitions = Vec::with_capacity(num_partitions as usize);
             let mut partition = Vec::with_capacity(0);
             let mut curr_part_size = 0_u64;
+            let mut rng = rand::thread_rng();
+
             for (size, file) in files.into_iter() {
                 if partitions.len() as u64 == num_partitions - 1 {
                     partition.push(file);
                     continue;
                 }
+
                 let new_part_size = curr_part_size + size;
-                if new_part_size < high_part_size_bound {
+                let larger_than_mean = rng.gen::<bool>();
+                if (larger_than_mean && new_part_size < high_part_size_bound)
+                    || (!larger_than_mean && new_part_size <= avg_partition_size)
+                {
                     partition.push(file);
                     curr_part_size = new_part_size;
                 } else if size > avg_partition_size as u64 {

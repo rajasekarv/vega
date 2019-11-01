@@ -273,6 +273,21 @@ impl Context {
         ParallelCollection::new(self.clone(), seq, num_slices)
     }
 
+    /// Load files from the local host and turn them into a parallel collection.
+    pub fn read_files<T: Data, F, C>(&mut self, config: C, func: F) -> ParallelCollection<T>
+    where
+        F: SerFunc(Box<dyn Read>) -> T,
+        C: ReaderConfiguration,
+    {
+        // TODO: give the option to load files from several hosts at the same time
+        // right now we only give the option to load from a single machine in parallel but it would be nice
+        // to load from different machines at the same time from a likewise location
+        let conf = config.build();
+
+        // load reader
+        unimplemented!()
+    }
+
     pub fn run_job<T: Data, U: Data, RT, F>(&mut self, rdd: Arc<RT>, func: F) -> Vec<U>
     where
         F: SerFunc(Box<dyn Iterator<Item = T>>) -> U,
@@ -288,7 +303,7 @@ impl Context {
         )
     }
 
-    pub fn run_job_on_partitions<T: Data, U: Data, RT, F, P>(
+    pub fn run_job_with_partitions<T: Data, U: Data, RT, F, P>(
         &mut self,
         rdd: Arc<RT>,
         func: F,
@@ -317,13 +332,5 @@ impl Context {
             (0..rdd.number_of_splits()).collect(),
             false,
         )
-    }
-
-    pub fn read_files<T: Data, F, C>(&mut self, config: C, func: F) -> ParallelCollection<T>
-    where
-        F: SerFunc(Box<dyn Read>) -> T,
-        C: ReaderConfiguration,
-    {
-        unimplemented!()
     }
 }
