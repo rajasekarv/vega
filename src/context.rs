@@ -114,7 +114,7 @@ impl Context {
                                 Config::default(),
                                 TerminalMode::Mixed,
                             )
-                            .expect("not able to create term logger"),
+                            .ok_or(Error::CreateTerminalLogger)?,
                             WriteLogger::new(
                                 LevelFilter::Info,
                                 Config::default(),
@@ -192,7 +192,7 @@ impl Context {
                 let uuid = Uuid::new_v4().to_string();
                 let _ = CombinedLogger::init(vec![
                     TermLogger::new(LevelFilter::Info, Config::default(), TerminalMode::Mixed)
-                        .expect("not able to create term logger"),
+                        .ok_or(Error::CreateTerminalLogger)?,
                     WriteLogger::new(
                         LevelFilter::Info,
                         Config::default(),

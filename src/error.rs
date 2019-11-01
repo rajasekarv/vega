@@ -11,6 +11,9 @@ pub enum Error {
     #[error("couldn't determine the path to the current binary")]
     CurrentBinaryPath,
 
+    #[error("failed to create the terminal logger")]
+    CreateTerminalLogger,
+
     #[error("failed to parse the executor port")]
     ExecutorPort(#[source] std::num::ParseIntError),
 
