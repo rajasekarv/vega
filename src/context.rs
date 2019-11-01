@@ -147,7 +147,10 @@ impl Context {
                             let mkdir_output = Command::new("ssh")
                                 .args(&[address, "mkdir", &local_dir.clone()])
                                 .output()
-                                .expect("ls command failed to start");
+                                .map_err(|e| Error::CommandOutput {
+                                    source: e,
+                                    command: "ssh mkdir".into(),
+                                })?;
                             //                            println!("mkdir output {:?}", mkdir_output);
 
                             let binary_name: Vec<_> = path.split('/').collect();
@@ -161,13 +164,19 @@ impl Context {
                             let scp_output = Command::new("scp")
                                 .args(&[&path, &remote_path])
                                 .output()
-                                .expect("ls command failed to start");
+                                .map_err(|e| Error::CommandOutput {
+                                    source: e,
+                                    command: "scp executor".into(),
+                                })?;
                             let path = format!("{}/{}", local_dir, binary_name);
                             info!("remote path {}", path);
                             Command::new("ssh")
                                 .args(&[address, &path, &"slave".to_string(), &port.to_string()])
                                 .spawn()
-                                .expect("ls command failed to start");
+                                .map_err(|e| Error::CommandOutput {
+                                    source: e,
+                                    command: "ssh run".into(),
+                                })?;
                             port += 5000;
                         }
                         Ok(Context {

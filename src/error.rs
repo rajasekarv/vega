@@ -6,6 +6,12 @@ pub type Result<T> = std::result::Result<T, Error>;
 
 #[derive(Debug, Error)]
 pub enum Error {
+    #[error("failed to run {command}")]
+    CommandOutput {
+        source: std::io::Error,
+        command: String,
+    },
+
     #[error("failed to create the log file")]
     CreateLogFile(#[source] std::io::Error),
 
