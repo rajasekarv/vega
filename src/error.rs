@@ -1,3 +1,4 @@
+use std::ffi::OsString;
 use std::path::PathBuf;
 use thiserror::Error;
 
@@ -25,6 +26,9 @@ pub enum Error {
 
     #[error("failed to determine the home directory")]
     NoHome,
+
+    #[error("failed to convert {:?} to a String", .0)]
+    OsStringToString(OsString),
 
     #[error("failed to parse hosts file at {}", path.display())]
     ParseHosts {

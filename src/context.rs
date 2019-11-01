@@ -128,7 +128,7 @@ impl Context {
                                 .map_err(|_| Error::CurrentBinaryPath)?
                                 .into_os_string()
                                 .into_string()
-                                .expect("couldn't convert os_string to string");
+                                .map_err(Error::OsStringToString)?;
                             //                            let path = path.split(" ").collect::<Vec<_>>();
                             //                            let path = path.join("\\ ");
                             //                            println!("{} {:?} slave", address, path);
