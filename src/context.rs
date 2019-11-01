@@ -122,13 +122,20 @@ impl Context {
                                     .map_err(Error::CreateLogFile)?,
                             ),
                         ]);
+                        let binary_path =
+                            std::env::current_exe().map_err(|_| Error::CurrentBinaryPath)?;
+                        let binary_path_str = binary_path
+                            .to_str()
+                            .ok_or(Error::PathToString(binary_path.clone()))?
+                            .into();
+                        let binary_name = binary_path
+                            .file_name()
+                            .ok_or(Error::CurrentBinaryName)?
+                            .to_os_string()
+                            .into_string()
+                            .map_err(Error::OsStringToString)?;
                         for address in &env::hosts.slaves {
                             info!("deploying executor at address {:?}", address);
-                            let path = std::env::current_exe()
-                                .map_err(|_| Error::CurrentBinaryPath)?
-                                .into_os_string()
-                                .into_string()
-                                .map_err(Error::OsStringToString)?;
                             //                            let path = path.split(" ").collect::<Vec<_>>();
                             //                            let path = path.join("\\ ");
                             //                            println!("{} {:?} slave", address, path);
@@ -152,17 +159,11 @@ impl Context {
                                     command: "ssh mkdir".into(),
                                 })?;
                             //                            println!("mkdir output {:?}", mkdir_output);
-
-                            let binary_name: Vec<_> = path.split('/').collect();
-                            let binary_name = binary_name
-                                .last()
-                                .expect("some problem with executable path");
-
                             let remote_path = format!("{}:{}/{}", address, local_dir, binary_name);
                             //                            println!("remote dir {}", remote_path);
                             //                            println!("local binary path {}", path);
                             let scp_output = Command::new("scp")
-                                .args(&[&path, &remote_path])
+                                .args(&[&binary_path_str, &remote_path])
                                 .output()
                                 .map_err(|e| Error::CommandOutput {
                                     source: e,

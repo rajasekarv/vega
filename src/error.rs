@@ -12,11 +12,14 @@ pub enum Error {
         command: String,
     },
 
-    #[error("failed to create the log file")]
-    CreateLogFile(#[source] std::io::Error),
+    #[error("couldn't determine the current binary's name")]
+    CurrentBinaryName,
 
     #[error("couldn't determine the path to the current binary")]
     CurrentBinaryPath,
+
+    #[error("failed to create the log file")]
+    CreateLogFile(#[source] std::io::Error),
 
     #[error("failed to create the terminal logger")]
     CreateTerminalLogger,
@@ -41,6 +44,9 @@ pub enum Error {
         source: toml::de::Error,
         path: PathBuf,
     },
+
+    #[error("failed to convetr {} to a String", .0.display())]
+    PathToString(PathBuf),
 
     #[error("failed to parse slave address {0}")]
     ParseSlaveAddress(String),
