@@ -49,9 +49,6 @@ pub trait DAGTask: TaskBase {
     fn get_run_id(&self) -> usize;
     fn get_stage_id(&self) -> usize;
     fn get_gen(&self) -> i64;
-    fn generation(&self) -> Option<i64> {
-        Some(self.get_gen())
-    }
 }
 
 pub trait DAGScheduler: Scheduler {

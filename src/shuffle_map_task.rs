@@ -67,11 +67,6 @@ impl TaskBase for ShuffleMapTask {
     fn preferred_locations(&self) -> Vec<Ipv4Addr> {
         self.locs.clone()
     }
-    fn generation(&self) -> Option<i64> {
-        //        let base = self.rdd.get_rdd_base();
-        let context = self.rdd.get_context();
-        Some(env::env.map_output_tracker.get_generation())
-    }
 }
 
 impl Task for ShuffleMapTask {

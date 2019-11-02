@@ -26,9 +26,6 @@ pub trait TaskBase: Downcast + Send + Sync {
     fn preferred_locations(&self) -> Vec<Ipv4Addr> {
         Vec::new()
     }
-    fn generation(&self) -> Option<i64> {
-        None
-    }
 }
 impl_downcast!(TaskBase);
 

@@ -129,11 +129,6 @@ where
     fn preferred_locations(&self) -> Vec<Ipv4Addr> {
         self.locs.clone()
     }
-    fn generation(&self) -> Option<i64> {
-        let base = self.rdd.get_rdd_base();
-        let context = base.get_context();
-        Some(env::env.map_output_tracker.get_generation())
-    }
 }
 
 impl<T: Data, U: Data, RT, F> Task for ResultTask<T, U, RT, F>
