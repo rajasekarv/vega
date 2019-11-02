@@ -11,16 +11,14 @@ pub trait Chunkable<D>
 where
     D: Data,
 {
-    fn slice_with_set_parts<I>(data: I, parts: usize) -> Vec<Arc<Vec<D>>>
-    where
-        I: IntoIterator<Item = D>;
+    fn slice_with_set_parts(self, parts: usize) -> Vec<Arc<Vec<D>>>;
 
-    fn slice<I>(data: I) -> Vec<Arc<Vec<D>>>
+    fn slice(self) -> Vec<Arc<Vec<D>>>
     where
-        I: IntoIterator<Item = D>,
+        Self: Sized,
     {
         let as_many_parts_as_cpus = num_cpus::get();
-        Self::slice_with_set_parts(data, as_many_parts_as_cpus)
+        self.slice_with_set_parts(as_many_parts_as_cpus)
     }
 }
 
@@ -87,18 +85,17 @@ impl<T: Data> ParallelCollection<T> {
             rdd_vals: Arc::new(ParallelCollectionVals {
                 vals: Arc::new(RddVals::new(context.clone())),
                 context,
-                splits_: ParallelCollection::slice_with_set_parts(data, num_slices),
+                splits_: ParallelCollection::slice(data, num_slices),
                 num_slices,
             }),
         }
     }
 
-    fn from_chunkable<C, I>(context: Context, data: I) -> Self
+    pub fn from_chunkable<C>(context: Context, data: C) -> Self
     where
         C: Chunkable<T>,
-        I: IntoIterator<Item = T>,
     {
-        let splits_ = <C as Chunkable<T>>::slice(data);
+        let splits_ = data.slice();
         let rdd_vals = ParallelCollectionVals {
             vals: Arc::new(RddVals::new(context.clone())),
             context,
@@ -109,10 +106,8 @@ impl<T: Data> ParallelCollection<T> {
             rdd_vals: Arc::new(rdd_vals),
         }
     }
-}
 
-impl<T: Data> Chunkable<T> for ParallelCollection<T> {
-    fn slice_with_set_parts<I>(data: I, num_slices: usize) -> Vec<Arc<Vec<T>>>
+    fn slice<I>(data: I, num_slices: usize) -> Vec<Arc<Vec<T>>>
     where
         I: IntoIterator<Item = T>,
     {

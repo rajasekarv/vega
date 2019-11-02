@@ -7,8 +7,9 @@ use std::{
     ops::{self, Deref, DerefMut},
 };
 
-// Data passing through RDD needs to satisfy the following traits. Default and Debug is not necessary.
-// Default and Debug are added here only for debugging convenience during development stage. Sync is also not necessary I think. Have to look into it.
+// Data passing through RDD needs to satisfy the following traits.
+// Debug is only added here for debugging convenience during development stage but is not necessary.
+// Sync is also not necessary I think. Have to look into it.
 pub trait Data:
     Clone
     + any::Any

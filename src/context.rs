@@ -1,5 +1,5 @@
 use super::*;
-use crate::io::ReaderConfiguration;
+use crate::io::{DistributedReader, ReaderConfiguration};
 
 use capnp::serialize_packed;
 use simplelog::*;
@@ -274,18 +274,18 @@ impl Context {
     }
 
     /// Load files from the local host and turn them into a parallel collection.
-    pub fn read_files<T: Data, F, C>(&mut self, config: C, func: F) -> ParallelCollection<T>
+    pub fn read_files<F, C, R, D: Data>(&mut self, config: C, func: F) -> impl Rdd<D>
     where
-        F: SerFunc(Box<dyn Read>) -> T,
-        C: ReaderConfiguration,
+        F: SerFunc(R) -> D,
+        C: ReaderConfiguration<R>,
+        R: DistributedReader + Sized,
     {
         // TODO: give the option to load files from several hosts at the same time
         // right now we only give the option to load from a single machine in parallel but it would be nice
         // to load from different machines at the same time from a likewise location
-        let conf = config.build();
-
-        // load reader
-        unimplemented!()
+        let reader = config.build();
+        let parallel_readers = ParallelCollection::from_chunkable(self.clone(), reader);
+        parallel_readers.map(func)
     }
 
     pub fn run_job<T: Data, U: Data, RT, F>(&mut self, rdd: Arc<RT>, func: F) -> Vec<U>

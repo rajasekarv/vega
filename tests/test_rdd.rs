@@ -62,11 +62,16 @@ fn test_first() {
     sc.drop_executors()
 }
 
+#[test]
 fn test_read_files() {
     let mut sc = Context::new("local");
 
-    let processor = Fn!(|reader: Box<dyn std::io::Read>| {
-        csv::Reader::from_reader(reader);
+    let processor = Fn!(|reader: LocalFsReader| {
+        let read_handle = reader.get_reading_handler();
+        // do stuff with the reader ...
+        //csv::Reader::from_reader(read_handle);
+        // return parsed stuff
+        vec![(0_i32, 1_i32), (0, 1)]
     });
 
     sc.read_files(

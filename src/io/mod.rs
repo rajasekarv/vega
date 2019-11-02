@@ -1,19 +1,32 @@
-pub use file_reader::{LocalFsReaderConfig, ReaderConfiguration};
+use crate::*;
+
+pub use file_reader::{LocalFsReader, LocalFsReaderConfig};
+
+pub trait ReaderConfiguration<D>
+where
+    D: Data,
+{
+    type Reader: Chunkable<D>;
+    fn build(self) -> Self::Reader;
+}
+
+pub trait DistributedReader: Data {
+    /// When the different copies of the reader have been distributed
+    /// to executors consume self and return a proper executor-local read.
+    fn get_reading_handler(self) -> Box<dyn Read>;
+}
 
 mod file_reader {
-    use crate::*;
+    use super::*;
 
     use std::fs;
     use std::io::prelude::*;
     use std::io::{BufReader, Result};
     use std::path::{Path, PathBuf};
+    use std::sync::Arc;
 
     use log::debug;
     use rand::prelude::*;
-
-    pub trait ReaderConfiguration {
-        fn build(self) -> Box<dyn Read>;
-    }
 
     pub struct LocalFsReaderConfig {
         filter_ext: Option<std::ffi::OsString>,
@@ -49,26 +62,29 @@ mod file_reader {
         }
     }
 
-    impl ReaderConfiguration for LocalFsReaderConfig {
-        fn build(self) -> Box<dyn Read> {
-            Box::new(LocalFsReader::new(self))
+    impl<D> ReaderConfiguration<D> for LocalFsReaderConfig
+    where
+        D: Data,
+        LocalFsReader: Chunkable<D> + Sized,
+    {
+        type Reader = LocalFsReader;
+        fn build(self) -> Self::Reader {
+            LocalFsReader::new(self)
         }
     }
 
     /// Reads all files specified in a given directory from the local directory
     /// on all executors on every worker node.
-    struct LocalFsReader {
+    #[derive(Clone, Debug, Serialize, Deserialize)]
+    pub struct LocalFsReader {
         path: PathBuf,
         is_single_file: bool,
         filter_ext: Option<std::ffi::OsString>,
         expect_dir: bool,
         files: Vec<Vec<PathBuf>>,
-        open_file: Option<BufReader<fs::File>>,
         executor_partitions: usize,
     }
 
-    // TODO: optimally read should be async so the executors can do other work meanwhile,
-    // and shouldn't run too many parallel reads per worker node as it's wasteful.
     impl LocalFsReader {
         pub fn new(config: LocalFsReaderConfig) -> LocalFsReader {
             let LocalFsReaderConfig {
@@ -96,20 +112,19 @@ mod file_reader {
                 filter_ext,
                 expect_dir,
                 files: vec![],
-                open_file: None,
                 executor_partitions: num_parts,
             }
         }
 
-        /// Load the files in the current host. This function should be called once per host
-        /// to come with the paralel workload.
-        pub(crate) fn load_local_files(&mut self) -> Result<()> {
+        /// Consumed self and load the files in the current host.
+        /// This function should be called once per host to come with the paralel workload.
+        pub(crate) fn load_local_files(mut self) -> Result<Vec<Vec<PathBuf>>> {
             let mut total_size = 0_u64;
             if self.is_single_file {
                 let size = fs::metadata(&self.path)?.len();
                 total_size += size;
                 self.files.push(vec![self.path.clone()]);
-                return Ok(());
+                return Ok(self.files);
             }
 
             let num_partitions = self.executor_partitions as u64;
@@ -151,7 +166,7 @@ mod file_reader {
             let partitions =
                 self.assign_files_to_partitions(files, file_size_mean, avg_partition_size, std_dev);
 
-            Ok(())
+            Ok(partitions)
         }
 
         fn is_proper_file(&self, path: &Path) -> bool {
@@ -221,14 +236,51 @@ mod file_reader {
         }
     }
 
-    impl Read for LocalFsReader {
+    impl DistributedReader for LocalFsReader {
+        fn get_reading_handler(self) -> Box<dyn Read> {
+            let LocalFsReader { mut files, .. } = self;
+
+            Box::new(LocalExecutorFsReader {
+                files: files.pop().expect("executor failed to fetch files to read"),
+                open_file: None,
+            })
+        }
+    }
+
+    impl Chunkable<Self> for LocalFsReader {
+        fn slice_with_set_parts(self, parts: usize) -> Vec<Arc<Vec<LocalFsReader>>> {
+            let mut files_by_part = self.load_local_files().expect("failed to load local files");
+            // for each chunk we create a new loader to be run in parallel
+            let mut loaders = Vec::with_capacity(files_by_part.len());
+            for chunk in files_by_part {
+                // a bit hacky, but the only necessary attribute in the next phase is `files`
+                let partial_loader = LocalFsReader {
+                    path: PathBuf::new(),
+                    is_single_file: false,
+                    filter_ext: None,
+                    expect_dir: true,
+                    files: vec![chunk],
+                    executor_partitions: 1,
+                };
+                loaders.push(Arc::new(vec![partial_loader]));
+            }
+            loaders
+        }
+    }
+
+    struct LocalExecutorFsReader {
+        files: Vec<PathBuf>,
+        open_file: Option<BufReader<fs::File>>,
+    }
+
+    impl Read for LocalExecutorFsReader {
+        // TODO: optimally read should be async so the executors can do other work meanwhile,
+        // and shouldn't run too many parallel reads per worker node as it's wasteful.
         fn read(&mut self, buf: &mut [u8]) -> Result<usize> {
             if let Some(open_reader) = self.open_file.as_mut() {
                 open_reader.read_exact(buf)?;
                 Ok(buf.len())
             } else if let Some(mut file) = self.files.pop() {
-                // FIXME: must be flattened per reader
-                let file = file.pop().unwrap();
                 let file = fs::File::open(file)?;
                 let mut new_reader = BufReader::new(file);
                 new_reader.read_exact(buf)?;
@@ -249,7 +301,6 @@ mod file_reader {
             filter_ext: None,
             expect_dir: true,
             files: vec![],
-            open_file: None,
             executor_partitions: 4,
         };
 
