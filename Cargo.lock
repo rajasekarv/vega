@@ -1311,7 +1311,6 @@ dependencies = [
  "capnp 0.9.5 (registry+https://github.com/rust-lang/crates.io-index)",
  "capnpc 0.9.5 (registry+https://github.com/rust-lang/crates.io-index)",
  "chrono 0.4.9 (registry+https://github.com/rust-lang/crates.io-index)",
- "csv 1.1.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "downcast-rs 1.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "env_logger 0.5.13 (registry+https://github.com/rust-lang/crates.io-index)",
  "fasthash 0.4.0 (registry+https://github.com/rust-lang/crates.io-index)",

@@ -3,7 +3,6 @@ use native_spark::*;
 
 #[macro_use]
 extern crate serde_closure;
-extern crate csv;
 
 #[test]
 fn test_make_rdd() {
@@ -67,9 +66,8 @@ fn test_read_files() {
     let mut sc = Context::new("local");
 
     let processor = Fn!(|reader: LocalFsReader| {
-        let read_handle = reader.get_reading_handler();
+        let _read_handle = reader.get_reading_handler();
         // do stuff with the reader ...
-        //csv::Reader::from_reader(read_handle);
         // return parsed stuff
         vec![(0_i32, 1_i32), (0, 1)]
     });
