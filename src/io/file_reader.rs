@@ -263,7 +263,7 @@ impl Chunkable<Self> for LocalFsReader {
 
 struct LocalExecutorFsReader {
     files: Vec<PathBuf>,
-    open_file: Option<BufReader<fs::File>>,
+    open_file: Option<fs::File>,
 }
 
 impl Read for LocalExecutorFsReader {
@@ -274,10 +274,9 @@ impl Read for LocalExecutorFsReader {
             open_reader.read_exact(buf)?;
             Ok(buf.len())
         } else if let Some(mut file) = self.files.pop() {
-            let file = fs::File::open(file)?;
-            let mut new_reader = BufReader::new(file);
-            new_reader.read_exact(buf)?;
-            self.open_file = Some(new_reader);
+            let mut file = fs::File::open(file)?;
+            file.read_exact(buf)?;
+            self.open_file = Some(file);
             Ok(buf.len())
         } else {
             Ok(0)
