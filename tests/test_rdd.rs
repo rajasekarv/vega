@@ -5,7 +5,7 @@ extern crate serde_closure;
 #[test]
 fn test_make_rdd() {
     // for distributed mode, use Context::new("distributed")
-    let sc = Context::new("local");
+    let sc = Context::new("local").unwrap();
     let col = sc.make_rdd((0..10).collect::<Vec<_>>(), 32);
     //Fn! will make the closures serializable. It is necessary. use serde_closure version 0.1.3.
     let vec_iter = col.map(Fn!(|i| (0..i).collect::<Vec<_>>()));
@@ -21,7 +21,7 @@ fn test_make_rdd() {
 
 #[test]
 fn test_take() {
-    let sc = Context::new("local");
+    let sc = Context::new("local").unwrap();
     let col1 = vec![1, 2, 3, 4, 5, 6];
     let col1_rdd = sc.parallelize(col1, 4);
 
@@ -42,7 +42,7 @@ fn test_take() {
 
 #[test]
 fn test_first() {
-    let sc = Context::new("local");
+    let sc = Context::new("local").unwrap();
     let col1 = vec![1, 2, 3, 4];
     let col1_rdd = sc.parallelize(col1, 4);
 
@@ -59,7 +59,7 @@ fn test_first() {
 #[test]
 fn test_distinct() {
     use std::collections::HashSet;
-    let sc = Context::new("local");
+    let sc = Context::new("local").unwrap();
     let rdd = sc.parallelize(vec![1, 2, 2, 2, 3, 3, 3, 4, 4, 5], 3);
     assert!(rdd.distinct().collect().len() == 5);
     assert!(

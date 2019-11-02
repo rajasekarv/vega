@@ -3,16 +3,16 @@ use capnp::serialize_packed;
 use std::net::TcpListener;
 //use std::net::TcpStream;
 use std::thread;
-use std::time::SystemTime;
+use std::time::Instant;
 use threadpool::ThreadPool;
 
 pub struct Executor {
-    port: usize,
+    port: u16,
     //    thread_pool: ThreadPool,
 }
 
 impl Executor {
-    pub fn new(port: usize) -> Self {
+    pub fn new(port: u16) -> Self {
         Executor {
             port,
             //            thread_pool: ThreadPool::new(1),
@@ -63,7 +63,7 @@ impl Executor {
                                 server_port,
                                 task_data.get_msg().unwrap().len()
                             );
-                            let now = SystemTime::now();
+                            let start = Instant::now();
                             //                            let local_dir_root = "/tmp";
                             //                            let uuid = Uuid::new_v4();
                             //                            let local_dir_uuid = uuid.to_string();
@@ -108,9 +108,9 @@ impl Executor {
                             info!(
                                 "time taken in server for deserializing:{} {}",
                                 server_port,
-                                now.elapsed().unwrap().as_millis(),
+                                start.elapsed().as_millis(),
                             );
-                            let now = SystemTime::now();
+                            let start = Instant::now();
                             info!("executing the trait from server port {}", server_port);
                             //TODO change attempt id from 0 to proper value
                             let result = des_task.run(0);
@@ -118,9 +118,9 @@ impl Executor {
                             info!(
                                 "time taken in server for running:{} {}",
                                 server_port,
-                                now.elapsed().unwrap().as_millis(),
+                                start.elapsed().as_millis(),
                             );
-                            let now = SystemTime::now();
+                            let start = Instant::now();
                             let result = bincode::serialize(&result).unwrap();
                             info!(
                                 "task in executor {} {} slave result len",
@@ -130,7 +130,7 @@ impl Executor {
                             info!(
                                 "time taken in server for serializing:{} {}",
                                 server_port,
-                                now.elapsed().unwrap().as_millis(),
+                                start.elapsed().as_millis(),
                             );
                             let mut message = ::capnp::message::Builder::new_default();
                             let mut task_data = message.init_root::<serialized_data::Builder>();

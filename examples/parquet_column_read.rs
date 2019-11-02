@@ -12,8 +12,8 @@ use std::fs;
 use std::fs::File;
 use std::path::Path;
 
-fn main() {
-    let sc = Context::new("local");
+fn main() -> Result<()> {
+    let sc = Context::new("local")?;
     let files = fs::read_dir("parquet_file_dir")
         .unwrap()
         .map(|x| x.unwrap().path().to_str().unwrap().to_owned())
@@ -26,6 +26,7 @@ fn main() {
     let res = avg.collect();
     println!("{:?}", &res[0]);
     sc.drop_executors();
+    Ok(())
 }
 
 fn read(file: String) -> Box<dyn Iterator<Item = ((i32, String, i64), (i64, f64))>> {

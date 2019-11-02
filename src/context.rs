@@ -20,6 +20,7 @@ use std::sync::Arc;
 //use std::time::{SystemTime, UNIX_EPOCH};
 use toml;
 //use uuid::parser::Expected::Exact;
+use std::path::PathBuf;
 use uuid::Uuid;
 
 // there is a problem with this approach since T needs to satisfy PartialEq, Eq for Range
@@ -67,19 +68,13 @@ pub struct Context {
     next_rdd_id: Arc<AtomicUsize>,
     next_shuffle_id: Arc<AtomicUsize>,
     scheduler: Schedulers,
-    address_map: Vec<(String, usize)>,
+    address_map: Vec<(String, u16)>,
     distributed_master: bool,
-}
-
-#[derive(Deserialize)]
-struct Hosts {
-    master: String,
-    slaves: Vec<String>,
 }
 
 impl Context {
     // Sends the binary to all nodes present in hosts.conf and starts them
-    pub fn new(mode: &str) -> Self {
+    pub fn new(mode: &str) -> Result<Self> {
         let next_rdd_id = Arc::new(AtomicUsize::new(0));
         let next_shuffle_id = Arc::new(AtomicUsize::new(0));
         use Schedulers::*;
@@ -87,10 +82,10 @@ impl Context {
         match mode {
             "distributed" => {
                 //TODO proper command line argument parsing
-                let mut port = 10000;
+                let mut port: u16 = 10000;
                 let args = std::env::args().skip(1).collect::<Vec<_>>();
                 //                println!("args {:?}", args);
-                let mut address_map: Vec<(String, usize)> = Vec::new();
+                let mut address_map: Vec<(String, u16)> = Vec::new();
                 match args.get(0).as_ref().map(|arg| &arg[..]) {
                     Some("slave") => {
                         let uuid = Uuid::new_v4().to_string();
@@ -100,21 +95,11 @@ impl Context {
                                 LevelFilter::Info,
                                 Config::default(),
                                 File::create(format!("/tmp/executor-{}", uuid))
-                                    .expect("not able to create log file"),
+                                    .map_err(Error::CreateLogFile)?,
                             ),
                         ]);
                         info!("started client");
-                        let mut host_file =
-                            File::open("hosts.conf").expect("Unable to open the file");
-                        let mut hosts = String::new();
-                        host_file
-                            .read_to_string(&mut hosts)
-                            .expect("Unable to read the file");
-                        //                        let hosts: Hosts =
-                        //                            toml::from_str(&hosts).expect("unable to process the hosts.conf file");
-                        let executor = Executor::new(
-                            args[1].parse().expect("problem with executor arguments"),
-                        );
+                        let executor = Executor::new(args[1].parse().map_err(Error::ExecutorPort)?);
                         executor.worker();
                         info!("initiated executor worker exit");
                         executor.exit_signal();
@@ -129,37 +114,35 @@ impl Context {
                                 Config::default(),
                                 TerminalMode::Mixed,
                             )
-                            .expect("not able to create term logger"),
+                            .ok_or(Error::CreateTerminalLogger)?,
                             WriteLogger::new(
                                 LevelFilter::Info,
                                 Config::default(),
                                 File::create(format!("/tmp/master-{}", uuid))
-                                    .expect("not able to create log file"),
+                                    .map_err(Error::CreateLogFile)?,
                             ),
                         ]);
-                        let mut host_file =
-                            File::open("hosts.conf").expect("Unable to open the file");
-                        let mut hosts = String::new();
-                        host_file
-                            .read_to_string(&mut hosts)
-                            .expect("Unable to read the file");
-                        //                        println!("{:?}", hosts);
-                        let hosts: Hosts = toml::from_str(&hosts)
-                            .expect("unable to process the hosts.conf file in master");
-                        for address in &hosts.slaves {
+                        let binary_path =
+                            std::env::current_exe().map_err(|_| Error::CurrentBinaryPath)?;
+                        let binary_path_str = binary_path
+                            .to_str()
+                            .ok_or(Error::PathToString(binary_path.clone()))?
+                            .into();
+                        let binary_name = binary_path
+                            .file_name()
+                            .ok_or(Error::CurrentBinaryName)?
+                            .to_os_string()
+                            .into_string()
+                            .map_err(Error::OsStringToString)?;
+                        for address in &env::hosts.slaves {
                             info!("deploying executor at address {:?}", address);
-                            let path = std::env::current_exe()
-                                .expect("couldn't get executable path")
-                                .into_os_string()
-                                .into_string()
-                                .expect("couldn't convert os_string to string");
                             //                            let path = path.split(" ").collect::<Vec<_>>();
                             //                            let path = path.join("\\ ");
                             //                            println!("{} {:?} slave", address, path);
                             let address_cli = address
                                 .split('@')
                                 .nth(1)
-                                .expect("format of address is wrong")
+                                .ok_or(Error::ParseSlaveAddress(address.into()))?
                                 .to_string();
                             address_map.push((address_cli, port));
                             let local_dir_root = "/tmp";
@@ -171,30 +154,33 @@ impl Context {
                             let mkdir_output = Command::new("ssh")
                                 .args(&[address, "mkdir", &local_dir.clone()])
                                 .output()
-                                .expect("ls command failed to start");
+                                .map_err(|e| Error::CommandOutput {
+                                    source: e,
+                                    command: "ssh mkdir".into(),
+                                })?;
                             //                            println!("mkdir output {:?}", mkdir_output);
-
-                            let binary_name: Vec<_> = path.split('/').collect();
-                            let binary_name = binary_name
-                                .last()
-                                .expect("some problem with executable path");
-
                             let remote_path = format!("{}:{}/{}", address, local_dir, binary_name);
                             //                            println!("remote dir {}", remote_path);
                             //                            println!("local binary path {}", path);
                             let scp_output = Command::new("scp")
-                                .args(&[&path, &remote_path])
+                                .args(&[&binary_path_str, &remote_path])
                                 .output()
-                                .expect("ls command failed to start");
+                                .map_err(|e| Error::CommandOutput {
+                                    source: e,
+                                    command: "scp executor".into(),
+                                })?;
                             let path = format!("{}/{}", local_dir, binary_name);
                             info!("remote path {}", path);
                             Command::new("ssh")
                                 .args(&[address, &path, &"slave".to_string(), &port.to_string()])
                                 .spawn()
-                                .expect("ls command failed to start");
+                                .map_err(|e| Error::CommandOutput {
+                                    source: e,
+                                    command: "ssh run".into(),
+                                })?;
                             port += 5000;
                         }
-                        Context {
+                        Ok(Context {
                             next_rdd_id,
                             next_shuffle_id,
                             scheduler: Distributed(DistributedScheduler::new(
@@ -206,7 +192,7 @@ impl Context {
                             )),
                             address_map,
                             distributed_master: true,
-                        }
+                        })
                         //TODO handle if master is in another node than from where the program is executed
                         //                        ::std::process::exit(0);
                     }
@@ -216,49 +202,55 @@ impl Context {
                 let uuid = Uuid::new_v4().to_string();
                 let _ = CombinedLogger::init(vec![
                     TermLogger::new(LevelFilter::Info, Config::default(), TerminalMode::Mixed)
-                        .expect("not able to create term logger"),
+                        .ok_or(Error::CreateTerminalLogger)?,
                     WriteLogger::new(
                         LevelFilter::Info,
                         Config::default(),
                         File::create(format!("/tmp/master-{}", uuid))
-                            .expect("not able to create log file"),
+                            .map_err(Error::CreateLogFile)?,
                     ),
                 ]);
                 let scheduler = Local(LocalScheduler::new(num_cpus::get(), 20, true));
-                Context {
+                Ok(Context {
                     next_rdd_id,
                     next_shuffle_id,
                     scheduler,
                     address_map: Vec::new(),
                     distributed_master: false,
-                }
+                })
             }
             _ => {
                 let scheduler = Local(LocalScheduler::new(num_cpus::get(), 20, true));
-                Context {
+                Ok(Context {
                     next_rdd_id,
                     next_shuffle_id,
                     scheduler,
                     address_map: Vec::new(),
                     distributed_master: false,
-                }
+                })
             }
         }
     }
     pub fn drop_executors(self) {
         info!("inside context drop in master {}", self.distributed_master);
+
         for (address, port) in self.address_map.clone() {
             //            while let Err(_) = TcpStream::connect(format!("{}:{}", address, port + 10)) {
             //                continue;
             //            }
-            let mut stream = TcpStream::connect(format!("{}:{}", address, port + 10))
-                .expect("couldn't connect to executor");
-            let signal = true;
-            let signal = bincode::serialize(&signal).unwrap();
-            let mut message = ::capnp::message::Builder::new_default();
-            let mut task_data = message.init_root::<serialized_data::Builder>();
-            task_data.set_msg(&signal);
-            serialize_packed::write_message(&mut stream, &message);
+            if let Ok(mut stream) = TcpStream::connect(format!("{}:{}", address, port + 10)) {
+                let signal = true;
+                let signal = bincode::serialize(&signal).unwrap();
+                let mut message = ::capnp::message::Builder::new_default();
+                let mut task_data = message.init_root::<serialized_data::Builder>();
+                task_data.set_msg(&signal);
+                serialize_packed::write_message(&mut stream, &message);
+            } else {
+                error!(
+                    "Failed to connect to {}:{} in order to stop its executor",
+                    address, port
+                );
+            }
         }
     }
     pub fn new_rdd_id(&self) -> usize {

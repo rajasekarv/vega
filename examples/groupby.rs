@@ -1,8 +1,8 @@
 #![allow(where_clauses_object_safety)]
 use native_spark::*;
 
-fn main() {
-    let sc = Context::new("local");
+fn main() -> Result<()> {
+    let sc = Context::new("local")?;
     let vec = vec![
         ("x".to_string(), 1),
         ("x".to_string(), 2),
@@ -25,4 +25,5 @@ fn main() {
     let res = g.collect();
     println!("res {:?}", res);
     sc.drop_executors();
+    Ok(())
 }

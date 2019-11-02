@@ -20,8 +20,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::thread;
 use std::time;
-//use std::time::Duration;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant};
 use threadpool::ThreadPool;
 
 //just for now, creating an entire scheduler functions without dag scheduler trait. Later change it to extend from dag scheduler
@@ -31,7 +30,7 @@ pub struct DistributedScheduler {
     max_failures: usize,
     attempt_id: Arc<AtomicUsize>,
     resubmit_timeout: u128,
-    poll_timeout: i64,
+    poll_timeout: u64,
     event_queues: Arc<Mutex<HashMap<usize, VecDeque<CompletionEvent>>>>,
     next_job_id: Arc<AtomicUsize>,
     next_run_id: Arc<AtomicUsize>,
@@ -49,8 +48,8 @@ pub struct DistributedScheduler {
     taskid_to_slaveid: HashMap<String, String>,
     job_tasks: HashMap<usize, HashSet<String>>,
     slaves_with_executors: HashSet<String>,
-    server_uris: Arc<Mutex<VecDeque<(String, usize)>>>,
-    port: usize,
+    server_uris: Arc<Mutex<VecDeque<(String, u16)>>>,
+    port: u16,
     map_output_tracker: MapOutputTracker,
 }
 
@@ -59,8 +58,8 @@ impl DistributedScheduler {
         threads: usize,
         max_failures: usize,
         master: bool,
-        servers: Option<Vec<(String, usize)>>,
-        port: usize,
+        servers: Option<Vec<(String, u16)>>,
+        port: u16,
         //        map_output_tracker: MapOutputTracker,
     ) -> Self {
         //        unimplemented!()
@@ -171,14 +170,14 @@ impl DistributedScheduler {
         env::env
             .cache_tracker
             .register_rdd(rdd_base.get_rdd_id(), rdd_base.number_of_splits());
-        if !shuffle_dependency.is_none() {
+        if let Some(shuffle_dependency) = shuffle_dependency.clone() {
             info!("shuffle dependcy and registering mapoutput tracker");
             self.map_output_tracker.register_shuffle(
-                shuffle_dependency.clone().unwrap().get_shuffle_id(),
+                shuffle_dependency.get_shuffle_id(),
                 rdd_base.number_of_splits(),
             );
             info!("new stage tracker after");
-        }
+        };
         let id = self.next_stage_id.fetch_add(1, Ordering::SeqCst);
         info!("new stage id {}", id);
         let stage = Stage::new(
@@ -332,7 +331,7 @@ impl DistributedScheduler {
         let mut running: BTreeSet<Stage> = BTreeSet::new();
         let mut failed: BTreeSet<Stage> = BTreeSet::new();
         let mut pending_tasks: BTreeMap<Stage, BTreeSet<Box<dyn TaskBase>>> = BTreeMap::new();
-        let mut last_fetch_failure_time = 0;
+        let mut fetch_failure_duration = Duration::new(0, 0);
 
         //TODO update cache
         //TODO logging
@@ -369,8 +368,7 @@ impl DistributedScheduler {
 
         while num_finished != num_output_parts {
             let event_option = self.wait_for_event(run_id, self.poll_timeout);
-            let time = SystemTime::now();
-            let time = time.duration_since(UNIX_EPOCH).unwrap().as_millis();
+            let start_time = Instant::now();
 
             if let Some(mut evt) = event_option {
                 info!("event starting");
@@ -566,14 +564,14 @@ impl DistributedScheduler {
                                 .unwrap()
                                 .clone(),
                         );
-                        last_fetch_failure_time = time;
+                        fetch_failure_duration = start_time.elapsed();
                     }
                     _ => {
                         //TODO error handling
                     }
                 }
             }
-            if !failed.is_empty() && (time > (last_fetch_failure_time + self.resubmit_timeout)) {
+            if !failed.is_empty() && fetch_failure_duration.as_millis() > self.resubmit_timeout {
                 self.update_cache_locs();
                 for stage in &failed {
                     self.submit_stage(
@@ -769,17 +767,14 @@ impl DistributedScheduler {
         Vec::new()
     }
 
-    fn wait_for_event(&mut self, run_id: usize, timeout: i64) -> Option<CompletionEvent> {
-        let timer = SystemTime::now();
-        let end_time = timer.elapsed().unwrap().as_millis() + timeout as u128;
+    fn wait_for_event(&mut self, run_id: usize, timeout: u64) -> Option<CompletionEvent> {
+        let end = Instant::now() + Duration::from_millis(timeout);
         while self.event_queues.lock().get(&run_id).unwrap().is_empty() {
-            let time = timer.elapsed().unwrap().as_millis();
-            if time >= end_time {
+            if Instant::now() > end {
                 return None;
-            } else {
-                let dur = time::Duration::from_millis((end_time - time) as u64);
-                thread::sleep(dur);
             }
+
+            thread::sleep(Duration::from_millis(250));
         }
         self.event_queues
             .lock()

@@ -20,7 +20,7 @@ extern crate serde_closure;
 #[macro_use]
 extern crate lazy_static;
 extern crate capnp;
-use log::info;
+use log::{error, info};
 use std::io::prelude::*;
 pub mod serialized_data_capnp {
     include!(concat!(env!("OUT_DIR"), "/capnp/serialized_data_capnp.rs"));
@@ -110,3 +110,9 @@ use serializable_traits::{AnyData, Data, Func, SerFunc};
 
 mod env;
 //use env::*;
+
+pub mod error;
+pub use error::{Error, Result};
+
+mod hosts;
+use hosts::Hosts;

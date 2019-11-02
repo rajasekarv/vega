@@ -4,9 +4,7 @@ use std::collections::HashMap;
 use std::hash::Hash;
 //use std::marker::PhantomData;
 use std::sync::Arc;
-//use std::time;
-//use std::time::Duration;
-use std::time::SystemTime;
+use std::time::Instant;
 //use std::any::Any;
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -167,7 +165,7 @@ where
         };
 
         //TODO call fetch function after ShuffleFetcher is implemented
-        let time = SystemTime::now();
+        let start = Instant::now();
         let fetcher = ShuffleFetcher;
         fetcher.fetch(
             self.vals.context.clone(),
@@ -175,10 +173,7 @@ where
             split.get_index(),
             merge_pair,
         );
-        let dur = time.elapsed().unwrap().as_millis();
-        info!("time taken for fetching {}", dur);
-        let dur = time.elapsed().unwrap().as_millis();
-        info!("time taken for converting to hashset {}", dur);
+        info!("time taken for fetching {}", start.elapsed().as_millis());
         Box::new(combiners.into_iter().map(|(k, v)| (k, v.unwrap())))
 
         //        let res = res.collect::<Vec<_>>();

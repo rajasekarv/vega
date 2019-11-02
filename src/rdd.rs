@@ -246,7 +246,7 @@ pub trait Rdd<T: Data>: RddBase + Send + Sync + Serialize + Deserialize {
     }
 
     /// Return the first element in this RDD.
-    fn first(&self) -> Result<T, Box<dyn std::error::Error>>
+    fn first(&self) -> std::result::Result<T, Box<dyn std::error::Error>>
     where
         Self: Sized + 'static,
     {
