@@ -84,7 +84,7 @@ impl LocalFsReader {
             num_partitions
         } else {
             use num_cpus;
-            0
+            num_cpus::get() as u64
         };
 
         LocalFsReader {
@@ -273,8 +273,8 @@ impl Read for LocalExecutorFsReader {
         if let Some(open_reader) = self.open_file.as_mut() {
             open_reader.read_exact(buf)?;
             Ok(buf.len())
-        } else if let Some(mut file) = self.files.pop() {
-            let mut file = fs::File::open(file)?;
+        } else if let Some(path) = self.files.pop() {
+            let mut file = fs::File::open(path)?;
             file.read_exact(buf)?;
             self.open_file = Some(file);
             Ok(buf.len())

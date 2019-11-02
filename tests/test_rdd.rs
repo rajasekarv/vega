@@ -1,8 +1,44 @@
+use std::fs::{create_dir_all, remove_dir_all, File};
+use std::io::prelude::*;
+
 use native_spark::io::*;
 use native_spark::*;
 
 #[macro_use]
 extern crate serde_closure;
+use lazy_static::*;
+
+lazy_static! {
+    static ref WORK_DIR: std::path::PathBuf = std::env::temp_dir();
+}
+const TEST_DIR: &str = "ns_test_dir";
+
+fn set_up(file_name: &str) {
+    let temp_dir = WORK_DIR.join(TEST_DIR);
+    println!("Creating tests in dir: {}", (&temp_dir).to_str().unwrap());
+    create_dir_all(&temp_dir).unwrap();
+
+    let fixture =
+        b"This is some textual test data.\nCan be converted to strings and there are two lines.";
+
+    let mut f = File::create(temp_dir.join(file_name)).unwrap();
+    f.write_all(fixture).unwrap();
+}
+
+fn tear_down() {
+    // Clean up files
+    let temp_dir = WORK_DIR.join(TEST_DIR);
+    remove_dir_all(temp_dir).unwrap();
+}
+
+fn test_runner<T>(test: T)
+where
+    T: FnOnce() -> () + std::panic::UnwindSafe,
+{
+    let result = std::panic::catch_unwind(|| test());
+    tear_down();
+    assert!(result.is_ok())
+}
 
 #[test]
 fn test_make_rdd() {
@@ -63,21 +99,36 @@ fn test_first() {
 
 #[test]
 fn test_read_files() {
-    let mut sc = Context::new("local");
+    let file_name = "test_file_01";
+    let file_path = WORK_DIR.join(TEST_DIR).join(file_name);
+    set_up(file_name);
 
     let processor = Fn!(|reader: LocalFsReader| {
-        let _read_handle = reader.get_reading_handler();
+        let mut read_handle = reader.get_reading_handler();
         // do stuff with the reader ...
+        let mut data: Vec<u8> = vec![0; 84];
+        let _ = read_handle.read(&mut data).unwrap();
+        let parsed: Vec<_> = String::from_utf8(data)
+            .unwrap()
+            .lines()
+            .map(|s| s.to_string())
+            .collect();
+
+        assert_eq!(parsed.len(), 2);
+        assert_eq!(parsed[0], "This is some textual test data.");
+
         // return parsed stuff
-        vec![(0_i32, 1_i32), (0, 1)]
+        parsed
     });
 
-    sc.read_files(
-        LocalFsReaderConfig::new("/tmp/test_dir".to_string()),
-        processor,
-    );
-
-    sc.drop_executors()
+    test_runner(|| {
+        let mut sc = Context::new("local");
+        let result = sc
+            .read_files(LocalFsReaderConfig::new(file_path), processor)
+            .collect();
+        assert_eq!(result[0].len(), 2);
+        sc.drop_executors();
+    });
 }
 
 #[test]
