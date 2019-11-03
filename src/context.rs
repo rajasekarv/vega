@@ -1,5 +1,5 @@
 use super::*;
-use crate::io::{DistributedReader, ReaderConfiguration};
+use crate::io::ReaderConfiguration;
 
 use capnp::serialize_packed;
 use simplelog::*;
@@ -91,7 +91,7 @@ impl Context {
                 match args.get(0).as_ref().map(|arg| &arg[..]) {
                     Some("slave") => {
                         let uuid = Uuid::new_v4().to_string();
-                        create_loggers(format!("/tmp/executor-{}", uuid));
+                        initialize_loggers(format!("/tmp/executor-{}", uuid));
                         info!("started client");
                         let executor = Executor::new(args[1].parse().map_err(Error::ExecutorPort)?);
                         executor.worker();
@@ -102,7 +102,7 @@ impl Context {
                     }
                     _ => {
                         let uuid = Uuid::new_v4().to_string();
-                        create_loggers(format!("/tmp/master-{}", uuid));
+                        initialize_loggers(format!("/tmp/master-{}", uuid));
                         let binary_path =
                             std::env::current_exe().map_err(|_| Error::CurrentBinaryPath)?;
                         let binary_path_str = binary_path
@@ -181,7 +181,7 @@ impl Context {
             }
             "local" => {
                 let uuid = Uuid::new_v4().to_string();
-                create_loggers(format!("/tmp/master-{}", uuid));
+                initialize_loggers(format!("/tmp/master-{}", uuid));
                 let scheduler = Local(LocalScheduler::new(num_cpus::get(), 20, true));
                 Ok(Context {
                     next_rdd_id,
@@ -248,12 +248,9 @@ impl Context {
     where
         F: SerFunc(R) -> D,
         C: ReaderConfiguration<R>,
-        R: DistributedReader + Sized,
+        R: Data + IntoIterator<Item = Vec<u8>>,
     {
-        // TODO: give the option to load files from several hosts at the same time
-        // right now we only give the option to load from a single machine in parallel but it would be nice
-        // to load from different machines at the same time from a likewise location
-        let reader = config.build();
+        let reader = config.make_reader();
         let parallel_readers = ParallelCollection::from_chunkable(self.clone(), reader);
         parallel_readers.map(func)
     }
@@ -305,7 +302,7 @@ impl Context {
     }
 }
 
-fn create_loggers(file_path: String) {
+fn initialize_loggers(file_path: String) {
     let term_logger = TermLogger::new(LevelFilter::Info, Config::default(), TerminalMode::Mixed);
     let file_logger: Box<dyn SharedLogger> = WriteLogger::new(
         LevelFilter::Info,

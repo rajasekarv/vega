@@ -99,16 +99,17 @@ fn test_first() {
 
 #[test]
 fn test_read_files() {
+    // Single file test
     let file_name = "test_file_01";
     let file_path = WORK_DIR.join(TEST_DIR).join(file_name);
     set_up(file_name);
 
-    let processor = Fn!(|reader: LocalFsReader| {
-        let mut read_handle = reader.get_reading_handler();
-        // do stuff with the reader ...
-        let mut data: Vec<u8> = vec![0; 84];
-        let _ = read_handle.read(&mut data).unwrap();
-        let parsed: Vec<_> = String::from_utf8(data)
+    let processor = Fn!(|reader: DistributedLocalReader| {
+        let mut files: Vec<_> = reader.into_iter().collect();
+        assert_eq!(files.len(), 1);
+
+        // do stuff with the read files ...
+        let parsed: Vec<_> = String::from_utf8(files.pop().unwrap())
             .unwrap()
             .lines()
             .map(|s| s.to_string())
@@ -122,11 +123,42 @@ fn test_read_files() {
     });
 
     test_runner(|| {
-        let mut sc = Context::new("local");
+        let mut sc = Context::new("local").unwrap();
         let result = sc
             .read_files(LocalFsReaderConfig::new(file_path), processor)
             .collect();
         assert_eq!(result[0].len(), 2);
+        sc.drop_executors();
+    });
+
+    // Multiple files test
+    let _multi_files: Vec<_> = (0..10)
+        .map(|idx| {
+            let f_name = format!("test_file_{}", idx);
+            let path = WORK_DIR.join(TEST_DIR).join(f_name.as_str());
+            set_up(path.as_path().to_str().unwrap());
+        })
+        .collect::<Vec<_>>();
+
+    let processor = Fn!(|reader: DistributedLocalReader| {
+        let files: Vec<_> = reader.into_iter().collect();
+
+        // do stuff with the read files ...
+        let parsed: Vec<_> = files
+            .into_iter()
+            .map(|f| String::from_utf8(f).unwrap())
+            .flat_map(|s| s.lines().map(|l| l.to_owned()).collect::<Vec<_>>())
+            .collect();
+
+        // return parsed stuff
+        parsed
+    });
+
+    test_runner(|| {
+        let mut sc = Context::new("local").unwrap();
+        let files = sc.read_files(LocalFsReaderConfig::new(WORK_DIR.join(TEST_DIR)), processor);
+        let result: Vec<_> = files.collect().into_iter().flatten().collect();
+        assert_eq!(result.len(), 20);
         sc.drop_executors();
     });
 }
