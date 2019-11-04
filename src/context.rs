@@ -1,4 +1,6 @@
 use super::*;
+use crate::io::ReaderConfiguration;
+
 use capnp::serialize_packed;
 use simplelog::*;
 //use parking_lot::Mutex;
@@ -89,15 +91,7 @@ impl Context {
                 match args.get(0).as_ref().map(|arg| &arg[..]) {
                     Some("slave") => {
                         let uuid = Uuid::new_v4().to_string();
-                        let _ = CombinedLogger::init(vec![
-                            //TermLogger::new(LevelFilter::Info, Config::default(), TerminalMode::Mixed).expect("not able to create term logger"),
-                            WriteLogger::new(
-                                LevelFilter::Info,
-                                Config::default(),
-                                File::create(format!("/tmp/executor-{}", uuid))
-                                    .map_err(Error::CreateLogFile)?,
-                            ),
-                        ]);
+                        initialize_loggers(format!("/tmp/executor-{}", uuid));
                         info!("started client");
                         let executor = Executor::new(args[1].parse().map_err(Error::ExecutorPort)?);
                         executor.worker();
@@ -108,20 +102,7 @@ impl Context {
                     }
                     _ => {
                         let uuid = Uuid::new_v4().to_string();
-                        let _ = CombinedLogger::init(vec![
-                            TermLogger::new(
-                                LevelFilter::Info,
-                                Config::default(),
-                                TerminalMode::Mixed,
-                            )
-                            .ok_or(Error::CreateTerminalLogger)?,
-                            WriteLogger::new(
-                                LevelFilter::Info,
-                                Config::default(),
-                                File::create(format!("/tmp/master-{}", uuid))
-                                    .map_err(Error::CreateLogFile)?,
-                            ),
-                        ]);
+                        initialize_loggers(format!("/tmp/master-{}", uuid));
                         let binary_path =
                             std::env::current_exe().map_err(|_| Error::CurrentBinaryPath)?;
                         let binary_path_str = binary_path
@@ -200,16 +181,7 @@ impl Context {
             }
             "local" => {
                 let uuid = Uuid::new_v4().to_string();
-                let _ = CombinedLogger::init(vec![
-                    TermLogger::new(LevelFilter::Info, Config::default(), TerminalMode::Mixed)
-                        .ok_or(Error::CreateTerminalLogger)?,
-                    WriteLogger::new(
-                        LevelFilter::Info,
-                        Config::default(),
-                        File::create(format!("/tmp/master-{}", uuid))
-                            .map_err(Error::CreateLogFile)?,
-                    ),
-                ]);
+                initialize_loggers(format!("/tmp/master-{}", uuid));
                 let scheduler = Local(LocalScheduler::new(num_cpus::get(), 20, true));
                 Ok(Context {
                     next_rdd_id,
@@ -271,6 +243,18 @@ impl Context {
         ParallelCollection::new(self.clone(), seq, num_slices)
     }
 
+    /// Load files from the local host and turn them into a parallel collection.
+    pub fn read_files<F, C, R, D: Data>(&mut self, config: C, func: F) -> impl Rdd<D>
+    where
+        F: SerFunc(R) -> D,
+        C: ReaderConfiguration<R>,
+        R: Data + IntoIterator<Item = Vec<u8>>,
+    {
+        let reader = config.make_reader();
+        let parallel_readers = ParallelCollection::from_chunkable(self.clone(), reader);
+        parallel_readers.map(func)
+    }
+
     pub fn run_job<T: Data, U: Data, RT, F>(&mut self, rdd: Arc<RT>, func: F) -> Vec<U>
     where
         F: SerFunc(Box<dyn Iterator<Item = T>>) -> U,
@@ -286,20 +270,14 @@ impl Context {
         )
     }
 
-    pub fn run_job_on_partitions<T: Data, U: Data, RT, F, P>(
+    pub fn run_job_with_partitions<T: Data, U: Data, RT, F, P>(
         &mut self,
         rdd: Arc<RT>,
         func: F,
         partitions: P,
     ) -> Vec<U>
     where
-        F: Fn(Box<dyn Iterator<Item = T>>) -> U
-            + Send
-            + Sync
-            + Clone
-            + serde::ser::Serialize
-            + serde::de::DeserializeOwned
-            + 'static,
+        F: SerFunc(Box<dyn Iterator<Item = T>>) -> U,
         RT: Rdd<T> + 'static,
         P: IntoIterator<Item = usize>,
     {
@@ -322,4 +300,19 @@ impl Context {
             false,
         )
     }
+}
+
+fn initialize_loggers(file_path: String) {
+    let term_logger = TermLogger::new(LevelFilter::Info, Config::default(), TerminalMode::Mixed);
+    let file_logger: Box<dyn SharedLogger> = WriteLogger::new(
+        LevelFilter::Info,
+        Config::default(),
+        File::create(file_path).expect("not able to create log file"),
+    );
+    let mut combined = vec![file_logger];
+    if let Some(logger) = term_logger {
+        let logger: Box<dyn SharedLogger> = logger;
+        combined.push(logger);
+    }
+    CombinedLogger::init(combined);
 }

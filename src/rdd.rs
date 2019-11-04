@@ -196,8 +196,9 @@ pub trait Rdd<T: Data>: RddBase + Send + Sync + Serialize + Deserialize {
             })
     }
 
-    /// return a new Rdd containing the distinct elements in this rdd
-    // since impl trait is not possible inside Rdd, we have to explicity mention the return type. Extremely ugly but it's ok consideting it is required very less number of times.
+    /// Return a new RDD containing the distinct elements in this RDD.
+    // Since impl trait is not possible inside Rdd, we have to explicity mention the return type.
+    // Extremely ugly but it's ok consideting it is required very less number of times.
     fn distinct_with_num_partitions(
         &self,
         num_partitions: usize,
@@ -224,7 +225,7 @@ pub trait Rdd<T: Data>: RddBase + Send + Sync + Serialize + Deserialize {
             })))
     }
 
-    /// return a new Rdd containing the distinct elements in this rdd
+    /// Return a new RDD containing the distinct elements in this RDD.
     fn distinct(
         &self,
     ) -> MapperRdd<
@@ -304,7 +305,7 @@ pub trait Rdd<T: Data>: RddBase + Send + Sync + Serialize + Deserialize {
                 iter.take(*left).collect::<Vec<T>>()
             });
 
-            let res = self.get_context().run_job_on_partitions(
+            let res = self.get_context().run_job_with_partitions(
                 self.get_rdd(),
                 take_from_partion,
                 partitions,

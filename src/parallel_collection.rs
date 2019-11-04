@@ -6,6 +6,22 @@ use std::sync::Arc;
 
 // This module implements parallel collection RDD for dividing the input collection for parallel processing
 
+/// A collection of objects which can be sliced into partitions with a partitioning function.
+pub trait Chunkable<D>
+where
+    D: Data,
+{
+    fn slice_with_set_parts(self, parts: usize) -> Vec<Arc<Vec<D>>>;
+
+    fn slice(self) -> Vec<Arc<Vec<D>>>
+    where
+        Self: Sized,
+    {
+        let as_many_parts_as_cpus = num_cpus::get();
+        self.slice_with_set_parts(as_many_parts_as_cpus)
+    }
+}
+
 #[derive(Serialize, Deserialize, Clone)]
 pub struct ParallelCollectionSplit<T> {
     rdd_id: i64,
@@ -74,11 +90,32 @@ impl<T: Data> ParallelCollection<T> {
             }),
         }
     }
-    fn slice(data: Vec<T>, num_slices: usize) -> Vec<Arc<Vec<T>>> {
+
+    pub fn from_chunkable<C>(context: Context, data: C) -> Self
+    where
+        C: Chunkable<T>,
+    {
+        let splits_ = data.slice();
+        let rdd_vals = ParallelCollectionVals {
+            vals: Arc::new(RddVals::new(context.clone())),
+            context,
+            num_slices: splits_.len(),
+            splits_,
+        };
+        ParallelCollection {
+            rdd_vals: Arc::new(rdd_vals),
+        }
+    }
+
+    fn slice<I>(data: I, num_slices: usize) -> Vec<Arc<Vec<T>>>
+    where
+        I: IntoIterator<Item = T>,
+    {
         if num_slices < 1 {
             panic!("Number of slices should be greater than or equal to 1");
         } else {
             let mut slice_count = 0;
+            let data: Vec<_> = data.into_iter().collect();
             let data_len = data.len();
             //let mut start = (count * data.len()) / num_slices;
             let mut end = ((slice_count + 1) * data_len) / num_slices;
@@ -105,6 +142,7 @@ impl<T: Data> ParallelCollection<T> {
         }
     }
 }
+
 impl<K: Data, V: Data> RddBase for ParallelCollection<(K, V)> {
     fn cogroup_iterator_any(
         &self,
