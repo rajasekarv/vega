@@ -15,7 +15,7 @@ pub struct ShuffleFetcher;
 impl ShuffleFetcher {
     pub fn fetch<K: Data, V: Data>(
         &self,
-        sc: Context,
+        sc: Arc<Context>,
         shuffle_id: usize,
         reduce_id: usize,
         mut func: impl FnMut((K, V)) -> (),

@@ -47,7 +47,7 @@ impl Default for Schedulers {
 
 impl Schedulers {
     pub fn run_job<T: Data, U: Data, F, RT>(
-        &mut self,
+        &self,
         func: Arc<F>,
         final_rdd: Arc<RT>,
         partitions: Vec<usize>,
@@ -65,7 +65,7 @@ impl Schedulers {
     }
 }
 
-#[derive(Clone, Default)]
+#[derive(Default)]
 pub struct Context {
     next_rdd_id: Arc<AtomicUsize>,
     next_shuffle_id: Arc<AtomicUsize>,
@@ -74,9 +74,16 @@ pub struct Context {
     distributed_master: bool,
 }
 
+impl Drop for Context{
+    fn drop(&mut self) {
+        //TODO clean up temp files
+        self.drop_executors();
+    }
+}
+
 impl Context {
     // Sends the binary to all nodes present in hosts.conf and starts them
-    pub fn new(mode: &str) -> Result<Self> {
+    pub fn new(mode: &str) -> Result<Arc<Self>> {
         let next_rdd_id = Arc::new(AtomicUsize::new(0));
         let next_shuffle_id = Arc::new(AtomicUsize::new(0));
         use Schedulers::*;
@@ -161,7 +168,7 @@ impl Context {
                                 })?;
                             port += 5000;
                         }
-                        Ok(Context {
+                        Ok(Arc::new(Context {
                             next_rdd_id,
                             next_shuffle_id,
                             scheduler: Distributed(DistributedScheduler::new(
@@ -173,7 +180,7 @@ impl Context {
                             )),
                             address_map,
                             distributed_master: true,
-                        })
+                        }))
                         //TODO handle if master is in another node than from where the program is executed
                         //                        ::std::process::exit(0);
                     }
@@ -183,27 +190,27 @@ impl Context {
                 let uuid = Uuid::new_v4().to_string();
                 initialize_loggers(format!("/tmp/master-{}", uuid));
                 let scheduler = Local(LocalScheduler::new(num_cpus::get(), 20, true));
-                Ok(Context {
+                Ok(Arc::new(Context {
                     next_rdd_id,
                     next_shuffle_id,
                     scheduler,
                     address_map: Vec::new(),
                     distributed_master: false,
-                })
+                }))
             }
             _ => {
                 let scheduler = Local(LocalScheduler::new(num_cpus::get(), 20, true));
-                Ok(Context {
+                Ok(Arc::new(Context {
                     next_rdd_id,
                     next_shuffle_id,
                     scheduler,
                     address_map: Vec::new(),
                     distributed_master: false,
-                })
+                }))
             }
         }
     }
-    pub fn drop_executors(self) {
+    fn drop_executors(&self) {
         info!("inside context drop in master {}", self.distributed_master);
 
         for (address, port) in self.address_map.clone() {
@@ -234,17 +241,19 @@ impl Context {
 
     // currently it accepts only vector.
     // TODO change this to accept any iterator
-    pub fn make_rdd<T: Data>(&self, seq: Vec<T>, num_slices: usize) -> ParallelCollection<T> {
+    // &Arc<Self> is an unstable feature. used here just to keep the user end context usage same as before. 
+    // Can be removed if sc.clone() API seems ok. 
+    pub fn make_rdd<T: Data>(self: &Arc<Self>, seq: Vec<T>, num_slices: usize) -> ParallelCollection<T> {
         //let num_slices = seq.len() / num_slices;
         self.parallelize(seq, num_slices)
     }
 
-    pub fn parallelize<T: Data>(&self, seq: Vec<T>, num_slices: usize) -> ParallelCollection<T> {
+    pub fn parallelize<T: Data>(self: &Arc<Self>, seq: Vec<T>, num_slices: usize) -> ParallelCollection<T> {
         ParallelCollection::new(self.clone(), seq, num_slices)
     }
 
     /// Load files from the local host and turn them into a parallel collection.
-    pub fn read_files<F, C, R, D: Data>(&mut self, config: C, func: F) -> impl Rdd<D>
+    pub fn read_files<F, C, R, D: Data>(self: &Arc<Self>, config: C, func: F) -> impl Rdd<D>
     where
         F: SerFunc(R) -> D,
         C: ReaderConfiguration<R>,
@@ -255,7 +264,7 @@ impl Context {
         parallel_readers.map(func)
     }
 
-    pub fn run_job<T: Data, U: Data, RT, F>(&mut self, rdd: Arc<RT>, func: F) -> Vec<U>
+    pub fn run_job<T: Data, U: Data, RT, F>(&self, rdd: Arc<RT>, func: F) -> Vec<U>
     where
         F: SerFunc(Box<dyn Iterator<Item = T>>) -> U,
         RT: Rdd<T> + 'static,
@@ -271,7 +280,7 @@ impl Context {
     }
 
     pub fn run_job_with_partitions<T: Data, U: Data, RT, F, P>(
-        &mut self,
+        &self,
         rdd: Arc<RT>,
         func: F,
         partitions: P,
@@ -286,7 +295,7 @@ impl Context {
             .run_job(Arc::new(cl), rdd, partitions.into_iter().collect(), false)
     }
 
-    pub fn run_job_with_context<T: Data, U: Data, RT, F>(&mut self, rdd: Arc<RT>, func: F) -> Vec<U>
+    pub fn run_job_with_context<T: Data, U: Data, RT, F>(&self, rdd: Arc<RT>, func: F) -> Vec<U>
     where
         F: SerFunc((TasKContext, Box<dyn Iterator<Item = T>>)) -> U,
         RT: Rdd<T> + 'static,

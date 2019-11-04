@@ -131,7 +131,7 @@ impl<K: Data + Eq + Hash> RddBase for CoGroupedRdd<K> {
     fn get_rdd_id(&self) -> usize {
         self.vals.id
     }
-    fn get_context(&self) -> Context {
+    fn get_context(&self) -> Arc<Context> {
         self.vals.context.clone()
     }
     fn get_dependencies(&self) -> &[Dependency] {

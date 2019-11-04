@@ -26,7 +26,6 @@ fn test_group_by() {
     let mut res = g.collect();
     res.sort();
     println!("res {:?}", res);
-    sc.drop_executors();
 
     let expected = vec![
         ("x".to_string(), vec![1, 2, 3, 4, 5, 6, 7]),
@@ -58,7 +57,6 @@ fn test_join() {
     let mut res = inner_joined_rdd.collect();
     println!("res {:?}", res);
     res.sort();
-    sc.drop_executors();
 
     let expected = vec![
         (1, "A1", "A", "B"),

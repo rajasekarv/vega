@@ -4,6 +4,7 @@
     fn_traits,
     specialization,
     unboxed_closures,
+    arbitrary_self_types,
     unsize
 )]
 #![allow(

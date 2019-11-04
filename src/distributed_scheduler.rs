@@ -305,7 +305,7 @@ impl DistributedScheduler {
     }
 
     pub fn run_job<T: Data, U: Data, F, RT>(
-        &mut self,
+        &self,
         func: Arc<F>,
         final_rdd: Arc<RT>,
         partitions: Vec<usize>,
@@ -767,14 +767,14 @@ impl DistributedScheduler {
         Vec::new()
     }
 
-    fn wait_for_event(&mut self, run_id: usize, timeout: u64) -> Option<CompletionEvent> {
+    fn wait_for_event(&self, run_id: usize, timeout: u64) -> Option<CompletionEvent> {
         let end = Instant::now() + Duration::from_millis(timeout);
         while self.event_queues.lock().get(&run_id).unwrap().is_empty() {
             if Instant::now() > end {
                 return None;
+            } else{
+                thread::sleep(end - Instant::now());
             }
-
-            thread::sleep(Duration::from_millis(250));
         }
         self.event_queues
             .lock()

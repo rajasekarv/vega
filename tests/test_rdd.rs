@@ -48,7 +48,6 @@ fn test_make_rdd() {
     //Fn! will make the closures serializable. It is necessary. use serde_closure version 0.1.3.
     let vec_iter = col.map(Fn!(|i| (0..i).collect::<Vec<_>>()));
     let res = vec_iter.collect();
-    sc.drop_executors();
 
     let expected = (0..10)
         .map(|i| (0..i).collect::<Vec<_>>())
@@ -76,7 +75,6 @@ fn test_take() {
     let col2_rdd = sc.parallelize(col2, 4);
     let taken_0 = col2_rdd.take(1);
     assert!(taken_0.is_empty());
-    sc.drop_executors()
 }
 
 #[test]
@@ -93,8 +91,6 @@ fn test_first() {
     // let col2_rdd = sc.parallelize(col2, 4);
     // let taken_0 = col2_rdd.first();
     // assert!(taken_0.is_err());
-
-    sc.drop_executors()
 }
 
 #[test]
@@ -128,7 +124,6 @@ fn test_read_files() {
             .read_files(LocalFsReaderConfig::new(file_path), processor)
             .collect();
         assert_eq!(result[0].len(), 2);
-        sc.drop_executors();
     });
 
     // Multiple files test
@@ -159,7 +154,6 @@ fn test_read_files() {
         let files = sc.read_files(LocalFsReaderConfig::new(WORK_DIR.join(TEST_DIR)), processor);
         let result: Vec<_> = files.collect().into_iter().flatten().collect();
         assert_eq!(result.len(), 20);
-        sc.drop_executors();
     });
 }
 

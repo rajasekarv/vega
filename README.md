@@ -25,7 +25,8 @@ You can specify the local IP address using the environmental variable `SPARK_LOC
 
 ## ToDo:
 
-- [ ] Error Handling(Priority)
+- [x] Error Handling(Priority)
+- [ ] Fault tolerance
 
 ### RDD
 Most of these except file reader and writer are trivial to implement

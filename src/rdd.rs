@@ -39,16 +39,16 @@ pub struct RddVals {
     pub dependencies: Vec<Dependency>,
     should_cache: bool,
     #[serde(skip_serializing, skip_deserializing)]
-    pub context: Context,
+    pub context: Arc<Context>,
 }
 
 impl RddVals {
-    pub fn new(sc: Context) -> Self {
+    pub fn new(sc: Arc<Context>) -> Self {
         RddVals {
             id: sc.new_rdd_id(),
             dependencies: Vec::new(),
             should_cache: false,
-            context: sc.clone(),
+            context: sc,
         }
     }
 
@@ -64,7 +64,7 @@ impl RddVals {
 // Another separate Rdd containing generic methods like map, etc.,
 pub trait RddBase: Send + Sync + Serialize + Deserialize {
     fn get_rdd_id(&self) -> usize;
-    fn get_context(&self) -> Context;
+    fn get_context(&self) -> Arc<Context>;
     fn get_dependencies(&self) -> &[Dependency];
     fn preferred_locations(&self, split: Box<dyn Split>) -> Vec<Ipv4Addr> {
         Vec::new()
@@ -390,7 +390,7 @@ where
         self.vals.id
     }
 
-    fn get_context(&self) -> Context {
+    fn get_context(&self) -> Arc<Context> {
         self.vals.context.clone()
     }
 
@@ -521,7 +521,7 @@ where
         self.vals.id
     }
 
-    fn get_context(&self) -> Context {
+    fn get_context(&self) -> Arc<Context> {
         self.vals.context.clone()
     }
 

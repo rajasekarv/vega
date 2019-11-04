@@ -11,6 +11,5 @@ fn main() -> Result<()> {
     let vec_iter = col.map(Fn!(|i| (0..i).collect::<Vec<_>>()));
     let res = vec_iter.collect();
     println!("{:?}", res);
-    sc.drop_executors();
     Ok(())
 }

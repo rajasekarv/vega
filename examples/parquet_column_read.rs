@@ -25,7 +25,6 @@ fn main() -> Result<()> {
     let avg = sum.map(Fn!(|(k, (v, c))| (k, v as f64 / c)));
     let res = avg.collect();
     println!("{:?}", &res[0]);
-    sc.drop_executors();
     Ok(())
 }
 

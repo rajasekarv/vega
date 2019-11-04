@@ -24,6 +24,5 @@ fn main() -> Result<()> {
     let g = r.group_by_key(4);
     let res = g.collect();
     println!("res {:?}", res);
-    sc.drop_executors();
     Ok(())
 }

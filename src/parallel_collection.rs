@@ -60,7 +60,7 @@ impl<T: Data> ParallelCollectionSplit<T> {
 pub struct ParallelCollectionVals<T> {
     vals: Arc<RddVals>,
     #[serde(skip_serializing, skip_deserializing)]
-    context: Context,
+    context: Arc<Context>,
     //    data: Option<Vec<T>>,
     splits_: Vec<Arc<Vec<T>>>,
     num_slices: usize,
@@ -80,7 +80,7 @@ impl<T: Data> Clone for ParallelCollection<T> {
 }
 
 impl<T: Data> ParallelCollection<T> {
-    pub fn new(context: Context, data: Vec<T>, num_slices: usize) -> Self {
+    pub fn new(context: Arc<Context>, data: Vec<T>, num_slices: usize) -> Self {
         ParallelCollection {
             rdd_vals: Arc::new(ParallelCollectionVals {
                 vals: Arc::new(RddVals::new(context.clone())),
@@ -91,7 +91,7 @@ impl<T: Data> ParallelCollection<T> {
         }
     }
 
-    pub fn from_chunkable<C>(context: Context, data: C) -> Self
+    pub fn from_chunkable<C>(context: Arc<Context>, data: C) -> Self
     where
         C: Chunkable<T>,
     {
@@ -160,7 +160,7 @@ impl<T: Data> RddBase for ParallelCollection<T> {
     fn get_rdd_id(&self) -> usize {
         self.rdd_vals.vals.id
     }
-    fn get_context(&self) -> Context {
+    fn get_context(&self) -> Arc<Context> {
         self.rdd_vals.vals.context.clone()
     }
     fn get_dependencies(&self) -> &[Dependency] {
