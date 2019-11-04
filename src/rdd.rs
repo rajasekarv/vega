@@ -109,6 +109,21 @@ impl Ord for dyn RddBase {
     }
 }
 
+mod rdd_rt {
+    //! Explicit return types for the different rdd operations
+    //! This is required because impl Trait ain't supported on traits yet
+    use super::*;
+
+    type MapFunc<ReceiveT, ReturnT> = Box<dyn Func(ReceiveT) -> ReturnT>;
+    pub type Mapped<S, ReceiveT, ReturnT> =
+        MapperRdd<S, ReceiveT, ReturnT, MapFunc<ReceiveT, ReturnT>>;
+
+    // distinct RT:
+    type DistinctShuffled<S, T> = ShuffledRdd<Option<T>, Option<T>, Option<T>, Mapped<S, T, KV<T>>>;
+    type KV<T> = (Option<T>, Option<T>);
+    pub type DistinctRT<S, T> = Mapped<DistinctShuffled<S, T>, KV<T>, T>;
+}
+
 // Rdd containing methods associated with processing
 pub trait Rdd<T: Data>: RddBase + Send + Sync + Serialize + Deserialize {
     fn get_rdd(&self) -> Arc<Self>
@@ -196,23 +211,20 @@ pub trait Rdd<T: Data>: RddBase + Send + Sync + Serialize + Deserialize {
             })
     }
 
+    fn count(&self) -> u64
+    where
+        Self: 'static + Sized,
+    {
+        let mut context = self.get_context();
+        let counting_func = Fn!(|iter: Box<dyn Iterator<Item = T>>| { iter.count() as u64 });
+        context
+            .run_job(self.get_rdd(), counting_func)
+            .into_iter()
+            .sum()
+    }
+
     /// Return a new RDD containing the distinct elements in this RDD.
-    // Since impl trait is not possible inside Rdd, we have to explicity mention the return type.
-    // Extremely ugly but it's ok consideting it is required very less number of times.
-    fn distinct_with_num_partitions(
-        &self,
-        num_partitions: usize,
-    ) -> MapperRdd<
-        ShuffledRdd<
-            Option<T>,
-            Option<T>,
-            Option<T>,
-            MapperRdd<Self, T, (Option<T>, Option<T>), Box<dyn Func(T) -> (Option<T>, Option<T>)>>,
-        >,
-        (Option<T>, Option<T>),
-        T,
-        Box<dyn Func((Option<T>, Option<T>)) -> T>,
-    >
+    fn distinct_with_num_partitions(&self, num_partitions: usize) -> rdd_rt::DistinctRT<Self, T>
     where
         Self: Sized + 'static,
         T: Data + Eq + Hash,
@@ -226,19 +238,7 @@ pub trait Rdd<T: Data>: RddBase + Send + Sync + Serialize + Deserialize {
     }
 
     /// Return a new RDD containing the distinct elements in this RDD.
-    fn distinct(
-        &self,
-    ) -> MapperRdd<
-        ShuffledRdd<
-            Option<T>,
-            Option<T>,
-            Option<T>,
-            MapperRdd<Self, T, (Option<T>, Option<T>), Box<dyn Func(T) -> (Option<T>, Option<T>)>>,
-        >,
-        (Option<T>, Option<T>),
-        T,
-        Box<dyn Func((Option<T>, Option<T>)) -> T>,
-    >
+    fn distinct(&self) -> rdd_rt::DistinctRT<Self, T>
     where
         Self: Sized + 'static,
         T: Data + Eq + Hash,
@@ -257,6 +257,33 @@ pub trait Rdd<T: Data>: RddBase + Send + Sync + Serialize + Deserialize {
             //FIXME: return a proper error when we add return errors
             panic!("empty collection")
         }
+    }
+
+    /// Return a sampled subset of this RDD.
+    ///
+    /// # Arguments
+    ///
+    /// * `with_replacement` - can elements be sampled multiple times (replaced when sampled out)
+    /// * `fraction` - expected size of the sample as a fraction of this RDD's size
+    /// ** if without replacement: probability that each element is chosen; fraction must be [0, 1]
+    /// ** if with replacement: expected number of times each element is chosen; fraction must be greater than or equal to 0
+    /// * seed for the random number generator
+    ///
+    /// # Notes
+    ///
+    /// This is NOT guaranteed to provide exactly the fraction of the count of the given RDD.
+    fn sample(
+        &self,
+        with_replacement: bool,
+        fraction: f64,
+        seed: Option<u64>,
+    ) -> rdd_rt::Mapped<Self, T, T>
+    where
+        Self: Sized + 'static,
+    {
+        assert!(fraction >= 0.0);
+
+        unimplemented!()
     }
 
     /// Take the first num elements of the RDD. It works by first scanning one partition, and use the
@@ -365,57 +392,26 @@ pub trait Rdd<T: Data>: RddBase + Send + Sync + Serialize + Deserialize {
             let fraction =
                 utils::compute_fraction_for_sample_size(num, initial_count, with_replacement);
             let mut samples = self
-                .sample(with_replacement, fraction, rng.next_u64())
+                .sample(with_replacement, fraction, rng.next_u64().into())
                 .collect();
 
             // If the first sample didn't turn out large enough, keep trying to take samples;
             // this shouldn't happen often because we use a big multiplier for the initial size.
             let mut num_iters = 0;
-            while (samples.len() < num) {
+            while (samples.len() < num as usize) {
                 log::warn!(
                     "Needed to re-sample due to insufficient sample size. Repeat #{}",
                     num_iters
                 );
                 samples = self
-                    .sample(with_replacement, fraction, rng.next_u64())
+                    .sample(with_replacement, fraction, rng.next_u64().into())
                     .collect();
                 num_iters += 1;
             }
 
             utils::randomize_in_place(&mut samples, &mut rng);
-            samples.into_iter().take(num).collect::<Vec<_>>()
+            samples.into_iter().take(num as usize).collect::<Vec<_>>()
         }
-    }
-
-    fn count(&self) -> u64
-    where
-        Self: 'static + Sized,
-    {
-        let mut context = self.get_context();
-        let counting_func = Fn!(|iter: Box<dyn Iterator<Item = T>>| { iter.count() as u64 });
-        context
-            .run_job(self.get_rdd(), counting_func)
-            .into_iter()
-            .sum()
-    }
-
-    /// Return a sampled subset of this RDD.
-    ///
-    /// # Arguments
-    ///
-    /// * `with_replacement` - can elements be sampled multiple times (replaced when sampled out)
-    /// * `fraction` - expected size of the sample as a fraction of this RDD's size
-    /// ** if without replacement: probability that each element is chosen; fraction must be [0, 1]
-    /// ** if with replacement: expected number of times each element is chosen; fraction must be greater than or equal to 0
-    /// * seed for the random number generator
-    ///
-    /// # Notes
-    ///
-    /// This is NOT guaranteed to provide exactly the fraction of the count of the given RDD.
-    fn sample(&self, with_replacement: bool, fraction: f64, some: u64) -> MapperRdd<T> {
-        assert!(fraction >= 0.0);
-
-        unimplemented!()
     }
 }
 
