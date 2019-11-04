@@ -1,15 +1,15 @@
 use super::*;
-use std::path::Path;
-//use objekt::Clone;
-//use chrono::format::Item;
+
 use std::cmp::Ordering;
 use std::fs;
 use std::hash::Hash;
 use std::io::{BufWriter, Write};
 use std::marker::PhantomData;
 use std::net::Ipv4Addr;
+use std::path::Path;
 use std::sync::Arc;
-//use std::any::Any;
+
+use rand::{RngCore, SeedableRng};
 
 pub trait Reduce<T> {
     fn reduce<F>(self, f: F) -> Option<T>
@@ -320,6 +320,102 @@ pub trait Rdd<T: Data>: RddBase + Send + Sync + Serialize + Deserialize {
         }
 
         buf
+    }
+
+    /// Return a fixed-size sampled subset of this RDD in an array.
+    ///
+    /// # Notes
+    ///
+    /// This method should only be used if the resulting array is expected to be small, as
+    /// all the data is loaded into the driver's memory.
+    fn take_sample(&self, with_replacement: bool, num: u64, seed: Option<u64>) -> Vec<T>
+    where
+        Self: 'static + Sized,
+    {
+        let num_std_dev = 10.0f64;
+        //TODO: this could be const eval when the support is there for the necessary functions
+        let max_sample_size = std::u64::MAX - (num_std_dev * (std::u64::MAX as f64).sqrt()) as u64;
+        assert!(num <= max_sample_size);
+
+        if num == 0 {
+            return vec![];
+        }
+
+        let initial_count = self.count();
+        if initial_count == 0 {
+            return vec![];
+        }
+
+        // The original Spark implementation uses java.util.Random which is a LCG pseudorng,
+        // not cryptographically secure and some problems;
+        // Here we choose Pcg64, which is a proven good performant pseudorng although without
+        // strong cryptographic guarantees, which ain't necessary here.
+        let mut rng = if let Some(seed) = seed {
+            rand_pcg::Pcg64::seed_from_u64(seed)
+        } else {
+            // PCG with default specification state and stream params
+            rand_pcg::Pcg64::new(0xcafe_f00d_d15e_a5e5, 0x0a02_bdbf_7bb3_c0a7)
+        };
+
+        if !with_replacement && num >= initial_count {
+            let mut sample = self.collect();
+            utils::randomize_in_place(&mut sample, &mut rng);
+            sample
+        } else {
+            let fraction =
+                utils::compute_fraction_for_sample_size(num, initial_count, with_replacement);
+            let mut samples = self
+                .sample(with_replacement, fraction, rng.next_u64())
+                .collect();
+
+            // If the first sample didn't turn out large enough, keep trying to take samples;
+            // this shouldn't happen often because we use a big multiplier for the initial size.
+            let mut num_iters = 0;
+            while (samples.len() < num) {
+                log::warn!(
+                    "Needed to re-sample due to insufficient sample size. Repeat #{}",
+                    num_iters
+                );
+                samples = self
+                    .sample(with_replacement, fraction, rng.next_u64())
+                    .collect();
+                num_iters += 1;
+            }
+
+            utils::randomize_in_place(&mut samples, &mut rng);
+            samples.into_iter().take(num).collect::<Vec<_>>()
+        }
+    }
+
+    fn count(&self) -> u64
+    where
+        Self: 'static + Sized,
+    {
+        let mut context = self.get_context();
+        let counting_func = Fn!(|iter: Box<dyn Iterator<Item = T>>| { iter.count() as u64 });
+        context
+            .run_job(self.get_rdd(), counting_func)
+            .into_iter()
+            .sum()
+    }
+
+    /// Return a sampled subset of this RDD.
+    ///
+    /// # Arguments
+    ///
+    /// * `with_replacement` - can elements be sampled multiple times (replaced when sampled out)
+    /// * `fraction` - expected size of the sample as a fraction of this RDD's size
+    /// ** if without replacement: probability that each element is chosen; fraction must be [0, 1]
+    /// ** if with replacement: expected number of times each element is chosen; fraction must be greater than or equal to 0
+    /// * seed for the random number generator
+    ///
+    /// # Notes
+    ///
+    /// This is NOT guaranteed to provide exactly the fraction of the count of the given RDD.
+    fn sample(&self, with_replacement: bool, fraction: f64, some: u64) -> MapperRdd<T> {
+        assert!(fraction >= 0.0);
+
+        unimplemented!()
     }
 }
 

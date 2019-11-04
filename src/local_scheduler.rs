@@ -146,7 +146,7 @@ impl LocalScheduler {
         env::env
             .cache_tracker
             .register_rdd(rdd_base.get_rdd_id(), rdd_base.number_of_splits());
-        if !shuffle_dependency.is_none() {
+        if shuffle_dependency.is_some() {
             info!("shuffle dependcy and registering mapoutput tracker");
             self.map_output_tracker.register_shuffle(
                 shuffle_dependency.clone().unwrap().get_shuffle_id(),
