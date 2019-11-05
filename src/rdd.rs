@@ -158,7 +158,7 @@ pub trait Rdd<T: Data>: RddBase + Send + Sync + Serialize + Deserialize {
                     .expect("error while writing to file");
             }
         }
-        let cl = Fn!([path] move |(ctx, iter)| save::<T>(ctx, iter, path.to_string()));
+        let cl = Fn!(move |(ctx, iter)| save::<T>(ctx, iter, path.to_string()));
         self.get_context().run_job_with_context(self.get_rdd(), cl);
     }
 
@@ -169,8 +169,8 @@ pub trait Rdd<T: Data>: RddBase + Send + Sync + Serialize + Deserialize {
     {
         // cloned cause we will use `f` later.
         let cf = f.clone();
-        let reduce_partition = Fn!([cf] move |iter: Box<dyn Iterator<Item = T>>| {
-        let acc = iter.reduce(cf);
+        let reduce_partition = Fn!(move |iter: Box<dyn Iterator<Item = T>>| {
+        let acc = iter.reduce(&cf);
         match acc {
             None => vec![],
             Some(e) => vec![e],
@@ -301,8 +301,8 @@ pub trait Rdd<T: Data>: RddBase + Send + Sync + Serialize + Deserialize {
                 ..total_parts.min(parts_scanned + num_parts_to_try) as usize)
                 .collect();
             let num_partitions = partitions.len() as u32;
-            let take_from_partion = Fn!([left] move | iter: Box<dyn Iterator<Item = T>> | {
-                iter.take(*left).collect::<Vec<T>>()
+            let take_from_partion = Fn!(move |iter: Box<dyn Iterator<Item = T>>| {
+                iter.take(left).collect::<Vec<T>>()
             });
 
             let res = self.get_context().run_job_with_partitions(
