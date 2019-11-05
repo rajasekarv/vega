@@ -113,8 +113,7 @@ mod rdd_rt {
     use super::*;
 
     type MapFunc<ReceiveT, ReturnT> = Box<dyn Func(ReceiveT) -> ReturnT>;
-    pub type Mapped<S, ReceiveT, ReturnT> =
-        MapperRdd<S, ReceiveT, ReturnT, MapFunc<ReceiveT, ReturnT>>;
+    type Mapped<S, ReceiveT, ReturnT> = MapperRdd<S, ReceiveT, ReturnT, MapFunc<ReceiveT, ReturnT>>;
 
     // distinct RT:
     type KV<T> = (Option<T>, Option<T>);
@@ -264,12 +263,7 @@ pub trait Rdd<T: Data>: RddBase {
     /// # Notes
     ///
     /// This is NOT guaranteed to provide exactly the fraction of the count of the given RDD.
-    fn sample(
-        &self,
-        with_replacement: bool,
-        fraction: f64,
-        seed: Option<u64>,
-    ) -> PartitionwiseSampledRdd<Self, T>
+    fn sample(&self, with_replacement: bool, fraction: f64) -> PartitionwiseSampledRdd<Self, T>
     where
         Self: Sized + 'static,
     {
@@ -280,13 +274,7 @@ pub trait Rdd<T: Data>: RddBase {
         } else {
             Arc::new(BernoulliSampler::new(fraction)) as Arc<dyn RandomSampler<T>>
         };
-        PartitionwiseSampledRdd::new(
-            self.get_rdd(),
-            sampler,
-            seed,
-            true,
-            self.partitioner().unwrap(),
-        )
+        PartitionwiseSampledRdd::new(self.get_rdd(), sampler, true, self.partitioner().unwrap())
     }
 
     /// Take the first num elements of the RDD. It works by first scanning one partition, and use the
@@ -384,10 +372,7 @@ pub trait Rdd<T: Data>: RddBase {
             rand_pcg::Pcg64::seed_from_u64(seed)
         } else {
             // PCG with default specification state and stream params
-            rand_pcg::Pcg64::new(
-                0xcafe_f00d_d15e_a5e5,
-                0x0a02_bdbf_7bb3_c0a7_ac28_fa16_a64a_bf96,
-            )
+            util::random::get_default_rng()
         };
 
         if !with_replacement && num >= initial_count {
@@ -400,9 +385,7 @@ pub trait Rdd<T: Data>: RddBase {
                 initial_count,
                 with_replacement,
             );
-            let mut samples = self
-                .sample(with_replacement, fraction, rng.next_u64().into())
-                .collect();
+            let mut samples = self.sample(with_replacement, fraction).collect();
 
             // If the first sample didn't turn out large enough, keep trying to take samples;
             // this shouldn't happen often because we use a big multiplier for the initial size.
@@ -412,9 +395,7 @@ pub trait Rdd<T: Data>: RddBase {
                     "Needed to re-sample due to insufficient sample size. Repeat #{}",
                     num_iters
                 );
-                samples = self
-                    .sample(with_replacement, fraction, rng.next_u64().into())
-                    .collect();
+                samples = self.sample(with_replacement, fraction).collect();
                 num_iters += 1;
             }
 
@@ -697,8 +678,6 @@ where
     preserves_partitioning: bool,
     #[serde(with = "serde_traitobject")]
     part: Box<dyn Partitioner>,
-    #[serde(skip, default)]
-    seed: Option<u64>,
     _marker_t: PhantomData<T>,
 }
 
@@ -709,7 +688,6 @@ where
     fn new(
         prev: Arc<RT>,
         sampler: Arc<dyn RandomSampler<T>>,
-        seed: Option<u64>,
         preserves_partitioning: bool,
         part: Box<dyn Partitioner>,
     ) -> Self {
@@ -726,7 +704,6 @@ where
             sampler,
             preserves_partitioning,
             part,
-            seed,
             _marker_t: PhantomData,
         }
     }
@@ -743,7 +720,6 @@ where
             sampler: self.sampler.clone(),
             preserves_partitioning: self.preserves_partitioning,
             part: self.part.clone(),
-            seed: None,
             _marker_t: PhantomData,
         }
     }
@@ -769,8 +745,6 @@ where
         self.prev.splits()
     }
     fn number_of_splits(&self) -> usize {
-        let seed = self.seed.unwrap();
-
         self.prev.number_of_splits()
     }
 
