@@ -38,7 +38,7 @@ Most of these except file reader and writer are trivial to implement
 - [x] group_by
 - [x] reduce_by
 - [x] distinct
-- [ ] step_by
+- [x] count
 - [ ] take_sample
 - [ ] union
 - [ ] glom

@@ -18,7 +18,7 @@ enum CoGroupSplitDep {
         shuffle_id: usize,
     },
 }
-//
+
 #[derive(Clone, Serialize, Deserialize)]
 struct CoGroupSplit {
     index: usize,

@@ -1,6 +1,5 @@
 use super::*;
 use fasthash::MetroHasher;
-//use objekt;
 use std::any::Any;
 use std::hash::{Hash, Hasher};
 use std::marker::PhantomData;

@@ -1,4 +1,5 @@
 use super::*;
+use util::random::{BernoulliSampler, PoissonSampler, RandomSampler};
 
 use std::cmp::Ordering;
 use std::fs;
@@ -86,9 +87,6 @@ pub trait RddBase: Send + Sync + Serialize + Deserialize {
     }
 }
 
-//pub trait RddBaseBox: RddBase + Serialize + Deserialize {}
-//impl<T> RddBaseBox for T where T: RddBase + Serialize + Deserialize {}
-
 impl PartialOrd for dyn RddBase {
     fn partial_cmp(&self, other: &dyn RddBase) -> Option<Ordering> {
         Some(self.get_rdd_id().cmp(&other.get_rdd_id()))
@@ -119,13 +117,13 @@ mod rdd_rt {
         MapperRdd<S, ReceiveT, ReturnT, MapFunc<ReceiveT, ReturnT>>;
 
     // distinct RT:
-    type DistinctShuffled<S, T> = ShuffledRdd<Option<T>, Option<T>, Option<T>, Mapped<S, T, KV<T>>>;
     type KV<T> = (Option<T>, Option<T>);
+    type DistinctShuffled<S, T> = ShuffledRdd<Option<T>, Option<T>, Option<T>, Mapped<S, T, KV<T>>>;
     pub type DistinctRT<S, T> = Mapped<DistinctShuffled<S, T>, KV<T>, T>;
 }
 
 // Rdd containing methods associated with processing
-pub trait Rdd<T: Data>: RddBase + Send + Sync + Serialize + Deserialize {
+pub trait Rdd<T: Data>: RddBase {
     fn get_rdd(&self) -> Arc<Self>
     where
         Self: Sized;
@@ -134,12 +132,7 @@ pub trait Rdd<T: Data>: RddBase + Send + Sync + Serialize + Deserialize {
         self.compute(split)
     }
     fn compute(&self, split: Box<dyn Split>) -> Box<dyn Iterator<Item = T>>;
-    //    fn partitioner<P: PartialEq<Any>>(&self) -> Option<Arc<P>>
-    //    where
-    //        Self: Sized,
-    //    {
-    //        None
-    //    }
+
     fn map<U: Data, F>(&self, f: F) -> MapperRdd<Self, T, U, F>
     where
         F: SerFunc(T) -> U,
@@ -161,7 +154,6 @@ pub trait Rdd<T: Data>: RddBase + Send + Sync + Serialize + Deserialize {
         Self: Sized + 'static,
     {
         fn save<R: Data>(ctx: TasKContext, iter: Box<dyn Iterator<Item = R>>, path: String) {
-            //            let path = "/tmp/";
             fs::create_dir_all(&path);
             let id = ctx.split_id;
             let file_path = Path::new(&path).join(format!("part-{}", id));
@@ -277,13 +269,24 @@ pub trait Rdd<T: Data>: RddBase + Send + Sync + Serialize + Deserialize {
         with_replacement: bool,
         fraction: f64,
         seed: Option<u64>,
-    ) -> rdd_rt::Mapped<Self, T, T>
+    ) -> PartitionwiseSampledRdd<Self, T>
     where
         Self: Sized + 'static,
     {
         assert!(fraction >= 0.0);
 
-        unimplemented!()
+        let sampler = if with_replacement {
+            Arc::new(PoissonSampler::new(fraction)) as Arc<dyn RandomSampler<T>>
+        } else {
+            Arc::new(BernoulliSampler::new(fraction)) as Arc<dyn RandomSampler<T>>
+        };
+        PartitionwiseSampledRdd::new(
+            self.get_rdd(),
+            sampler,
+            seed,
+            true,
+            self.partitioner().unwrap(),
+        )
     }
 
     /// Take the first num elements of the RDD. It works by first scanning one partition, and use the
@@ -294,7 +297,7 @@ pub trait Rdd<T: Data>: RddBase + Send + Sync + Serialize + Deserialize {
     /// all the data is loaded into the driver's memory.
     fn take(&self, num: usize) -> Vec<T>
     where
-        Self: 'static + Sized,
+        Self: Sized + 'static,
     {
         //TODO: in original spark this is configurable; see rdd/RDD.scala:1397
         // Math.max(conf.get(RDD_LIMIT_SCALE_UP_FACTOR), 2)
@@ -357,7 +360,7 @@ pub trait Rdd<T: Data>: RddBase + Send + Sync + Serialize + Deserialize {
     /// all the data is loaded into the driver's memory.
     fn take_sample(&self, with_replacement: bool, num: u64, seed: Option<u64>) -> Vec<T>
     where
-        Self: 'static + Sized,
+        Self: Sized + 'static,
     {
         let num_std_dev = 10.0f64;
         //TODO: this could be const eval when the support is there for the necessary functions
@@ -373,7 +376,7 @@ pub trait Rdd<T: Data>: RddBase + Send + Sync + Serialize + Deserialize {
             return vec![];
         }
 
-        // The original Spark implementation uses java.util.Random which is a LCG pseudorng,
+        // The original implementation uses java.util.Random which is a LCG pseudorng,
         // not cryptographically secure and some problems;
         // Here we choose Pcg64, which is a proven good performant pseudorng although without
         // strong cryptographic guarantees, which ain't necessary here.
@@ -381,16 +384,22 @@ pub trait Rdd<T: Data>: RddBase + Send + Sync + Serialize + Deserialize {
             rand_pcg::Pcg64::seed_from_u64(seed)
         } else {
             // PCG with default specification state and stream params
-            rand_pcg::Pcg64::new(0xcafe_f00d_d15e_a5e5, 0x0a02_bdbf_7bb3_c0a7)
+            rand_pcg::Pcg64::new(
+                0xcafe_f00d_d15e_a5e5,
+                0x0a02_bdbf_7bb3_c0a7_ac28_fa16_a64a_bf96,
+            )
         };
 
         if !with_replacement && num >= initial_count {
             let mut sample = self.collect();
-            utils::randomize_in_place(&mut sample, &mut rng);
+            util::randomize_in_place(&mut sample, &mut rng);
             sample
         } else {
-            let fraction =
-                utils::compute_fraction_for_sample_size(num, initial_count, with_replacement);
+            let fraction = util::random::compute_fraction_for_sample_size(
+                num,
+                initial_count,
+                with_replacement,
+            );
             let mut samples = self
                 .sample(with_replacement, fraction, rng.next_u64().into())
                 .collect();
@@ -409,23 +418,19 @@ pub trait Rdd<T: Data>: RddBase + Send + Sync + Serialize + Deserialize {
                 num_iters += 1;
             }
 
-            utils::randomize_in_place(&mut samples, &mut rng);
+            util::randomize_in_place(&mut samples, &mut rng);
             samples.into_iter().take(num as usize).collect::<Vec<_>>()
         }
     }
 }
 
-//pub trait RddBox<T: Data>: Rdd<T> + Serialize + Deserialize {}
-
-//impl<K, T: Data> RddBox<T> for K where K: Rdd<T> + Serialize + Deserialize {}
-
 // Lot of visual noise here due to the generic implementation of RddValues.
 // Have to refactor a bit by converting repetitive traits into separate trait like Data trait
 #[derive(Serialize, Deserialize)]
-pub struct MapperRdd<RT: 'static, T: Data, U: Data, F>
+pub struct MapperRdd<RT, T: Data, U: Data, F>
 where
     F: Func(T) -> U + Clone,
-    RT: Rdd<T>,
+    RT: Rdd<T> + 'static,
 {
     #[serde(with = "serde_traitobject")]
     prev: Arc<RT>,
@@ -450,16 +455,15 @@ where
     }
 }
 
-impl<RT: 'static, T: Data, U: Data, F> MapperRdd<RT, T, U, F>
+impl<RT, T: Data, U: Data, F> MapperRdd<RT, T, U, F>
 where
     F: SerFunc(T) -> U,
-    RT: Rdd<T>,
+    RT: Rdd<T> + 'static,
 {
     fn new(prev: Arc<RT>, f: F) -> Self {
         let mut vals = RddVals::new(prev.get_context());
         vals.dependencies
             .push(Dependency::OneToOneDependency(Arc::new(
-                //                OneToOneDependencyVals::new(prev.get_rdd(), prev.get_rdd()),
                 OneToOneDependencyVals::new(prev.get_rdd_base()),
             )));
         let vals = Arc::new(vals);
@@ -468,7 +472,6 @@ where
             vals,
             f,
             _marker_t: PhantomData,
-            //            _marker_u: PhantomData,
         }
     }
 }
@@ -556,10 +559,10 @@ where
 }
 
 #[derive(Serialize, Deserialize)]
-pub struct FlatMapperRdd<RT: 'static, T: Data, U: Data, F>
+pub struct FlatMapperRdd<RT, T: Data, U: Data, F>
 where
     F: Func(T) -> Box<dyn Iterator<Item = U>> + Clone,
-    RT: Rdd<T>,
+    RT: Rdd<T> + 'static,
 {
     #[serde(with = "serde_traitobject")]
     prev: Arc<RT>,
@@ -677,17 +680,131 @@ where
     }
     fn compute(&self, split: Box<dyn Split>) -> Box<dyn Iterator<Item = U>> {
         let f = self.f.clone();
-        Box::new(
-            self.prev
-                .iterator(split)
-                .flat_map(f)
-//                .collect::<Vec<_>>()
-//                .into_iter(),
-        )
+        Box::new(self.prev.iterator(split).flat_map(f))
+    }
+}
 
-        //        let res = res.collect::<Vec<_>>();
-        //        let log_output = format!("inside iterator flatmaprdd {:?}", res.get(0));
-        //        env::log_file.lock().write(&log_output.as_bytes());
-        //        Box::new(res.into_iter()) as Box<dyn Iterator<Item = U>>
+#[derive(Serialize, Deserialize)]
+pub struct PartitionwiseSampledRdd<RT, T: Data>
+where
+    RT: 'static + Rdd<T>,
+{
+    #[serde(with = "serde_traitobject")]
+    prev: Arc<RT>,
+    vals: Arc<RddVals>,
+    #[serde(with = "serde_traitobject")]
+    sampler: Arc<dyn RandomSampler<T>>,
+    preserves_partitioning: bool,
+    #[serde(with = "serde_traitobject")]
+    part: Box<dyn Partitioner>,
+    #[serde(skip, default)]
+    seed: Option<u64>,
+    _marker_t: PhantomData<T>,
+}
+
+impl<RT: 'static, T: Data> PartitionwiseSampledRdd<RT, T>
+where
+    RT: Rdd<T>,
+{
+    fn new(
+        prev: Arc<RT>,
+        sampler: Arc<dyn RandomSampler<T>>,
+        seed: Option<u64>,
+        preserves_partitioning: bool,
+        part: Box<dyn Partitioner>,
+    ) -> Self {
+        let mut vals = RddVals::new(prev.get_context());
+        vals.dependencies
+            .push(Dependency::OneToOneDependency(Arc::new(
+                OneToOneDependencyVals::new(prev.get_rdd()),
+            )));
+        let vals = Arc::new(vals);
+
+        PartitionwiseSampledRdd {
+            prev,
+            vals,
+            sampler,
+            preserves_partitioning,
+            part,
+            seed,
+            _marker_t: PhantomData,
+        }
+    }
+}
+
+impl<RT: 'static, T: Data> Clone for PartitionwiseSampledRdd<RT, T>
+where
+    RT: Rdd<T>,
+{
+    fn clone(&self) -> Self {
+        PartitionwiseSampledRdd {
+            prev: self.prev.clone(),
+            vals: self.vals.clone(),
+            sampler: self.sampler.clone(),
+            preserves_partitioning: self.preserves_partitioning,
+            part: self.part.clone(),
+            seed: None,
+            _marker_t: PhantomData,
+        }
+    }
+}
+
+impl<RT: 'static, T: Data> RddBase for PartitionwiseSampledRdd<RT, T>
+where
+    RT: Rdd<T>,
+{
+    fn get_rdd_id(&self) -> usize {
+        self.vals.id
+    }
+
+    fn get_context(&self) -> Arc<Context> {
+        self.vals.context.clone()
+    }
+
+    fn get_dependencies(&self) -> &[Dependency] {
+        &self.vals.dependencies
+    }
+
+    fn splits(&self) -> Vec<Box<dyn Split>> {
+        self.prev.splits()
+    }
+    fn number_of_splits(&self) -> usize {
+        let seed = self.seed.unwrap();
+
+        self.prev.number_of_splits()
+    }
+
+    default fn cogroup_iterator_any(
+        &self,
+        split: Box<dyn Split>,
+    ) -> Box<dyn Iterator<Item = Box<dyn AnyData>>> {
+        self.iterator_any(split)
+    }
+    default fn iterator_any(
+        &self,
+        split: Box<dyn Split>,
+    ) -> Box<dyn Iterator<Item = Box<dyn AnyData>>> {
+        info!("inside PartitionwiseSampledRdd iterator_any",);
+        Box::new(
+            self.iterator(split)
+                .map(|x| Box::new(x) as Box<dyn AnyData>),
+        )
+    }
+}
+
+impl<RT: 'static, T: Data> Rdd<T> for PartitionwiseSampledRdd<RT, T>
+where
+    RT: Rdd<T>,
+{
+    fn get_rdd_base(&self) -> Arc<dyn RddBase> {
+        Arc::new(self.clone()) as Arc<dyn RddBase>
+    }
+
+    fn get_rdd(&self) -> Arc<Self> {
+        Arc::new(self.clone())
+    }
+
+    fn compute(&self, split: Box<dyn Split>) -> Box<dyn Iterator<Item = T>> {
+        unimplemented!()
     }
 }
