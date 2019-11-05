@@ -269,7 +269,7 @@ impl Context {
         F: SerFunc(Box<dyn Iterator<Item = T>>) -> U,
         RT: Rdd<T> + 'static,
     {
-        let cl = Fn!([func] move | (task_context, iter) | (*func)(iter));
+        let cl = Fn!(move |(task_context, iter)| (func)(iter));
         let func = Arc::new(cl);
         self.scheduler.run_job(
             func,
@@ -290,7 +290,7 @@ impl Context {
         RT: Rdd<T> + 'static,
         P: IntoIterator<Item = usize>,
     {
-        let cl = Fn!([func] move | (task_context, iter) | (*func)(iter));
+        let cl = Fn!(move |(task_context, iter)| (func)(iter));
         self.scheduler
             .run_job(Arc::new(cl), rdd, partitions.into_iter().collect(), false)
     }

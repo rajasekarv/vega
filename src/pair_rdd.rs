@@ -99,9 +99,9 @@ pub trait PairRdd<K: Data + Eq + Hash, V: Data>: Rdd<(K, V)> + Send + Sync {
             func((p, v))
         }
         let func_clone = func.clone();
-        let merge_value = Box::new(
-            Fn!([func_clone] move | (buf, v) | merge_value::<V, F>(buf, v, func_clone.clone())),
-        );
+        let merge_value = Box::new(Fn!(move |(buf, v)| {
+            merge_value::<V, F>(buf, v, func_clone.clone())
+        }));
         fn merge_combiners<V: Data, F>(b1: V, b2: V, func: F) -> V
         where
             F: SerFunc((V, V)) -> V,
@@ -110,9 +110,9 @@ pub trait PairRdd<K: Data + Eq + Hash, V: Data>: Rdd<(K, V)> + Send + Sync {
             func((p, b2))
         }
         let func_clone = func.clone();
-        let merge_combiners = Box::new(
-            Fn!([func_clone] move | (b1, b2) | merge_combiners::<V, F>(b1, b2, func_clone.clone())),
-        );
+        let merge_combiners = Box::new(Fn!(move |(b1, b2)| {
+            merge_combiners::<V, F>(b1, b2, func_clone.clone())
+        }));
         self.combine_by_key(create_combiner, merge_value, merge_combiners, partitioner)
     }
 
