@@ -59,18 +59,14 @@ pub(crate) struct PoissonSampler {
 }
 
 impl PoissonSampler {
-    pub fn new(fraction: f64) -> PoissonSampler {
+    pub fn new(fraction: f64, use_gap_sampling_if_possible: bool) -> PoissonSampler {
         let prob = if fraction > 0.0 { fraction } else { 1.0 };
 
         PoissonSampler {
             fraction,
-            use_gap_sampling_if_possible: true,
+            use_gap_sampling_if_possible,
             prob,
         }
-    }
-
-    fn use_gap_sampling_if_possible(&mut self) {
-        self.use_gap_sampling_if_possible = true;
     }
 }
 
@@ -83,18 +79,22 @@ impl<T: Data> RandomSampler<T> for PoissonSampler {
                 let use_gap_sampling = self.use_gap_sampling_if_possible
                     && self.fraction <= DEFAULT_MAX_GAP_SAMPLING_FRACTION;
 
-                let mut gap_sampling = GapSamplingReplacement::new(self.fraction, RNG_EPSILON);
+                let mut gap_sampling = if use_gap_sampling {
+                    // Initialize here and move to avoid constructing a new one each iteration
+                    Some(GapSamplingReplacement::new(self.fraction, RNG_EPSILON))
+                } else {
+                    None
+                };
                 let dist = Poisson::new(self.prob).unwrap();
                 let mut rng = get_rng_with_random_seed();
 
                 items
                     .filter(move |item| {
                         let count = if use_gap_sampling {
-                            gap_sampling.sample()
+                            gap_sampling.as_mut().unwrap().sample()
                         } else {
                             dist.sample(&mut rng)
                         };
-                        // FIXME: should return a vec of trials
                         count != 0
                     })
                     .collect()
@@ -114,17 +114,13 @@ impl BernoulliSampler {
         BernoulliSampler { fraction }
     }
 
-    fn sample(&self, gap_sampling: &mut GapSamplingReplacement, rng: &mut Pcg64) -> u64 {
-        if self.fraction <= 0.0 {
-            0
-        } else if self.fraction >= 1.0 {
-            1
-        } else if self.fraction <= DEFAULT_MAX_GAP_SAMPLING_FRACTION {
-            gap_sampling.sample()
-        } else if (rng.gen::<f64>() <= self.fraction) {
-            1
-        } else {
-            0
+    fn sample(&self, gap_sampling: Option<&mut GapSamplingReplacement>, rng: &mut Pcg64) -> u64 {
+        match self.fraction {
+            v if v <= 0.0 => 0,
+            v if v >= 1.0 => 1,
+            v if v <= DEFAULT_MAX_GAP_SAMPLING_FRACTION => gap_sampling.unwrap().sample(),
+            v if rng.gen::<f64>() <= v => 1,
+            _ => 0,
         }
     }
 }
@@ -132,10 +128,14 @@ impl BernoulliSampler {
 impl<T: Data> RandomSampler<T> for BernoulliSampler {
     fn get_sampler(&self) -> RSamplerFunc<T> {
         Box::new(move |items: Box<dyn Iterator<Item = T>>| -> Vec<T> {
-            let mut gap_sampling = GapSamplingReplacement::new(self.fraction, RNG_EPSILON);
+            let mut gap_sampling = if self.fraction > 0.0 && self.fraction < 1.0 {
+                Some(GapSamplingReplacement::new(self.fraction, RNG_EPSILON))
+            } else {
+                None
+            };
             let mut rng = get_rng_with_random_seed();
             items
-                .filter(move |item| self.sample(&mut gap_sampling, &mut rng) > 0)
+                .filter(move |item| self.sample(gap_sampling.as_mut(), &mut rng) > 0)
                 .collect()
         })
     }
@@ -253,10 +253,14 @@ mod poisson_bounds {
 }
 
 mod binomial_bounds {
+    const MIN_SAMPLING_RATE: f64 = 1e-10;
+
     // Returns a threshold `p` such that if we conduct n Bernoulli trials with success rate = `p`,
     // it is very unlikely to have less than `fraction * n` successes.
     pub(super) fn get_upper_bound(delta: f64, n: u64, fraction: f64) -> f64 {
         let gamma = -delta.log(std::f64::consts::E) / n as f64;
-        fraction + gamma - (gamma * gamma + 3.0 * gamma * fraction).sqrt()
+        let max = MIN_SAMPLING_RATE
+            .max(fraction + gamma + (gamma * gamma + 2.0 * gamma * fraction).sqrt());
+        max.min(1.0)
     }
 }

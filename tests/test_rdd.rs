@@ -182,3 +182,30 @@ fn test_distinct() {
             == rdd.distinct().collect().into_iter().collect::<HashSet<_>>()
     );
 }
+
+#[test]
+fn test_partition_wise_sampling() {
+    let sc = Context::new("local").unwrap();
+    // w/o replace & num < sample
+    {
+        let rdd = sc.parallelize(vec![1, 2, 3, 4, 5], 6);
+        let result = rdd.take_sample(false, 6, Some(123));
+        assert!(result.len() == 5);
+        // guaranteed with this seed:
+        assert!(result[0] > result[1]);
+    }
+
+    // replace & Poisson & no-GapSampling
+    {
+        let rdd = sc.parallelize(vec![1, 2, 3, 4, 5, 6, 7, 8, 9], 3);
+        let result = rdd.take_sample(true, 3, None);
+        assert!(result.len() == 3);
+    }
+
+    // no replace & Bernoulli + GapSampling
+    {
+        let rdd = sc.parallelize(vec![1, 2, 3, 4, 5, 6, 7, 8, 9], 3);
+        let result = rdd.take_sample(false, 3, None);
+        assert!(result.len() == 3);
+    }
+}

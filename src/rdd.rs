@@ -269,11 +269,11 @@ pub trait Rdd<T: Data>: RddBase {
         assert!(fraction >= 0.0);
 
         let sampler = if with_replacement {
-            Arc::new(PoissonSampler::new(fraction)) as Arc<dyn RandomSampler<T>>
+            Arc::new(PoissonSampler::new(fraction, true)) as Arc<dyn RandomSampler<T>>
         } else {
             Arc::new(BernoulliSampler::new(fraction)) as Arc<dyn RandomSampler<T>>
         };
-        PartitionwiseSampledRdd::new(self.get_rdd(), sampler, true, self.partitioner().unwrap())
+        PartitionwiseSampledRdd::new(self.get_rdd(), sampler, true)
     }
 
     /// Take the first num elements of the RDD. It works by first scanning one partition, and use the
@@ -349,9 +349,9 @@ pub trait Rdd<T: Data>: RddBase {
     where
         Self: Sized + 'static,
     {
-        let num_std_dev = 10.0f64;
+        const NUM_STD_DEV: f64 = 10.0f64;
         //TODO: this could be const eval when the support is there for the necessary functions
-        let max_sample_size = std::u64::MAX - (num_std_dev * (std::u64::MAX as f64).sqrt()) as u64;
+        let max_sample_size = std::u64::MAX - (NUM_STD_DEV * (std::u64::MAX as f64).sqrt()) as u64;
         assert!(num <= max_sample_size);
 
         if num == 0 {
@@ -675,8 +675,6 @@ where
     #[serde(with = "serde_traitobject")]
     sampler: Arc<dyn RandomSampler<T>>,
     preserves_partitioning: bool,
-    #[serde(with = "serde_traitobject")]
-    part: Box<dyn Partitioner>,
     _marker_t: PhantomData<T>,
 }
 
@@ -688,7 +686,6 @@ where
         prev: Arc<RT>,
         sampler: Arc<dyn RandomSampler<T>>,
         preserves_partitioning: bool,
-        part: Box<dyn Partitioner>,
     ) -> Self {
         let mut vals = RddVals::new(prev.get_context());
         vals.dependencies
@@ -702,7 +699,6 @@ where
             vals,
             sampler,
             preserves_partitioning,
-            part,
             _marker_t: PhantomData,
         }
     }
@@ -718,7 +714,6 @@ where
             vals: self.vals.clone(),
             sampler: self.sampler.clone(),
             preserves_partitioning: self.preserves_partitioning,
-            part: self.part.clone(),
             _marker_t: PhantomData,
         }
     }
@@ -747,12 +742,21 @@ where
         self.prev.number_of_splits()
     }
 
+    fn partitioner(&self) -> Option<Box<dyn Partitioner>> {
+        if self.preserves_partitioning {
+            self.prev.partitioner()
+        } else {
+            None
+        }
+    }
+
     default fn cogroup_iterator_any(
         &self,
         split: Box<dyn Split>,
     ) -> Box<dyn Iterator<Item = Box<dyn AnyData>>> {
         self.iterator_any(split)
     }
+
     default fn iterator_any(
         &self,
         split: Box<dyn Split>,
