@@ -364,7 +364,8 @@ impl LocalScheduler {
 
                         // ResultTask alone done now.
                         //                        if let Some(result) = evt.get_result::<U>();
-                        let mut result_type = evt.task.downcast_ref::<ResultTask<T, U, RT, F>>().is_some();
+                        let mut result_type =
+                            evt.task.downcast_ref::<ResultTask<T, U, RT, F>>().is_some();
                         if result_type {
                             if let Ok(rt) = evt.task.downcast::<ResultTask<T, U, RT, F>>() {
                                 let result = evt
