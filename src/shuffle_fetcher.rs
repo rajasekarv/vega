@@ -36,7 +36,7 @@ impl ShuffleFetcher {
         for (index, server_uri) in server_uris.clone().into_iter().enumerate() {
             inputs_by_uri
                 .entry(server_uri)
-                .or_insert(Vec::new())
+                .or_insert_with(Vec::new)
                 .push(index);
         }
         let server_queue = Arc::new(Mutex::new(Vec::new()));

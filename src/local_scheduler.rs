@@ -146,7 +146,7 @@ impl LocalScheduler {
         env::env
             .cache_tracker
             .register_rdd(rdd_base.get_rdd_id(), rdd_base.number_of_splits());
-        if !shuffle_dependency.is_none() {
+        if shuffle_dependency.is_some() {
             info!("shuffle dependcy and registering mapoutput tracker");
             self.map_output_tracker.register_shuffle(
                 shuffle_dependency.clone().unwrap().get_shuffle_id(),
@@ -364,10 +364,7 @@ impl LocalScheduler {
 
                         // ResultTask alone done now.
                         //                        if let Some(result) = evt.get_result::<U>();
-                        let mut result_type = false;
-                        if let Some(_) = evt.task.downcast_ref::<ResultTask<T, U, RT, F>>() {
-                            result_type = true;
-                        }
+                        let mut result_type = evt.task.downcast_ref::<ResultTask<T, U, RT, F>>().is_some();
                         if result_type {
                             if let Ok(rt) = evt.task.downcast::<ResultTask<T, U, RT, F>>() {
                                 let result = evt
@@ -449,7 +446,7 @@ impl LocalScheduler {
                                 info!("here before registering map outputs ");
                                 //TODO logging
                                 running.remove(&stage);
-                                if !stage.shuffle_dependency.is_none() {
+                                if stage.shuffle_dependency.is_some() {
                                     info!(
                                         "stage output locs before register mapoutput tracker {:?}",
                                         stage.output_locs
@@ -528,8 +525,7 @@ impl LocalScheduler {
                         running.remove(&failed_stage);
                         failed.insert(failed_stage);
                         //TODO logging
-                        let map_stage = self
-                            .shuffle_to_map_stage
+                        self.shuffle_to_map_stage
                             .lock()
                             .get_mut(&shuffle_id)
                             .unwrap()
@@ -671,16 +667,15 @@ impl LocalScheduler {
         if stage == final_stage {
             info!("final stage {}", stage.id);
             let mut id_in_job = 0;
-            for id in 0..num_output_parts {
-                let part = output_parts[id];
-                let locs = self.get_preferred_locs(final_rdd.clone() as Arc<dyn RddBase>, part);
+            for (id, part) in output_parts.iter().enumerate().take(num_output_parts) {
+                let locs = self.get_preferred_locs(final_rdd.clone() as Arc<dyn RddBase>, *part);
                 let result_task = ResultTask::new(
                     self.next_task_id.fetch_add(1, Ordering::SeqCst),
                     run_id,
                     final_stage.id,
                     final_rdd.clone(),
                     func.clone(),
-                    part,
+                    *part,
                     locs,
                     id,
                 );
@@ -756,7 +751,7 @@ impl LocalScheduler {
         while self.event_queues.lock().get(&run_id).unwrap().is_empty() {
             if Instant::now() > end {
                 return None;
-            } else{
+            } else {
                 thread::sleep(end - Instant::now());
             }
         }

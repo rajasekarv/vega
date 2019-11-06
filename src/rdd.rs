@@ -170,12 +170,11 @@ pub trait Rdd<T: Data>: RddBase + Send + Sync + Serialize + Deserialize {
         // cloned cause we will use `f` later.
         let cf = f.clone();
         let reduce_partition = Fn!(move |iter: Box<dyn Iterator<Item = T>>| {
-        let acc = iter.reduce(&cf);
-        match acc {
-            None => vec![],
-            Some(e) => vec![e],
-        }
-
+            let acc = iter.reduce(&cf);
+            match acc {
+                None => vec![],
+                Some(e) => vec![e],
+            }
         });
         let results = self.get_context().run_job(self.get_rdd(), reduce_partition);
         results.into_iter().flatten().reduce(f)

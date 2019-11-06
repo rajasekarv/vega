@@ -157,13 +157,13 @@ impl<K: Data + Eq + Hash, V: Data, C: Data> ShuffleDependencyTrait for ShuffleDe
         );
         info!("split index {}", split.get_index());
 
-        let mut count = 0;
-        let mut iter = rdd_base.iterator_any(split.clone());
-        if self.is_cogroup {
-            iter = rdd_base.cogroup_iterator_any(split);
-        }
-        for i in iter {
-            count += 1;
+        let iter = if self.is_cogroup {
+            rdd_base.cogroup_iterator_any(split)
+        } else {
+            rdd_base.iterator_any(split.clone())
+        };
+
+        for (count, i) in iter.enumerate() {
             //            if count % 30000 == 0 {
             //                info!(
             //                    "inside rdd base iterator in shuffle map task  count for partition {} {}",
