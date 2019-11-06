@@ -119,7 +119,7 @@ fn test_read_files() {
     });
 
     test_runner(|| {
-        let mut sc = Context::new("local").unwrap();
+        let sc = Context::new("local").unwrap();
         let result = sc
             .read_files(LocalFsReaderConfig::new(file_path), processor)
             .collect();
@@ -150,7 +150,7 @@ fn test_read_files() {
     });
 
     test_runner(|| {
-        let mut sc = Context::new("local").unwrap();
+        let sc = Context::new("local").unwrap();
         let files = sc.read_files(LocalFsReaderConfig::new(WORK_DIR.join(TEST_DIR)), processor);
         let result: Vec<_> = files.collect().into_iter().flatten().collect();
         assert_eq!(result.len(), 20);

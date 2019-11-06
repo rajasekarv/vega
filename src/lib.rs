@@ -118,4 +118,4 @@ pub use error::{Error, Result};
 mod hosts;
 use hosts::Hosts;
 
-mod util;
+mod utils;

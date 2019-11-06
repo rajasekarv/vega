@@ -39,7 +39,7 @@ Most of these except file reader and writer are trivial to implement
 - [x] reduce_by
 - [x] distinct
 - [x] count
-- [ ] take_sample
+- [x] take_sample
 - [ ] union
 - [ ] glom
 - [ ] cartesian

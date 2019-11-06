@@ -1,5 +1,5 @@
 use super::*;
-use util::random::{BernoulliSampler, PoissonSampler, RandomSampler};
+use utils::random::{BernoulliSampler, PoissonSampler, RandomSampler};
 
 use std::cmp::Ordering;
 use std::fs;
@@ -176,12 +176,11 @@ pub trait Rdd<T: Data>: RddBase {
         // cloned cause we will use `f` later.
         let cf = f.clone();
         let reduce_partition = Fn!(move |iter: Box<dyn Iterator<Item = T>>| {
-        let acc = iter.reduce(&cf);
-        match acc {
-            None => vec![],
-            Some(e) => vec![e],
-        }
-
+            let acc = iter.reduce(&cf);
+            match acc {
+                None => vec![],
+                Some(e) => vec![e],
+            }
         });
         let results = self.get_context().run_job(self.get_rdd(), reduce_partition);
         results.into_iter().flatten().reduce(f)
@@ -372,15 +371,15 @@ pub trait Rdd<T: Data>: RddBase {
             rand_pcg::Pcg64::seed_from_u64(seed)
         } else {
             // PCG with default specification state and stream params
-            util::random::get_default_rng()
+            utils::random::get_default_rng()
         };
 
         if !with_replacement && num >= initial_count {
             let mut sample = self.collect();
-            util::randomize_in_place(&mut sample, &mut rng);
+            utils::randomize_in_place(&mut sample, &mut rng);
             sample
         } else {
-            let fraction = util::random::compute_fraction_for_sample_size(
+            let fraction = utils::random::compute_fraction_for_sample_size(
                 num,
                 initial_count,
                 with_replacement,
@@ -399,7 +398,7 @@ pub trait Rdd<T: Data>: RddBase {
                 num_iters += 1;
             }
 
-            util::randomize_in_place(&mut samples, &mut rng);
+            utils::randomize_in_place(&mut samples, &mut rng);
             samples.into_iter().take(num as usize).collect::<Vec<_>>()
         }
     }
@@ -779,6 +778,8 @@ where
     }
 
     fn compute(&self, split: Box<dyn Split>) -> Box<dyn Iterator<Item = T>> {
-        unimplemented!()
+        let sampler_func = self.sampler.get_sampler();
+        let iter = self.prev.iterator(split);
+        Box::new(sampler_func(iter).into_iter()) as Box<dyn Iterator<Item = T>>
     }
 }
