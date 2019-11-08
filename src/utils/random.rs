@@ -15,6 +15,8 @@ use rand_pcg::Pcg64;
 /// the optimal value higher. The most reliable way to determine this value for a new RNG
 /// is to experiment. When tuning for a new RNG, expect a value of 0.5 to be close in
 /// most cases, as an initial guess.
+// TODO: tune for PCG64, performance is similar and around same order of magnitude
+// of XORShift so shouldn't be too far off
 const DEFAULT_MAX_GAP_SAMPLING_FRACTION: f64 = 0.4;
 
 /// Default epsilon for floating point numbers sampled from the RNG.

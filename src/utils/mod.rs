@@ -12,11 +12,7 @@ where
 {
     for i in (1..(iter.len() - 1)).rev() {
         let idx = rand.gen_range(0, i + 1);
-        unsafe {
-            let tmp = &mut (&mut *(iter.as_mut_slice() as *mut [T]))[idx];
-            let swap = &mut iter[i];
-            std::mem::swap(tmp, swap);
-        }
+        iter.swap(idx, i);
     }
 }
 
