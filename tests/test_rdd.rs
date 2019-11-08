@@ -119,7 +119,7 @@ fn test_read_files() {
     });
 
     test_runner(|| {
-        let mut sc = Context::new("local").unwrap();
+        let sc = Context::new("local").unwrap();
         let result = sc
             .read_files(LocalFsReaderConfig::new(file_path), processor)
             .collect();
@@ -150,7 +150,7 @@ fn test_read_files() {
     });
 
     test_runner(|| {
-        let mut sc = Context::new("local").unwrap();
+        let sc = Context::new("local").unwrap();
         let files = sc.read_files(LocalFsReaderConfig::new(WORK_DIR.join(TEST_DIR)), processor);
         let result: Vec<_> = files.collect().into_iter().flatten().collect();
         assert_eq!(result.len(), 20);
@@ -181,4 +181,32 @@ fn test_distinct() {
             .collect::<HashSet<_>>()
             == rdd.distinct().collect().into_iter().collect::<HashSet<_>>()
     );
+}
+
+#[test]
+fn test_partition_wise_sampling() {
+    let sc = Context::new("local").unwrap();
+    // w/o replace & num < sample
+    {
+        let rdd = sc.parallelize(vec![1, 2, 3, 4, 5], 6);
+        let result = rdd.take_sample(false, 6, Some(123));
+        assert!(result.len() == 5);
+        // guaranteed with this seed:
+        assert!(result[0] > result[1]);
+    }
+
+    // replace & Poisson & no-GapSampling
+    {
+        // high enough samples param to guarantee drawing >1 times w/ replacement
+        let rdd = sc.parallelize((0_i32..100).collect::<Vec<_>>(), 5);
+        let result = rdd.take_sample(true, 80, None);
+        assert!(result.len() == 80);
+    }
+
+    // no replace & Bernoulli + GapSampling
+    {
+        let rdd = sc.parallelize((0_i32..100).collect::<Vec<_>>(), 5);
+        let result = rdd.take_sample(false, 10, None);
+        assert!(result.len() == 10);
+    }
 }

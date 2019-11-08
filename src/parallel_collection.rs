@@ -207,9 +207,11 @@ impl<T: Data> Rdd<T> for ParallelCollection<T> {
             rdd_vals: self.rdd_vals.clone(),
         })
     }
+
     fn get_rdd_base(&self) -> Arc<dyn RddBase> {
         Arc::new(self.clone()) as Arc<dyn RddBase>
     }
+
     fn compute(&self, split: Box<dyn Split>) -> Box<dyn Iterator<Item = T>> {
         if let Some(s) = split.downcast_ref::<ParallelCollectionSplit<T>>() {
             s.iterator()

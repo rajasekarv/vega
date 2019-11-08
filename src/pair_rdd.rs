@@ -58,17 +58,14 @@ pub trait PairRdd<K: Data + Eq + Hash, V: Data>: Rdd<(K, V)> + Send + Sync {
         fn merge_value<V: Data>(mut buf: Vec<V>, v: V) -> Vec<V> {
             buf.push(v);
             buf
-            //            buf
         }
         let merge_value = Box::new(Fn!(|(buf, v)| merge_value::<V>(buf, v)));
         fn merge_combiners<V: Data>(mut b1: Vec<V>, mut b2: Vec<V>) -> Vec<V> {
             b1.append(&mut b2);
             b1
-            //            b1
         }
         let merge_combiners = Box::new(Fn!(|(b1, b2)| merge_combiners::<V>(b1, b2)));
         self.combine_by_key(create_combiner, merge_value, merge_combiners, partitioner)
-        //        unimplemented!()
     }
     fn reduce_by_key<F>(&self, func: F, num_splits: usize) -> ShuffledRdd<K, V, V, Self>
     where
