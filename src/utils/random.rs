@@ -91,13 +91,17 @@ impl<T: Data> RandomSampler<T> for PoissonSampler {
                 let mut rng = get_rng_with_random_seed();
 
                 items
-                    .filter(move |item| {
+                    .flat_map(move |item| {
                         let count = if use_gap_sampling {
                             gap_sampling.as_mut().unwrap().sample()
                         } else {
                             dist.sample(&mut rng)
                         };
-                        count != 0
+                        if count != 0 {
+                            vec![item; count as usize]
+                        } else {
+                            vec![]
+                        }
                     })
                     .collect()
             }

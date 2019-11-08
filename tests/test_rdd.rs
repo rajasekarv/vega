@@ -197,15 +197,16 @@ fn test_partition_wise_sampling() {
 
     // replace & Poisson & no-GapSampling
     {
-        let rdd = sc.parallelize(vec![1, 2, 3, 4, 5, 6, 7, 8, 9], 3);
-        let result = rdd.take_sample(true, 3, None);
-        assert!(result.len() == 3);
+        // high enough samples param to guarantee drawing >1 times w/ replacement
+        let rdd = sc.parallelize((0_i32..100).collect::<Vec<_>>(), 5);
+        let result = rdd.take_sample(true, 80, None);
+        assert!(result.len() == 80);
     }
 
     // no replace & Bernoulli + GapSampling
     {
-        let rdd = sc.parallelize(vec![1, 2, 3, 4, 5, 6, 7, 8, 9], 3);
-        let result = rdd.take_sample(false, 3, None);
-        assert!(result.len() == 3);
+        let rdd = sc.parallelize((0_i32..100).collect::<Vec<_>>(), 5);
+        let result = rdd.take_sample(false, 10, None);
+        assert!(result.len() == 10);
     }
 }

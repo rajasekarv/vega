@@ -262,6 +262,9 @@ pub trait Rdd<T: Data>: RddBase {
     /// # Notes
     ///
     /// This is NOT guaranteed to provide exactly the fraction of the count of the given RDD.
+    ///
+    /// Replacement requires extra allocations due to the nature of the used sampler (Poisson distribution).
+    /// This implies a performance penalty but should be negligible unless fraction and the dataset are rather large.
     fn sample(&self, with_replacement: bool, fraction: f64) -> PartitionwiseSampledRdd<Self, T>
     where
         Self: Sized + 'static,
@@ -341,15 +344,23 @@ pub trait Rdd<T: Data>: RddBase {
 
     /// Return a fixed-size sampled subset of this RDD in an array.
     ///
+    /// # Arguments
+    ///
+    /// `with_replacement` - can elements be sampled multiple times (replaced when sampled out)
+    ///
     /// # Notes
     ///
-    /// This method should only be used if the resulting array is expected to be small, as
-    /// all the data is loaded into the driver's memory.
+    /// This method should only be used if the resulting array is expected to be small,
+    /// as all the data is loaded into the driver's memory.
+    ///
+    /// Replacement requires extra allocations due to the nature of the used sampler (Poisson distribution).
+    /// This implies a performance penalty but should be negligible unless fraction and the dataset are rather large.
     fn take_sample(&self, with_replacement: bool, num: u64, seed: Option<u64>) -> Vec<T>
     where
         Self: Sized + 'static,
     {
         const NUM_STD_DEV: f64 = 10.0f64;
+        const REPETITION_GUARD: u8 = 100;
         //TODO: this could be const eval when the support is there for the necessary functions
         let max_sample_size = std::u64::MAX - (NUM_STD_DEV * (std::u64::MAX as f64).sqrt()) as u64;
         assert!(num <= max_sample_size);
@@ -389,13 +400,17 @@ pub trait Rdd<T: Data>: RddBase {
             // If the first sample didn't turn out large enough, keep trying to take samples;
             // this shouldn't happen often because we use a big multiplier for the initial size.
             let mut num_iters = 0;
-            while (samples.len() < num as usize) {
+            while (samples.len() < num as usize && num_iters < REPETITION_GUARD) {
                 log::warn!(
                     "Needed to re-sample due to insufficient sample size. Repeat #{}",
                     num_iters
                 );
                 samples = self.sample(with_replacement, fraction).collect();
                 num_iters += 1;
+            }
+
+            if num_iters >= REPETITION_GUARD {
+                panic!("Repeated sampling {} times; aborting", REPETITION_GUARD)
             }
 
             utils::randomize_in_place(&mut samples, &mut rng);
