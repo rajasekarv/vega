@@ -1,7 +1,7 @@
 use super::*;
 use std::cmp::Ordering;
+use std::fmt::{Display, Formatter, Result};
 use std::sync::Arc;
-
 // this is strange. see into this in more detail
 //#[derive(Derivative)]
 //#[derivative(PartialEq)]
@@ -37,7 +37,11 @@ impl Ord for Stage {
         self.id.cmp(&other.id)
     }
 }
-
+impl Display for Stage {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(f, "Stage {}", self.id)
+    }
+}
 impl Stage {
     pub fn get_rdd(&self) -> Arc<dyn RddBase> {
         self.rdd.clone()
@@ -101,9 +105,5 @@ impl Stage {
             self.num_available_outputs -= 1;
         }
         self.output_locs[partition] = new_vec;
-    }
-
-    pub fn to_string(&self) -> String {
-        format!("Stage {}", self.id)
     }
 }

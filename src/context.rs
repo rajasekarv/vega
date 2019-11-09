@@ -74,7 +74,7 @@ pub struct Context {
     distributed_master: bool,
 }
 
-impl Drop for Context{
+impl Drop for Context {
     fn drop(&mut self) {
         //TODO clean up temp files
         self.drop_executors();
@@ -114,7 +114,7 @@ impl Context {
                             std::env::current_exe().map_err(|_| Error::CurrentBinaryPath)?;
                         let binary_path_str = binary_path
                             .to_str()
-                            .ok_or(Error::PathToString(binary_path.clone()))?
+                            .ok_or_else(|| Error::PathToString(binary_path.clone()))?
                             .into();
                         let binary_name = binary_path
                             .file_name()
@@ -130,7 +130,7 @@ impl Context {
                             let address_cli = address
                                 .split('@')
                                 .nth(1)
-                                .ok_or(Error::ParseSlaveAddress(address.into()))?
+                                .ok_or_else(|| Error::ParseSlaveAddress(address.into()))?
                                 .to_string();
                             address_map.push((address_cli, port));
                             let local_dir_root = "/tmp";
@@ -241,14 +241,22 @@ impl Context {
 
     // currently it accepts only vector.
     // TODO change this to accept any iterator
-    // &Arc<Self> is an unstable feature. used here just to keep the user end context usage same as before. 
-    // Can be removed if sc.clone() API seems ok. 
-    pub fn make_rdd<T: Data>(self: &Arc<Self>, seq: Vec<T>, num_slices: usize) -> ParallelCollection<T> {
+    // &Arc<Self> is an unstable feature. used here just to keep the user end context usage same as before.
+    // Can be removed if sc.clone() API seems ok.
+    pub fn make_rdd<T: Data>(
+        self: &Arc<Self>,
+        seq: Vec<T>,
+        num_slices: usize,
+    ) -> ParallelCollection<T> {
         //let num_slices = seq.len() / num_slices;
         self.parallelize(seq, num_slices)
     }
 
-    pub fn parallelize<T: Data>(self: &Arc<Self>, seq: Vec<T>, num_slices: usize) -> ParallelCollection<T> {
+    pub fn parallelize<T: Data>(
+        self: &Arc<Self>,
+        seq: Vec<T>,
+        num_slices: usize,
+    ) -> ParallelCollection<T> {
         ParallelCollection::new(self.clone(), seq, num_slices)
     }
 

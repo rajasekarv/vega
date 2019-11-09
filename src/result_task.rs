@@ -1,8 +1,8 @@
 use super::*;
+use std::fmt::{Display, Formatter, Result};
 use std::marker::PhantomData;
 use std::net::Ipv4Addr;
 use std::sync::Arc;
-
 #[derive(Serialize, Deserialize)]
 pub struct ResultTask<T: Data, U: Data, RT, F>
 where
@@ -25,6 +25,22 @@ where
     pub locs: Vec<Ipv4Addr>,
     pub output_id: usize,
     _marker: PhantomData<T>,
+}
+
+impl<T: Data, U: Data, RT, F> Display for ResultTask<T, U, RT, F>
+where
+    RT: Rdd<T> + 'static,
+    F: Fn((TasKContext, Box<dyn Iterator<Item = T>>)) -> U
+        + 'static
+        + Send
+        + Sync
+        + Serialize
+        + Deserialize
+        + Clone,
+{
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "ResultTask({}, {})", self.stage_id, self.partition)
+    }
 }
 
 impl<T: Data, U: Data, RT, F> ResultTask<T, U, RT, F>
@@ -85,10 +101,6 @@ where
             output_id,
             _marker: PhantomData,
         }
-    }
-
-    fn to_string(&self) -> String {
-        format!("ResultTask({}, {})", self.stage_id, self.partition)
     }
 }
 

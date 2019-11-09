@@ -93,7 +93,7 @@ impl MapOutputTracker {
     fn server(&self) {
         if self.is_master {
             info!("mapoutput tracker server starting");
-            let master_addr = self.master_addr.clone();
+            let master_addr = self.master_addr;
             let server_uris = self.server_uris.clone();
             thread::spawn(move || {
                 let listener = TcpListener::bind(master_addr).unwrap();
@@ -166,7 +166,7 @@ impl MapOutputTracker {
 
     pub fn register_shuffle(&self, shuffle_id: usize, num_maps: usize) {
         info!("inside register shuffle");
-        if !self.server_uris.read().get(&shuffle_id).is_none() {
+        if self.server_uris.read().get(&shuffle_id).is_some() {
             //TODO error handling
             info!("map tracker register shuffle none");
             return;
@@ -208,8 +208,8 @@ impl MapOutputTracker {
         //        }
         let array = self.server_uris.read();
         let array = array.get(&shuffle_id);
-        if !array.is_none() {
-            if array.unwrap().get(map_id).unwrap() == &Some(server_uri) {
+        if let Some(arr) = array {
+            if arr.get(map_id).unwrap() == &Some(server_uri) {
                 self.server_uris
                     .write()
                     .get_mut(&shuffle_id)

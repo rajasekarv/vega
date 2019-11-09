@@ -19,7 +19,7 @@ pub struct Env {
 impl Env {
     pub fn new(master_addr: SocketAddr) -> Self {
         Env {
-            map_output_tracker: MapOutputTracker::new(*is_master, master_addr.clone()),
+            map_output_tracker: MapOutputTracker::new(*is_master, master_addr),
             shuffle_manager: ShuffleManager::new(),
             shuffle_fetcher: ShuffleFetcher,
             cache_tracker: CacheTracker::new(*is_master, master_addr, &the_cache),

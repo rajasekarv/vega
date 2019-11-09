@@ -5,6 +5,7 @@ use super::*;
 //use std::hash::Hash;
 //use std::io::{BufWriter, Write};
 //use std::marker::PhantomData;
+use std::fmt::{Display, Formatter, Result};
 use std::net::Ipv4Addr;
 use std::sync::Arc;
 
@@ -41,12 +42,16 @@ impl ShuffleMapTask {
             locs,
         }
     }
-
-    pub fn to_string(&self) -> String {
-        format!("ShuffleMapTask({:?}, {:?}", self.stage_id, self.partition)
+}
+impl Display for ShuffleMapTask {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "ShuffleMapTask({:?}, {:?})",
+            self.stage_id, self.partition
+        )
     }
 }
-
 impl TaskBase for ShuffleMapTask {
     fn get_run_id(&self) -> usize {
         self.run_id
