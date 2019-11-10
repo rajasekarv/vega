@@ -1,11 +1,9 @@
-use super::*;
-//use parking_lot::Mutex;
 use std::collections::HashMap;
 use std::hash::Hash;
-//use std::marker::PhantomData;
 use std::sync::Arc;
 use std::time::Instant;
-//use std::any::Any;
+
+use crate::rdd::*;
 
 #[derive(Clone, Serialize, Deserialize)]
 struct ShuffledRddSplit {
@@ -57,7 +55,7 @@ impl<K: Data + Eq + Hash, V: Data, C: Data, RT: 'static> ShuffledRdd<K, V, C, RT
 where
     RT: Rdd<(K, V)>,
 {
-    pub fn new(
+    pub(crate) fn new(
         parent: Arc<RT>,
         aggregator: Arc<Aggregator<K, V, C>>,
         part: Box<dyn Partitioner>,

@@ -1,10 +1,11 @@
-use super::*;
 use std::any::Any;
 use std::collections::HashMap;
 use std::hash::Hash;
 use std::hash::Hasher;
 use std::marker::PhantomData;
 use std::sync::Arc;
+
+use crate::rdd::*;
 
 #[derive(Clone, Serialize, Deserialize)]
 enum CoGroupSplitDep {
@@ -58,7 +59,10 @@ pub struct CoGroupedRdd<K: Data> {
 }
 
 impl<K: Data + Eq + Hash> CoGroupedRdd<K> {
-    pub fn new(rdds: Vec<serde_traitobject::Arc<dyn RddBase>>, part: Box<dyn Partitioner>) -> Self {
+    pub(crate) fn new(
+        rdds: Vec<serde_traitobject::Arc<dyn RddBase>>,
+        part: Box<dyn Partitioner>,
+    ) -> Self {
         let context = rdds[0].get_context();
         let mut vals = RddVals::new(context.clone());
         let create_combiner = Box::new(Fn!(|v: Box<dyn AnyData>| vec![v]));
@@ -181,6 +185,7 @@ impl<K: Data + Eq + Hash> RddBase for CoGroupedRdd<K> {
         //        )
     }
 }
+
 impl<K: Data + Eq + Hash> Rdd<(K, Vec<Vec<Box<dyn AnyData>>>)> for CoGroupedRdd<K> {
     fn get_rdd(&self) -> Arc<Self> {
         Arc::new(self.clone())
@@ -188,6 +193,7 @@ impl<K: Data + Eq + Hash> Rdd<(K, Vec<Vec<Box<dyn AnyData>>>)> for CoGroupedRdd<
     fn get_rdd_base(&self) -> Arc<dyn RddBase> {
         Arc::new(self.clone()) as Arc<dyn RddBase>
     }
+    #[allow(clippy::type_complexity)]
     fn compute(
         &self,
         split: Box<dyn Split>,

@@ -1,6 +1,3 @@
-use super::*;
-use utils::random::{BernoulliSampler, PoissonSampler, RandomSampler};
-
 use std::cmp::Ordering;
 use std::fs;
 use std::hash::Hash;
@@ -10,28 +7,33 @@ use std::net::Ipv4Addr;
 use std::path::Path;
 use std::sync::Arc;
 
+use log::info;
 use rand::{RngCore, SeedableRng};
+use serde_derive::{Deserialize, Serialize};
+use serde_traitobject::{Deserialize, Serialize};
 
-pub trait Reduce<T> {
-    fn reduce<F>(self, f: F) -> Option<T>
-    where
-        Self: Sized,
-        F: FnMut(T, T) -> T;
-}
+mod co_grouped_rdd;
+use co_grouped_rdd::CoGroupedRdd;
+mod pair_rdd;
+pub use pair_rdd::PairRdd;
+mod partitionwise_sampled_rdd;
+use partitionwise_sampled_rdd::PartitionwiseSampledRdd;
+mod shuffled_rdd;
+use shuffled_rdd::ShuffledRdd;
 
-impl<T, I> Reduce<T> for I
-where
-    I: Iterator<Item = T>,
-{
-    #[inline]
-    fn reduce<F>(mut self, f: F) -> Option<T>
-    where
-        Self: Sized,
-        F: FnMut(T, T) -> T,
-    {
-        self.next().map(|first| self.fold(first, f))
-    }
-}
+use crate::aggregator::Aggregator;
+use crate::context::Context;
+use crate::dependency::{
+    Dependency, OneToOneDependencyTrait, OneToOneDependencyVals, ShuffleDependency,
+    ShuffleDependencyTrait,
+};
+use crate::partitioner::{HashPartitioner, Partitioner};
+use crate::serializable_traits::{AnyData, Data, Func, SerFunc};
+use crate::shuffle_fetcher::ShuffleFetcher;
+use crate::split::Split;
+use crate::task::TasKContext;
+use crate::utils;
+use crate::utils::random::{BernoulliSampler, PoissonSampler, RandomSampler};
 
 // Values which are needed for all RDDs
 #[derive(Serialize, Deserialize)]
@@ -107,9 +109,10 @@ impl Ord for dyn RddBase {
     }
 }
 
-mod rdd_rt {
+pub(self) mod rdd_rt {
     //! Explicit return types for the different rdd operations
     //! This is required because impl Trait ain't supported on traits yet
+    use super::pair_rdd::{FlatMappedValuesRdd, MappedValuesRdd};
     use super::*;
 
     type MapFunc<ReceiveT, ReturnT> = Box<dyn Func(ReceiveT) -> ReturnT>;
@@ -119,6 +122,26 @@ mod rdd_rt {
     type KV<T> = (Option<T>, Option<T>);
     type DistinctShuffled<S, T> = ShuffledRdd<Option<T>, Option<T>, Option<T>, Mapped<S, T, KV<T>>>;
     pub type DistinctRT<S, T> = Mapped<DistinctShuffled<S, T>, KV<T>, T>;
+
+    type CoGroupedOutput = Vec<Vec<Box<dyn AnyData>>>;
+    type CoGroupedInput<V, W> = (Vec<V>, Vec<W>);
+    // cogroup RT:
+    pub type CoGroupedValues<V, W, K> = MappedValuesRdd<
+        CoGroupedRdd<K>,
+        K,
+        CoGroupedOutput,
+        CoGroupedInput<V, W>,
+        MapFunc<CoGroupedOutput, CoGroupedInput<V, W>>,
+    >;
+
+    // join RT:
+    pub type JoinRT<V, W, K> = FlatMappedValuesRdd<
+        CoGroupedValues<V, W, K>,
+        K,
+        CoGroupedInput<V, W>,
+        (V, W),
+        MapFunc<CoGroupedInput<V, W>, Box<dyn Iterator<Item = (V, W)>>>,
+    >;
 }
 
 // Rdd containing methods associated with processing
@@ -679,126 +702,23 @@ where
     }
 }
 
-#[derive(Serialize, Deserialize)]
-pub struct PartitionwiseSampledRdd<RT, T: Data>
-where
-    RT: 'static + Rdd<T>,
-{
-    #[serde(with = "serde_traitobject")]
-    prev: Arc<RT>,
-    vals: Arc<RddVals>,
-    #[serde(with = "serde_traitobject")]
-    sampler: Arc<dyn RandomSampler<T>>,
-    preserves_partitioning: bool,
-    _marker_t: PhantomData<T>,
+pub trait Reduce<T> {
+    fn reduce<F>(self, f: F) -> Option<T>
+    where
+        Self: Sized,
+        F: FnMut(T, T) -> T;
 }
 
-impl<RT: 'static, T: Data> PartitionwiseSampledRdd<RT, T>
+impl<T, I> Reduce<T> for I
 where
-    RT: Rdd<T>,
+    I: Iterator<Item = T>,
 {
-    fn new(
-        prev: Arc<RT>,
-        sampler: Arc<dyn RandomSampler<T>>,
-        preserves_partitioning: bool,
-    ) -> Self {
-        let mut vals = RddVals::new(prev.get_context());
-        vals.dependencies
-            .push(Dependency::OneToOneDependency(Arc::new(
-                OneToOneDependencyVals::new(prev.get_rdd()),
-            )));
-        let vals = Arc::new(vals);
-
-        PartitionwiseSampledRdd {
-            prev,
-            vals,
-            sampler,
-            preserves_partitioning,
-            _marker_t: PhantomData,
-        }
-    }
-}
-
-impl<RT: 'static, T: Data> Clone for PartitionwiseSampledRdd<RT, T>
-where
-    RT: Rdd<T>,
-{
-    fn clone(&self) -> Self {
-        PartitionwiseSampledRdd {
-            prev: self.prev.clone(),
-            vals: self.vals.clone(),
-            sampler: self.sampler.clone(),
-            preserves_partitioning: self.preserves_partitioning,
-            _marker_t: PhantomData,
-        }
-    }
-}
-
-impl<RT: 'static, T: Data> RddBase for PartitionwiseSampledRdd<RT, T>
-where
-    RT: Rdd<T>,
-{
-    fn get_rdd_id(&self) -> usize {
-        self.vals.id
-    }
-
-    fn get_context(&self) -> Arc<Context> {
-        self.vals.context.clone()
-    }
-
-    fn get_dependencies(&self) -> &[Dependency] {
-        &self.vals.dependencies
-    }
-
-    fn splits(&self) -> Vec<Box<dyn Split>> {
-        self.prev.splits()
-    }
-    fn number_of_splits(&self) -> usize {
-        self.prev.number_of_splits()
-    }
-
-    fn partitioner(&self) -> Option<Box<dyn Partitioner>> {
-        if self.preserves_partitioning {
-            self.prev.partitioner()
-        } else {
-            None
-        }
-    }
-
-    default fn cogroup_iterator_any(
-        &self,
-        split: Box<dyn Split>,
-    ) -> Box<dyn Iterator<Item = Box<dyn AnyData>>> {
-        self.iterator_any(split)
-    }
-
-    default fn iterator_any(
-        &self,
-        split: Box<dyn Split>,
-    ) -> Box<dyn Iterator<Item = Box<dyn AnyData>>> {
-        info!("inside PartitionwiseSampledRdd iterator_any",);
-        Box::new(
-            self.iterator(split)
-                .map(|x| Box::new(x) as Box<dyn AnyData>),
-        )
-    }
-}
-
-impl<RT: 'static, T: Data> Rdd<T> for PartitionwiseSampledRdd<RT, T>
-where
-    RT: Rdd<T>,
-{
-    fn get_rdd_base(&self) -> Arc<dyn RddBase> {
-        Arc::new(self.clone()) as Arc<dyn RddBase>
-    }
-
-    fn get_rdd(&self) -> Arc<Self> {
-        Arc::new(self.clone())
-    }
-
-    fn compute(&self, split: Box<dyn Split>) -> Box<dyn Iterator<Item = T>> {
-        let sampler_func = self.sampler.get_sampler();
-        let iter = self.prev.iterator(split);
-        Box::new(sampler_func(iter).into_iter()) as Box<dyn Iterator<Item = T>>
+    #[inline]
+    fn reduce<F>(mut self, f: F) -> Option<T>
+    where
+        Self: Sized,
+        F: FnMut(T, T) -> T,
+    {
+        self.next().map(|first| self.fold(first, f))
     }
 }
