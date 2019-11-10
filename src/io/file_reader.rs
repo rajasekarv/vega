@@ -1,5 +1,3 @@
-use super::*;
-
 use std::fs;
 use std::io::prelude::*;
 use std::io::{BufReader, Result};
@@ -8,6 +6,8 @@ use std::sync::Arc;
 
 use log::debug;
 use rand::prelude::*;
+
+use super::*;
 
 pub struct LocalFsReaderConfig {
     filter_ext: Option<std::ffi::OsString>,
@@ -278,56 +278,60 @@ impl Iterator for LocalExecutorFsReader {
 }
 
 #[cfg(test)]
-#[test]
-fn load_files() {
-    let mut loader = LocalFsReader {
-        path: "A".into(),
-        is_single_file: false,
-        filter_ext: None,
-        expect_dir: true,
-        files: vec![],
-        executor_partitions: 4,
-    };
+mod tests {
+    use super::*;
 
-    let file_size_mean = 1628;
-    let avg_partition_size = 2850;
-    let high_part_size_bound = 3945f32;
+    #[test]
+    fn load_files() {
+        let mut loader = LocalFsReader {
+            path: "A".into(),
+            is_single_file: false,
+            filter_ext: None,
+            expect_dir: true,
+            files: vec![],
+            executor_partitions: 4,
+        };
 
-    // Skewed file sizes
-    let files = vec![
-        (500u64, "A".into()),
-        (2000, "B".into()),
-        (3900, "C".into()),
-        (2000, "D".into()),
-        (1000, "E".into()),
-        (1500, "F".into()),
-        (500, "G".into()),
-    ];
+        let file_size_mean = 1628;
+        let avg_partition_size = 2850;
+        let high_part_size_bound = 3945f32;
 
-    let files = loader.assign_files_to_partitions(
-        files,
-        file_size_mean,
-        avg_partition_size,
-        high_part_size_bound,
-    );
-    assert_eq!(files.len(), 4);
+        // Skewed file sizes
+        let files = vec![
+            (500u64, "A".into()),
+            (2000, "B".into()),
+            (3900, "C".into()),
+            (2000, "D".into()),
+            (1000, "E".into()),
+            (1500, "F".into()),
+            (500, "G".into()),
+        ];
 
-    // Even size and less files than parts
-    loader.executor_partitions = 8;
-    let files = vec![
-        (500u64, "A".into()),
-        (500, "B".into()),
-        (500, "C".into()),
-        (500, "D".into()),
-        (500, "E".into()),
-        (500, "F".into()),
-    ];
+        let files = loader.assign_files_to_partitions(
+            files,
+            file_size_mean,
+            avg_partition_size,
+            high_part_size_bound,
+        );
+        assert_eq!(files.len(), 4);
 
-    let files = loader.assign_files_to_partitions(
-        files,
-        file_size_mean,
-        avg_partition_size,
-        high_part_size_bound,
-    );
-    assert_eq!(files.len(), 6);
+        // Even size and less files than parts
+        loader.executor_partitions = 8;
+        let files = vec![
+            (500u64, "A".into()),
+            (500, "B".into()),
+            (500, "C".into()),
+            (500, "D".into()),
+            (500, "E".into()),
+            (500, "F".into()),
+        ];
+
+        let files = loader.assign_files_to_partitions(
+            files,
+            file_size_mean,
+            avg_partition_size,
+            high_part_size_bound,
+        );
+        assert_eq!(files.len(), 6);
+    }
 }

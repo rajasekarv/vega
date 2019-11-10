@@ -42,25 +42,16 @@ pub use partitioner::*;
 pub mod rdd;
 pub use rdd::*;
 
-pub mod pair_rdd;
-pub use pair_rdd::*;
-
 pub mod io;
 
 mod dependency;
 use dependency::*;
-
-mod shuffled_rdd;
-use shuffled_rdd::*;
 
 mod split;
 use split::*;
 
 mod parallel_collection;
 use parallel_collection::*;
-
-mod co_grouped_rdd;
-use co_grouped_rdd::*;
 
 mod cache_tracker;
 use cache_tracker::*;
