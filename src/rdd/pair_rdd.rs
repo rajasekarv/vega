@@ -1,9 +1,9 @@
-use super::*;
 use std::hash::Hash;
 use std::marker::PhantomData;
 use std::sync::Arc;
-//use std::sync::Mutex;
-//use parking_lot::Mutex;
+
+use crate::rdd::rdd_rt;
+use crate::rdd::*;
 
 // Trait containing pair rdd methods. No need of implicit conversion like in Spark version
 pub trait PairRdd<K: Data + Eq + Hash, V: Data>: Rdd<(K, V)> + Send + Sync {
@@ -137,19 +137,7 @@ pub trait PairRdd<K: Data + Eq + Hash, V: Data>: Rdd<(K, V)> + Send + Sync {
         &self,
         other: RT,
         num_splits: usize,
-    ) -> FlatMappedValuesRdd<
-        MappedValuesRdd<
-            CoGroupedRdd<K>,
-            K,
-            Vec<Vec<Box<dyn AnyData>>>,
-            (Vec<V>, Vec<W>),
-            Box<dyn Func(Vec<Vec<Box<dyn AnyData>>>) -> (Vec<V>, Vec<W>)>,
-        >,
-        K,
-        (Vec<V>, Vec<W>),
-        (V, W),
-        Box<dyn Func((Vec<V>, Vec<W>)) -> Box<dyn Iterator<Item = (V, W)>>>,
-    > {
+    ) -> rdd_rt::JoinRT<V, W, K> {
         let f = Fn!(|v: (Vec<V>, Vec<W>)| {
             let (vs, ws) = v;
             let combine = vs
@@ -168,13 +156,7 @@ pub trait PairRdd<K: Data + Eq + Hash, V: Data>: Rdd<(K, V)> + Send + Sync {
         &self,
         other: RT,
         partitioner: Box<dyn Partitioner>,
-    ) -> MappedValuesRdd<
-        CoGroupedRdd<K>,
-        K,
-        Vec<Vec<Box<dyn AnyData>>>,
-        (Vec<V>, Vec<W>),
-        Box<dyn Func(Vec<Vec<Box<dyn AnyData>>>) -> (Vec<V>, Vec<W>)>,
-    > {
+    ) -> rdd_rt::CoGroupedValues<V, W, K> {
         let rdds: Vec<serde_traitobject::Arc<dyn RddBase>> = vec![
             serde_traitobject::Arc::from(self.get_rdd_base()),
             serde_traitobject::Arc::from(other.get_rdd_base()),
