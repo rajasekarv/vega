@@ -4,24 +4,25 @@
 
 A new arguably faster implementation of Apache Spark from scratch in Rust. WIP
 
-Just install [Cap'n proto](https://capnproto.org/install.html) and you are good to go. Code is tested only on Linux and requires nightly version. It is tested for version 1.39 only, there are some breaking changes in specialization from version to version, so use 1.39 only for now.
-
-Use this command: `cargo +nightly-2019-09-11 build --release`
+Code is tested only on Linux and requires nightly version.
 
 Refer make_rdd.rs and other examples in example code to get the basic idea.
 
-You need to have hosts.conf in the format present inside config folder in the home directory of all of the machines when running in distributed mode and all of them should be ssh-able from master.
-The master port can be configured in hosts.conf and 10500 in executors should be free. Ports 5000-6000 is reserved for shuffle manager. It will be handled internally soon.
+## Instructions for running the code in Local and Distributed mode
+First, Install [Cap'n Proto](https://capnproto.org/install.html)
+Then, run these following steps:(Tested only on Linux)
+* `git clone https://github.com/rajasekarv/native_spark/`
+* `cd native_spark`
+* You need to have [hosts.conf](https://github.com/rajasekarv/native_spark/blob/master/config_files/hosts.conf) in the format present inside config folder in the home directory of all the machines when running in distributed mode and all of them should be ssh-able from master. Change master-ip as 0.0.0.0 in case of **local mode**. Setup appropriate IPs of master and executor nodes for distributed mode.
+* The master port can be configured in hosts.conf and port 10500 in executors should be free. Ports 5000-6000 is reserved for shuffle manager. It will be handled internally soon.
+* `export SPARK_LOCAL_IP=0.0.0.0` when running in local mode and appropriate IP in all machines when running in distributed mode.
+* `cargo run --example make_rdd`
 
 Since File readers are not done, you have to use manual file reading for now (like manually reading from S3 or hack around local files by distributing copies of all files to all machines and make rdd using filename list).
 
-Ctrl-C handling and panic handling is not done yet, so if there is some problem in runtime, executors won't be shut down automatically and you have to manually kill the processes.
+Ctrl-C handling and panic handling is not done yet, so if there is some problem in runtime, executors won't shut down automatically and you have to manually kill the processes.
 
 One of the limitations of current implementation is that the input and return types of all closures and all input to make_rdd should be owned data.
-
-## Configuration
-
-You can specify the local IP address using the environmental variable `SPARK_LOCAL_IP`.
 
 ## ToDo
 
