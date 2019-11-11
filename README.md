@@ -46,7 +46,7 @@ Most of these except file reader and writer are trivial to implement
 - [ ] cartesian
 - [ ] pipe
 - [ ] map_partitions
-- [ ] for_each
+- [x] for_each
 - [x] collect
 - [x] reduce
 - [ ] fold
@@ -54,6 +54,7 @@ Most of these except file reader and writer are trivial to implement
 - [x] take
 - [x] first
 - [x] sample
+- [ ] zip
 - [ ] save_as_text_file(can save only as text file in executors local file system)  
 
 ### Config Files

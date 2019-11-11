@@ -440,6 +440,21 @@ pub trait Rdd<T: Data>: RddBase {
             samples.into_iter().take(num as usize).collect::<Vec<_>>()
         }
     }
+
+    /// Applies a function f to all elements of this RDD.
+    fn for_each<F>(&self, f: F) where F: SerFunc(T), Self: Sized + 'static {
+        let cf = f.clone();
+        let func = Fn!(move |iter: Box<dyn Iterator<Item = T>>| iter.for_each(&cf));
+        self.get_context().run_job(self.get_rdd(), func);
+    }
+
+    /// Applies a function f to each partition of this RDD.
+    fn for_each_partition<F>(&self, f: F) where F: SerFunc(Box<dyn Iterator<Item =T>>), Self: Sized + 'static{
+        let cf = f.clone();
+        let func = Fn!(move |iter: Box<dyn Iterator<Item = T>>| (&cf)(iter));
+        self.get_context().run_job(self.get_rdd(), func);
+    }    
+
 }
 
 // Lot of visual noise here due to the generic implementation of RddValues.
