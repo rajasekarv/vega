@@ -92,11 +92,10 @@ fn test_first() {
     let taken_1 = col1_rdd.first();
     assert!(taken_1.is_ok());
 
-    // TODO: uncomment when it returns a proper error instead of panicking
-    // let col2: Vec<i32> = vec![];
-    // let col2_rdd = sc.parallelize(col2, 4);
-    // let taken_0 = col2_rdd.first();
-    // assert!(taken_0.is_err());
+    let col2: Vec<i32> = vec![];
+    let col2_rdd = sc.parallelize(col2, 4);
+    let taken_0 = col2_rdd.first();
+    assert!(taken_0.is_err());
 }
 
 #[test]

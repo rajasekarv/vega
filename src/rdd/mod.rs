@@ -264,15 +264,14 @@ pub trait Rdd<T: Data>: RddBase {
     }
 
     /// Return the first element in this RDD.
-    fn first(&self) -> std::result::Result<T, Box<dyn std::error::Error>>
+    fn first(&self) -> Result<T>
     where
         Self: Sized + 'static,
     {
         if let Some(result) = self.take(1)?.into_iter().next() {
             Ok(result)
         } else {
-            //FIXME: return a proper error when we add return errors
-            panic!("empty collection")
+            Err(Error::UnsupportedOperation("empty collection".to_owned()))
         }
     }
 

@@ -50,4 +50,7 @@ pub enum Error {
 
     #[error("failed to parse slave address {0}")]
     ParseSlaveAddress(String),
+
+    #[error("operation not supported: {0}")]
+    UnsupportedOperation(String),
 }

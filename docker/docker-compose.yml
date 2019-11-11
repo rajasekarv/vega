@@ -1,0 +1,17 @@
+version: '3'
+
+networks:
+  native-spark:
+
+services:
+  master:
+    image: native_spark:latest
+    deploy:
+      restart_policy:
+        condition: on-failure
+
+  worker:
+    image: native_spark:latest
+    deploy:
+      restart_policy:
+        condition: on-failure
