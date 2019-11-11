@@ -12,8 +12,16 @@ use std::fs;
 use std::fs::File;
 use std::path::Path;
 
+fn get_mode() -> String {
+    let args = std::env::args().skip(1).collect::<Vec<_>>();
+    match args.get(0) {
+        Some(val) if val == "distributed" => val.to_owned(),
+        _ => "local".to_owned(),
+    }
+}
+
 fn main() -> Result<()> {
-    let sc = Context::new("local")?;
+    let sc = Context::new(&get_mode())?;
     let files = fs::read_dir("parquet_file_dir")
         .unwrap()
         .map(|x| x.unwrap().path().to_str().unwrap().to_owned())

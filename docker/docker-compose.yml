@@ -9,9 +9,15 @@ services:
     deploy:
       restart_policy:
         condition: on-failure
+    ports:
+      - "3000"
+    tty: true
 
   worker:
     image: native_spark:latest
     deploy:
       restart_policy:
         condition: on-failure
+    ports:
+      - "10500"
+    tty: true

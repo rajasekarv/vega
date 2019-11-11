@@ -6,8 +6,6 @@ ENV tempPkgs='\
     build-essential \
     ca-certificates \
     curl \
-    libssl-dev \
-    pkg-config \
     file \
     capnproto \
     '
@@ -37,8 +35,8 @@ RUN set -e; cd native_spark; \
 FROM ubuntu:18.04
 WORKDIR /home/release
 COPY --from=building /home/release .
-RUN set -e; \
-    # Install requirements
+RUN set -oe; \
+    # Instll requirements
     apt-get update -yq; \
     apt-get install -yq locales ssh capnproto; \
     # Locales
