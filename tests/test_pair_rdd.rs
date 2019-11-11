@@ -1,9 +1,15 @@
 use native_spark::*;
+use std::sync::Arc;
 extern crate serde_closure;
+use lazy_static::*;
+
+lazy_static!{
+    static ref CONTEXT: Arc<Context> = Context::new("local").unwrap();
+}
 
 #[test]
 fn test_group_by() {
-    let sc = Context::new("local").unwrap();
+    let sc = CONTEXT.clone();
     let vec = vec![
         ("x".to_string(), 1),
         ("x".to_string(), 2),
@@ -36,7 +42,7 @@ fn test_group_by() {
 
 #[test]
 fn test_join() {
-    let sc = Context::new("local").unwrap();
+    let sc = CONTEXT.clone();
     let col1 = vec![
         (1, ("A".to_string(), "B".to_string())),
         (2, ("C".to_string(), "D".to_string())),
