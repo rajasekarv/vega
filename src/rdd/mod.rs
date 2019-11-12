@@ -27,6 +27,7 @@ use crate::dependency::{
     Dependency, OneToOneDependencyTrait, OneToOneDependencyVals, ShuffleDependency,
     ShuffleDependencyTrait,
 };
+use crate::error::*;
 use crate::partitioner::{HashPartitioner, Partitioner};
 use crate::serializable_traits::{AnyData, Data, Func, SerFunc};
 use crate::shuffle_fetcher::ShuffleFetcher;
@@ -80,11 +81,14 @@ pub trait RddBase: Send + Sync + Serialize + Deserialize {
         self.splits().len()
     }
     // Analyse whether this is required or not. It requires downcasting while executing tasks which could hurt performance.
-    fn iterator_any(&self, split: Box<dyn Split>) -> Box<dyn Iterator<Item = Box<dyn AnyData>>>;
+    fn iterator_any(
+        &self,
+        split: Box<dyn Split>,
+    ) -> Result<Box<dyn Iterator<Item = Box<dyn AnyData>>>>;
     fn cogroup_iterator_any(
         &self,
         split: Box<dyn Split>,
-    ) -> Box<dyn Iterator<Item = Box<dyn AnyData>>> {
+    ) -> Result<Box<dyn Iterator<Item = Box<dyn AnyData>>>> {
         self.iterator_any(split)
     }
 }
@@ -150,10 +154,10 @@ pub trait Rdd<T: Data>: RddBase {
     where
         Self: Sized;
     fn get_rdd_base(&self) -> Arc<dyn RddBase>;
-    fn iterator(&self, split: Box<dyn Split>) -> Box<dyn Iterator<Item = T>> {
+    fn iterator(&self, split: Box<dyn Split>) -> Result<Box<dyn Iterator<Item = T>>> {
         self.compute(split)
     }
-    fn compute(&self, split: Box<dyn Split>) -> Box<dyn Iterator<Item = T>>;
+    fn compute(&self, split: Box<dyn Split>) -> Result<Box<dyn Iterator<Item = T>>>;
 
     fn map<U: Data, F>(&self, f: F) -> MapperRdd<Self, T, U, F>
     where
@@ -171,7 +175,7 @@ pub trait Rdd<T: Data>: RddBase {
         FlatMapperRdd::new(self.get_rdd(), f)
     }
 
-    fn save_as_text_file(&self, path: String)
+    fn save_as_text_file(&self, path: String) -> Result<Vec<()>>
     where
         Self: Sized + 'static,
     {
@@ -188,10 +192,10 @@ pub trait Rdd<T: Data>: RddBase {
             }
         }
         let cl = Fn!(move |(ctx, iter)| save::<T>(ctx, iter, path.to_string()));
-        self.get_context().run_job_with_context(self.get_rdd(), cl);
+        self.get_context().run_job_with_context(self.get_rdd(), cl)
     }
 
-    fn reduce<F>(&self, f: F) -> Option<T>
+    fn reduce<F>(&self, f: F) -> Result<Option<T>>
     where
         Self: Sized + 'static,
         F: SerFunc(T, T) -> T,
@@ -206,34 +210,34 @@ pub trait Rdd<T: Data>: RddBase {
             }
         });
         let results = self.get_context().run_job(self.get_rdd(), reduce_partition);
-        results.into_iter().flatten().reduce(f)
+        Ok(results?.into_iter().flatten().reduce(f))
     }
 
-    fn collect(&self) -> Vec<T>
+    fn collect(&self) -> Result<Vec<T>>
     where
         Self: Sized + 'static,
     {
         let cl = Fn!(|iter: Box<dyn Iterator<Item = T>>| iter.collect::<Vec<T>>());
-        let results = self.get_context().run_job(self.get_rdd(), cl);
+        let results = self.get_context().run_job(self.get_rdd(), cl)?;
         let size = results.iter().fold(0, |a, b: &Vec<T>| a + b.len());
-        results
+        Ok(results
             .into_iter()
             .fold(Vec::with_capacity(size), |mut acc, v| {
                 acc.extend(v);
                 acc
-            })
+            }))
     }
 
-    fn count(&self) -> u64
+    fn count(&self) -> Result<u64>
     where
         Self: 'static + Sized,
     {
         let mut context = self.get_context();
         let counting_func = Fn!(|iter: Box<dyn Iterator<Item = T>>| { iter.count() as u64 });
-        context
-            .run_job(self.get_rdd(), counting_func)
+        Ok(context
+            .run_job(self.get_rdd(), counting_func)?
             .into_iter()
-            .sum()
+            .sum())
     }
 
     /// Return a new RDD containing the distinct elements in this RDD.
@@ -264,42 +268,12 @@ pub trait Rdd<T: Data>: RddBase {
     where
         Self: Sized + 'static,
     {
-        if let Some(result) = self.take(1).into_iter().next() {
+        if let Some(result) = self.take(1)?.into_iter().next() {
             Ok(result)
         } else {
             //FIXME: return a proper error when we add return errors
             panic!("empty collection")
         }
-    }
-
-    /// Return a sampled subset of this RDD.
-    ///
-    /// # Arguments
-    ///
-    /// * `with_replacement` - can elements be sampled multiple times (replaced when sampled out)
-    /// * `fraction` - expected size of the sample as a fraction of this RDD's size
-    /// ** if without replacement: probability that each element is chosen; fraction must be [0, 1]
-    /// ** if with replacement: expected number of times each element is chosen; fraction must be greater than or equal to 0
-    /// * seed for the random number generator
-    ///
-    /// # Notes
-    ///
-    /// This is NOT guaranteed to provide exactly the fraction of the count of the given RDD.
-    ///
-    /// Replacement requires extra allocations due to the nature of the used sampler (Poisson distribution).
-    /// This implies a performance penalty but should be negligible unless fraction and the dataset are rather large.
-    fn sample(&self, with_replacement: bool, fraction: f64) -> PartitionwiseSampledRdd<Self, T>
-    where
-        Self: Sized + 'static,
-    {
-        assert!(fraction >= 0.0);
-
-        let sampler = if with_replacement {
-            Arc::new(PoissonSampler::new(fraction, true)) as Arc<dyn RandomSampler<T>>
-        } else {
-            Arc::new(BernoulliSampler::new(fraction)) as Arc<dyn RandomSampler<T>>
-        };
-        PartitionwiseSampledRdd::new(self.get_rdd(), sampler, true)
     }
 
     /// Take the first num elements of the RDD. It works by first scanning one partition, and use the
@@ -308,7 +282,7 @@ pub trait Rdd<T: Data>: RddBase {
     ///
     /// This method should only be used if the resulting array is expected to be small, as
     /// all the data is loaded into the driver's memory.
-    fn take(&self, num: usize) -> Vec<T>
+    fn take(&self, num: usize) -> Result<Vec<T>>
     where
         Self: Sized + 'static,
     {
@@ -316,7 +290,7 @@ pub trait Rdd<T: Data>: RddBase {
         // Math.max(conf.get(RDD_LIMIT_SCALE_UP_FACTOR), 2)
         const scale_up_factor: f64 = 2.0;
         if num == 0 {
-            return vec![];
+            return Ok(vec![]);
         }
         let mut buf = vec![];
         let total_parts = self.number_of_splits() as u32;
@@ -352,7 +326,7 @@ pub trait Rdd<T: Data>: RddBase {
                 self.get_rdd(),
                 take_from_partion,
                 partitions,
-            );
+            )?;
 
             res.into_iter().for_each(|r| {
                 let take = num - buf.len();
@@ -362,7 +336,37 @@ pub trait Rdd<T: Data>: RddBase {
             parts_scanned += num_partitions;
         }
 
-        buf
+        Ok(buf)
+    }
+
+    /// Return a sampled subset of this RDD.
+    ///
+    /// # Arguments
+    ///
+    /// * `with_replacement` - can elements be sampled multiple times (replaced when sampled out)
+    /// * `fraction` - expected size of the sample as a fraction of this RDD's size
+    /// ** if without replacement: probability that each element is chosen; fraction must be [0, 1]
+    /// ** if with replacement: expected number of times each element is chosen; fraction must be greater than or equal to 0
+    /// * seed for the random number generator
+    ///
+    /// # Notes
+    ///
+    /// This is NOT guaranteed to provide exactly the fraction of the count of the given RDD.
+    ///
+    /// Replacement requires extra allocations due to the nature of the used sampler (Poisson distribution).
+    /// This implies a performance penalty but should be negligible unless fraction and the dataset are rather large.
+    fn sample(&self, with_replacement: bool, fraction: f64) -> PartitionwiseSampledRdd<Self, T>
+    where
+        Self: Sized + 'static,
+    {
+        assert!(fraction >= 0.0);
+
+        let sampler = if with_replacement {
+            Arc::new(PoissonSampler::new(fraction, true)) as Arc<dyn RandomSampler<T>>
+        } else {
+            Arc::new(BernoulliSampler::new(fraction)) as Arc<dyn RandomSampler<T>>
+        };
+        PartitionwiseSampledRdd::new(self.get_rdd(), sampler, true)
     }
 
     /// Return a fixed-size sampled subset of this RDD in an array.
@@ -378,7 +382,7 @@ pub trait Rdd<T: Data>: RddBase {
     ///
     /// Replacement requires extra allocations due to the nature of the used sampler (Poisson distribution).
     /// This implies a performance penalty but should be negligible unless fraction and the dataset are rather large.
-    fn take_sample(&self, with_replacement: bool, num: u64, seed: Option<u64>) -> Vec<T>
+    fn take_sample(&self, with_replacement: bool, num: u64, seed: Option<u64>) -> Result<Vec<T>>
     where
         Self: Sized + 'static,
     {
@@ -389,12 +393,12 @@ pub trait Rdd<T: Data>: RddBase {
         assert!(num <= max_sample_size);
 
         if num == 0 {
-            return vec![];
+            return Ok(vec![]);
         }
 
-        let initial_count = self.count();
+        let initial_count = self.count()?;
         if initial_count == 0 {
-            return vec![];
+            return Ok(vec![]);
         }
 
         // The original implementation uses java.util.Random which is a LCG pseudorng,
@@ -409,16 +413,16 @@ pub trait Rdd<T: Data>: RddBase {
         };
 
         if !with_replacement && num >= initial_count {
-            let mut sample = self.collect();
+            let mut sample = self.collect()?;
             utils::randomize_in_place(&mut sample, &mut rng);
-            sample
+            Ok(sample)
         } else {
             let fraction = utils::random::compute_fraction_for_sample_size(
                 num,
                 initial_count,
                 with_replacement,
             );
-            let mut samples = self.sample(with_replacement, fraction).collect();
+            let mut samples = self.sample(with_replacement, fraction).collect()?;
 
             // If the first sample didn't turn out large enough, keep trying to take samples;
             // this shouldn't happen often because we use a big multiplier for the initial size.
@@ -428,7 +432,7 @@ pub trait Rdd<T: Data>: RddBase {
                     "Needed to re-sample due to insufficient sample size. Repeat #{}",
                     num_iters
                 );
-                samples = self.sample(with_replacement, fraction).collect();
+                samples = self.sample(with_replacement, fraction).collect()?;
                 num_iters += 1;
             }
 
@@ -437,24 +441,31 @@ pub trait Rdd<T: Data>: RddBase {
             }
 
             utils::randomize_in_place(&mut samples, &mut rng);
-            samples.into_iter().take(num as usize).collect::<Vec<_>>()
+            Ok(samples.into_iter().take(num as usize).collect::<Vec<_>>())
         }
     }
 
     /// Applies a function f to all elements of this RDD.
-    fn for_each<F>(&self, f: F) where F: SerFunc(T), Self: Sized + 'static {
+    fn for_each<F>(&self, f: F) -> Result<Vec<()>>
+    where
+        F: SerFunc(T),
+        Self: Sized + 'static,
+    {
         let cf = f.clone();
         let func = Fn!(move |iter: Box<dyn Iterator<Item = T>>| iter.for_each(&cf));
-        self.get_context().run_job(self.get_rdd(), func);
+        self.get_context().run_job(self.get_rdd(), func)
     }
 
     /// Applies a function f to each partition of this RDD.
-    fn for_each_partition<F>(&self, f: F) where F: SerFunc(Box<dyn Iterator<Item =T>>), Self: Sized + 'static{
+    fn for_each_partition<F>(&self, f: F) -> Result<Vec<()>>
+    where
+        F: SerFunc(Box<dyn Iterator<Item = T>>),
+        Self: Sized + 'static,
+    {
         let cf = f.clone();
         let func = Fn!(move |iter: Box<dyn Iterator<Item = T>>| (&cf)(iter));
-        self.get_context().run_job(self.get_rdd(), func);
-    }    
-
+        self.get_context().run_job(self.get_rdd(), func)
+    }
 }
 
 // Lot of visual noise here due to the generic implementation of RddValues.
@@ -536,18 +547,18 @@ where
     default fn cogroup_iterator_any(
         &self,
         split: Box<dyn Split>,
-    ) -> Box<dyn Iterator<Item = Box<dyn AnyData>>> {
+    ) -> Result<Box<dyn Iterator<Item = Box<dyn AnyData>>>> {
         self.iterator_any(split)
     }
     default fn iterator_any(
         &self,
         split: Box<dyn Split>,
-    ) -> Box<dyn Iterator<Item = Box<dyn AnyData>>> {
+    ) -> Result<Box<dyn Iterator<Item = Box<dyn AnyData>>>> {
         info!("inside iterator_any maprdd",);
-        Box::new(
-            self.iterator(split)
+        Ok(Box::new(
+            self.iterator(split)?
                 .map(|x| Box::new(x) as Box<dyn AnyData>),
-        )
+        ))
     }
 }
 
@@ -559,12 +570,11 @@ where
     fn cogroup_iterator_any(
         &self,
         split: Box<dyn Split>,
-    ) -> Box<dyn Iterator<Item = Box<dyn AnyData>>> {
+    ) -> Result<Box<dyn Iterator<Item = Box<dyn AnyData>>>> {
         info!("inside iterator_any maprdd",);
-        Box::new(
-            self.iterator(split)
-                .map(|(k, v)| Box::new((k, Box::new(v) as Box<dyn AnyData>)) as Box<dyn AnyData>),
-        )
+        Ok(Box::new(self.iterator(split)?.map(|(k, v)| {
+            Box::new((k, Box::new(v) as Box<dyn AnyData>)) as Box<dyn AnyData>
+        })))
     }
 }
 
@@ -579,9 +589,9 @@ where
     fn get_rdd(&self) -> Arc<Self> {
         Arc::new(self.clone())
     }
-    fn compute(&self, split: Box<dyn Split>) -> Box<dyn Iterator<Item = U>> {
+    fn compute(&self, split: Box<dyn Split>) -> Result<Box<dyn Iterator<Item = U>>> {
         //        let res = Box::new(self.prev.iterator(split).map((*self.f).clone()));
-        Box::new(self.prev.iterator(split).map(self.f.clone()))
+        Ok(Box::new(self.prev.iterator(split)?.map(self.f.clone())))
 
         //        let res = res.collect::<Vec<_>>();
         //        let log_output = format!("inside iterator maprdd {:?}", res.get(0));
@@ -667,19 +677,19 @@ where
     default fn cogroup_iterator_any(
         &self,
         split: Box<dyn Split>,
-    ) -> Box<dyn Iterator<Item = Box<dyn AnyData>>> {
+    ) -> Result<Box<dyn Iterator<Item = Box<dyn AnyData>>>> {
         self.iterator_any(split)
     }
 
     default fn iterator_any(
         &self,
         split: Box<dyn Split>,
-    ) -> Box<dyn Iterator<Item = Box<dyn AnyData>>> {
+    ) -> Result<Box<dyn Iterator<Item = Box<dyn AnyData>>>> {
         info!("inside iterator_any flatmaprdd",);
-        Box::new(
-            self.iterator(split)
+        Ok(Box::new(
+            self.iterator(split)?
                 .map(|x| Box::new(x) as Box<dyn AnyData>),
-        )
+        ))
     }
 }
 
@@ -691,12 +701,11 @@ where
     fn cogroup_iterator_any(
         &self,
         split: Box<dyn Split>,
-    ) -> Box<dyn Iterator<Item = Box<dyn AnyData>>> {
+    ) -> Result<Box<dyn Iterator<Item = Box<dyn AnyData>>>> {
         info!("inside iterator_any flatmaprdd",);
-        Box::new(
-            self.iterator(split)
-                .map(|(k, v)| Box::new((k, Box::new(v) as Box<dyn AnyData>)) as Box<dyn AnyData>),
-        )
+        Ok(Box::new(self.iterator(split)?.map(|(k, v)| {
+            Box::new((k, Box::new(v) as Box<dyn AnyData>)) as Box<dyn AnyData>
+        })))
     }
 }
 
@@ -711,9 +720,9 @@ where
     fn get_rdd(&self) -> Arc<Self> {
         Arc::new(self.clone())
     }
-    fn compute(&self, split: Box<dyn Split>) -> Box<dyn Iterator<Item = U>> {
+    fn compute(&self, split: Box<dyn Split>) -> Result<Box<dyn Iterator<Item = U>>> {
         let f = self.f.clone();
-        Box::new(self.prev.iterator(split).flat_map(f))
+        Ok(Box::new(self.prev.iterator(split)?.flat_map(f)))
     }
 }
 

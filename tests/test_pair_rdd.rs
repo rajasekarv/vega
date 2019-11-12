@@ -3,7 +3,7 @@ use std::sync::Arc;
 extern crate serde_closure;
 use lazy_static::*;
 
-lazy_static!{
+lazy_static! {
     static ref CONTEXT: Arc<Context> = Context::new("local").unwrap();
 }
 
@@ -27,9 +27,9 @@ fn test_group_by() {
         ("y".to_string(), 7),
         ("y".to_string(), 8),
     ];
-    let r = sc.make_rdd(vec, 4);
+    let r = sc.clone().make_rdd(vec, 4);
     let g = r.group_by_key(4);
-    let mut res = g.collect();
+    let mut res = g.collect().unwrap();
     res.sort();
     println!("res {:?}", res);
 
@@ -49,7 +49,7 @@ fn test_join() {
         (3, ("E".to_string(), "F".to_string())),
         (4, ("G".to_string(), "H".to_string())),
     ];
-    let col1 = sc.parallelize(col1, 4);
+    let col1 = sc.clone().parallelize(col1, 4);
     let col2 = vec![
         (1, "A1".to_string()),
         (1, "A2".to_string()),
@@ -58,9 +58,9 @@ fn test_join() {
         (3, "C1".to_string()),
         (3, "C2".to_string()),
     ];
-    let col2 = sc.parallelize(col2, 4);
+    let col2 = sc.clone().parallelize(col2, 4);
     let inner_joined_rdd = col2.join(col1.clone(), 4);
-    let mut res = inner_joined_rdd.collect();
+    let mut res = inner_joined_rdd.collect().unwrap();
     println!("res {:?}", res);
     res.sort();
 

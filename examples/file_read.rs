@@ -31,7 +31,7 @@ fn main() -> Result<()> {
     }));
     let sum = line.reduce_by_key(Fn!(|((vl, cl), (vr, cr))| (vl + vr, cl + cr)), 1);
     let avg = sum.map(Fn!(|(k, (v, c))| (k, v as f64 / c)));
-    let res = avg.collect();
+    let res = avg.collect().unwrap();
     println!("{:?}", &res[0]);
     Ok(())
 }

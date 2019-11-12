@@ -3,6 +3,7 @@ use std::hash::Hash;
 use std::sync::Arc;
 use std::time::Instant;
 
+use crate::error::*;
 use crate::rdd::*;
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -108,22 +109,24 @@ where
     fn partitioner(&self) -> Option<Box<dyn Partitioner>> {
         Some(self.part.clone())
     }
-    fn iterator_any(&self, split: Box<dyn Split>) -> Box<dyn Iterator<Item = Box<dyn AnyData>>> {
+    fn iterator_any(
+        &self,
+        split: Box<dyn Split>,
+    ) -> Result<Box<dyn Iterator<Item = Box<dyn AnyData>>>> {
         info!("inside iterator_any shuffledrdd",);
-        Box::new(
-            self.iterator(split)
+        Ok(Box::new(
+            self.iterator(split)?
                 .map(|(k, v)| Box::new((k, v)) as Box<dyn AnyData>),
-        )
+        ))
     }
     fn cogroup_iterator_any(
         &self,
         split: Box<dyn Split>,
-    ) -> Box<dyn Iterator<Item = Box<dyn AnyData>>> {
+    ) -> Result<Box<dyn Iterator<Item = Box<dyn AnyData>>>> {
         info!("inside cogroup iterator_any shuffledrdd",);
-        Box::new(
-            self.iterator(split)
-                .map(|(k, v)| Box::new((k, Box::new(v) as Box<dyn AnyData>)) as Box<dyn AnyData>),
-        )
+        Ok(Box::new(self.iterator(split)?.map(|(k, v)| {
+            Box::new((k, Box::new(v) as Box<dyn AnyData>)) as Box<dyn AnyData>
+        })))
     }
 }
 
@@ -140,7 +143,7 @@ where
     //    fn partitioner<P1: Partitioner + Clone>(&self) -> Option<P1> {
     //        Some(self.part.clone())
     //    }
-    fn compute(&self, split: Box<dyn Split>) -> Box<dyn Iterator<Item = (K, C)>> {
+    fn compute(&self, split: Box<dyn Split>) -> Result<Box<dyn Iterator<Item = (K, C)>>> {
         info!("compute inside shuffled rdd");
         //        let combiners: Arc<Mutex<HashMap<K, Arc<Mutex<C>>>>> = Arc::new(Mutex::new(HashMap::new()));
         // ArcMutex is being used in combiner because it needs to sent to closure.
@@ -172,7 +175,9 @@ where
             merge_pair,
         );
         info!("time taken for fetching {}", start.elapsed().as_millis());
-        Box::new(combiners.into_iter().map(|(k, v)| (k, v.unwrap())))
+        Ok(Box::new(
+            combiners.into_iter().map(|(k, v)| (k, v.unwrap())),
+        ))
 
         //        let res = res.collect::<Vec<_>>();
         //        let log_output = format!("inside iterator shufflerdd {:?}", res.get(0));

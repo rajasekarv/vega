@@ -310,7 +310,7 @@ impl DistributedScheduler {
         final_rdd: Arc<RT>,
         partitions: Vec<usize>,
         allow_local: bool,
-    ) -> Vec<U>
+    ) -> Result<Vec<U>>
     where
         F: SerFunc((TasKContext, Box<dyn Iterator<Item = T>>)) -> U,
         RT: Rdd<T> + 'static,
@@ -339,7 +339,7 @@ impl DistributedScheduler {
         if allow_local && final_stage.parents.is_empty() && (num_output_parts == 1) {
             let split = (final_rdd.splits()[output_parts[0]]).clone();
             let task_context = TasKContext::new(final_stage.id, output_parts[0], 0);
-            return vec![func((task_context, final_rdd.iterator(split)))];
+            return Ok(vec![func((task_context, final_rdd.iterator(split)?))]);
         }
 
         self.event_queues.lock().insert(run_id, VecDeque::new());
@@ -593,13 +593,13 @@ impl DistributedScheduler {
         self.event_queues.lock().remove(&run_id);
         //        let dur = time::Duration::from_millis(20000);
         //        thread::sleep(dur);
-        results
+        Ok(results
             .into_iter()
             .map(|s| match s {
                 Some(v) => v,
                 None => panic!("some results still missing"),
             })
-            .collect()
+            .collect())
     }
 
     fn submit_stage<T: Data, U: Data, F, RT>(

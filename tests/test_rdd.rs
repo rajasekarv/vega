@@ -1,13 +1,12 @@
+use native_spark::io::*;
+use native_spark::*;
 use std::fs::{create_dir_all, remove_dir_all, File};
 use std::io::prelude::*;
 use std::sync::Arc;
-use native_spark::io::*;
-use native_spark::*;
 
 #[macro_use]
 extern crate serde_closure;
 use lazy_static::*;
-
 
 lazy_static! {
     static ref CONTEXT: Arc<Context> = Context::new("local").unwrap();
@@ -46,12 +45,15 @@ where
 fn test_make_rdd() {
     // for distributed mode, use Context::new("distributed")
     let sc = CONTEXT.clone();
-    let col = sc.make_rdd((0..10).collect::<Vec<_>>(), 32);
+    let col = sc.clone().make_rdd((0..10).collect::<Vec<_>>(), 32);
     //Fn! will make the closures serializable. It is necessary. use serde_closure version 0.1.3.
     let vec_iter = col.map(Fn!(|i| (0..i).collect::<Vec<_>>()));
     col.for_each(Fn!(|i| println!("{:?}", i)));
-    col.for_each_partition(Fn!(|i: Box<Iterator<Item = i64>>| println!("{:?}", i.collect::<Vec<_>>())));
-    let res = vec_iter.collect();
+    col.for_each_partition(Fn!(|i: Box<Iterator<Item = i64>>| println!(
+        "{:?}",
+        i.collect::<Vec<_>>()
+    )));
+    let res = vec_iter.collect().unwrap();
 
     let expected = (0..10)
         .map(|i| (0..i).collect::<Vec<_>>())
@@ -64,20 +66,20 @@ fn test_make_rdd() {
 fn test_take() {
     let sc = CONTEXT.clone();
     let col1 = vec![1, 2, 3, 4, 5, 6];
-    let col1_rdd = sc.parallelize(col1, 4);
+    let col1_rdd = sc.clone().parallelize(col1, 4);
 
-    let taken_1 = col1_rdd.take(1);
+    let taken_1 = col1_rdd.take(1).unwrap();
     assert_eq!(taken_1.len(), 1);
 
-    let taken_3 = col1_rdd.take(3);
+    let taken_3 = col1_rdd.take(3).unwrap();
     assert_eq!(taken_3.len(), 3);
 
-    let taken_7 = col1_rdd.take(7);
+    let taken_7 = col1_rdd.take(7).unwrap();
     assert_eq!(taken_7.len(), 6);
 
     let col2: Vec<i32> = vec![];
-    let col2_rdd = sc.parallelize(col2, 4);
-    let taken_0 = col2_rdd.take(1);
+    let col2_rdd = sc.clone().parallelize(col2, 4);
+    let taken_0 = col2_rdd.take(1).unwrap();
     assert!(taken_0.is_empty());
 }
 
@@ -85,7 +87,7 @@ fn test_take() {
 fn test_first() {
     let sc = CONTEXT.clone();
     let col1 = vec![1, 2, 3, 4];
-    let col1_rdd = sc.parallelize(col1, 4);
+    let col1_rdd = sc.clone().parallelize(col1, 4);
 
     let taken_1 = col1_rdd.first();
     assert!(taken_1.is_ok());
@@ -125,8 +127,10 @@ fn test_read_files() {
     test_runner(|| {
         let sc = CONTEXT.clone();
         let result = sc
+            .clone()
             .read_files(LocalFsReaderConfig::new(file_path), processor)
-            .collect();
+            .collect()
+            .unwrap();
         assert_eq!(result[0].len(), 2);
     });
 
@@ -155,8 +159,10 @@ fn test_read_files() {
 
     test_runner(|| {
         let sc = CONTEXT.clone();
-        let files = sc.read_files(LocalFsReaderConfig::new(WORK_DIR.join(TEST_DIR)), processor);
-        let result: Vec<_> = files.collect().into_iter().flatten().collect();
+        let files = sc
+            .clone()
+            .read_files(LocalFsReaderConfig::new(WORK_DIR.join(TEST_DIR)), processor);
+        let result: Vec<_> = files.collect().unwrap().into_iter().flatten().collect();
         assert_eq!(result.len(), 20);
     });
 }
@@ -165,25 +171,48 @@ fn test_read_files() {
 fn test_distinct() {
     use std::collections::HashSet;
     let sc = CONTEXT.clone();
-    let rdd = sc.parallelize(vec![1, 2, 2, 2, 3, 3, 3, 4, 4, 5], 3);
-    assert!(rdd.distinct().collect().len() == 5);
+    let rdd = sc
+        .clone()
+        .parallelize(vec![1, 2, 2, 2, 3, 3, 3, 4, 4, 5], 3);
+    assert!(rdd.distinct().collect().unwrap().len() == 5);
     assert!(
-        rdd.distinct().collect().into_iter().collect::<HashSet<_>>()
-            == rdd.distinct().collect().into_iter().collect::<HashSet<_>>()
+        rdd.distinct()
+            .collect()
+            .unwrap()
+            .into_iter()
+            .collect::<HashSet<_>>()
+            == rdd
+                .distinct()
+                .collect()
+                .unwrap()
+                .into_iter()
+                .collect::<HashSet<_>>()
     );
     assert!(
         rdd.distinct_with_num_partitions(2)
             .collect()
+            .unwrap()
             .into_iter()
             .collect::<HashSet<_>>()
-            == rdd.distinct().collect().into_iter().collect::<HashSet<_>>()
+            == rdd
+                .distinct()
+                .collect()
+                .unwrap()
+                .into_iter()
+                .collect::<HashSet<_>>()
     );
     assert!(
         rdd.distinct_with_num_partitions(10)
             .collect()
+            .unwrap()
             .into_iter()
             .collect::<HashSet<_>>()
-            == rdd.distinct().collect().into_iter().collect::<HashSet<_>>()
+            == rdd
+                .distinct()
+                .collect()
+                .unwrap()
+                .into_iter()
+                .collect::<HashSet<_>>()
     );
 }
 
@@ -192,8 +221,8 @@ fn test_partition_wise_sampling() {
     let sc = CONTEXT.clone();
     // w/o replace & num < sample
     {
-        let rdd = sc.parallelize(vec![1, 2, 3, 4, 5], 6);
-        let result = rdd.take_sample(false, 6, Some(123));
+        let rdd = sc.clone().parallelize(vec![1, 2, 3, 4, 5], 6);
+        let result = rdd.take_sample(false, 6, Some(123)).unwrap();
         assert!(result.len() == 5);
         // guaranteed with this seed:
         assert!(result[0] > result[1]);
@@ -202,15 +231,15 @@ fn test_partition_wise_sampling() {
     // replace & Poisson & no-GapSampling
     {
         // high enough samples param to guarantee drawing >1 times w/ replacement
-        let rdd = sc.parallelize((0_i32..100).collect::<Vec<_>>(), 5);
-        let result = rdd.take_sample(true, 80, None);
+        let rdd = sc.clone().parallelize((0_i32..100).collect::<Vec<_>>(), 5);
+        let result = rdd.take_sample(true, 80, None).unwrap();
         assert!(result.len() == 80);
     }
 
     // no replace & Bernoulli + GapSampling
     {
-        let rdd = sc.parallelize((0_i32..100).collect::<Vec<_>>(), 5);
-        let result = rdd.take_sample(false, 10, None);
+        let rdd = sc.clone().parallelize((0_i32..100).collect::<Vec<_>>(), 5);
+        let result = rdd.take_sample(false, 10, None).unwrap();
         assert!(result.len() == 10);
     }
 }

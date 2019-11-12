@@ -5,6 +5,7 @@ use std::hash::Hasher;
 use std::marker::PhantomData;
 use std::sync::Arc;
 
+use crate::error::*;
 use crate::rdd::*;
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -174,11 +175,13 @@ impl<K: Data + Eq + Hash> RddBase for CoGroupedRdd<K> {
         let part = self.part.clone() as Box<dyn Partitioner>;
         Some(part)
     }
-    fn iterator_any(&self, split: Box<dyn Split>) -> Box<dyn Iterator<Item = Box<dyn AnyData>>> {
-        Box::new(
-            self.iterator(split)
-                .map(|(k, v)| Box::new((k, Box::new(v) as Box<dyn AnyData>)) as Box<dyn AnyData>),
-        )
+    fn iterator_any(
+        &self,
+        split: Box<dyn Split>,
+    ) -> Result<Box<dyn Iterator<Item = Box<dyn AnyData>>>> {
+        Ok(Box::new(self.iterator(split)?.map(|(k, v)| {
+            Box::new((k, Box::new(v) as Box<dyn AnyData>)) as Box<dyn AnyData>
+        })))
         //        Box::new(
         //            self.iterator(split)
         //                .map(|x| Box::new(x) as Box<dyn AnyData>),
@@ -197,14 +200,14 @@ impl<K: Data + Eq + Hash> Rdd<(K, Vec<Vec<Box<dyn AnyData>>>)> for CoGroupedRdd<
     fn compute(
         &self,
         split: Box<dyn Split>,
-    ) -> Box<dyn Iterator<Item = (K, Vec<Vec<Box<dyn AnyData>>>)>> {
+    ) -> Result<Box<dyn Iterator<Item = (K, Vec<Vec<Box<dyn AnyData>>>)>>> {
         if let Ok(split) = split.downcast::<CoGroupSplit>() {
             let mut agg: HashMap<K, Vec<Vec<Box<dyn AnyData>>>> = HashMap::new();
             for (dep_num, dep) in split.clone().deps.into_iter().enumerate() {
                 match dep {
                     CoGroupSplitDep::NarrowCoGroupSplitDep { rdd, split } => {
                         info!("inside iterator cogrouprdd  narrow dep");
-                        for i in rdd.iterator_any(split) {
+                        for i in rdd.iterator_any(split)? {
                             info!(
                                 "inside iterator cogrouprdd  narrow dep iterator any {:?}",
                                 i
@@ -241,7 +244,7 @@ impl<K: Data + Eq + Hash> Rdd<(K, Vec<Vec<Box<dyn AnyData>>>)> for CoGroupedRdd<
                     }
                 }
             }
-            Box::new(agg.into_iter().map(|(k, v)| (k, v)))
+            Ok(Box::new(agg.into_iter().map(|(k, v)| (k, v))))
         } else {
             panic!("Got split object from different concrete type other than CoGroupSplit")
         }

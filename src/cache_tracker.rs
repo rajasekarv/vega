@@ -343,7 +343,7 @@ impl CacheTracker {
 
             let mut res: Vec<T> = Vec::new();
             let mut lock = self.loading.write();
-            res = rdd.compute(split.clone()).collect();
+            res = rdd.compute(split.clone()).unwrap().collect();
             let res_bytes = bincode::serialize(&res).unwrap();
             let put_response = self
                 .cache

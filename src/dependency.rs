@@ -163,7 +163,7 @@ impl<K: Data + Eq + Hash, V: Data, C: Data> ShuffleDependencyTrait for ShuffleDe
             rdd_base.iterator_any(split.clone())
         };
 
-        for (count, i) in iter.enumerate() {
+        for (count, i) in iter.unwrap().enumerate() {
             //            if count % 30000 == 0 {
             //                info!(
             //                    "inside rdd base iterator in shuffle map task  count for partition {} {}",

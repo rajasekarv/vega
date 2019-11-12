@@ -267,12 +267,25 @@ where
     fn number_of_splits(&self) -> usize {
         self.prev.number_of_splits()
     }
-    fn iterator_any(&self, split: Box<dyn Split>) -> Box<dyn Iterator<Item = Box<dyn AnyData>>> {
+    // TODO Analyze the possible error in invariance here
+    fn iterator_any(
+        &self,
+        split: Box<dyn Split>,
+    ) -> Result<Box<dyn Iterator<Item = Box<dyn AnyData>>>> {
         info!("inside iterator_any mapvaluesrdd",);
-        Box::new(
-            self.iterator(split)
-                .map(|(k, v)| Box::new((k, Box::new(v) as Box<dyn AnyData>)) as Box<dyn AnyData>),
-        )
+        Ok(Box::new(
+            self.iterator(split)?
+                .map(|(k, v)| Box::new((k, v)) as Box<dyn AnyData>),
+        ))
+    }
+    fn cogroup_iterator_any(
+        &self,
+        split: Box<dyn Split>,
+    ) -> Result<Box<dyn Iterator<Item = Box<dyn AnyData>>>> {
+        info!("inside iterator_any mapvaluesrdd",);
+        Ok(Box::new(self.iterator(split)?.map(|(k, v)| {
+            Box::new((k, Box::new(v) as Box<dyn AnyData>)) as Box<dyn AnyData>
+        })))
     }
 }
 
@@ -287,9 +300,11 @@ where
     fn get_rdd(&self) -> Arc<Self> {
         Arc::new(self.clone())
     }
-    fn compute(&self, split: Box<dyn Split>) -> Box<dyn Iterator<Item = (K, U)>> {
+    fn compute(&self, split: Box<dyn Split>) -> Result<Box<dyn Iterator<Item = (K, U)>>> {
         let f = self.f.clone();
-        Box::new(self.prev.iterator(split).map(move |(k, v)| (k, f(v))))
+        Ok(Box::new(
+            self.prev.iterator(split)?.map(move |(k, v)| (k, f(v))),
+        ))
         //        let res = res.collect::<Vec<_>>();
         //        let log_output = format!("inside iterator maprdd values {:?}", res.get(0));
         //        env::log_file.lock().write(&log_output.as_bytes());
@@ -374,22 +389,25 @@ where
     fn number_of_splits(&self) -> usize {
         self.prev.number_of_splits()
     }
-    fn iterator_any(&self, split: Box<dyn Split>) -> Box<dyn Iterator<Item = Box<dyn AnyData>>> {
+    // TODO Analyze the possible error in invariance here
+    fn iterator_any(
+        &self,
+        split: Box<dyn Split>,
+    ) -> Result<Box<dyn Iterator<Item = Box<dyn AnyData>>>> {
         info!("inside iterator_any flatmapvaluesrdd",);
-        Box::new(
-            self.iterator(split)
+        Ok(Box::new(
+            self.iterator(split)?
                 .map(|(k, v)| Box::new((k, v)) as Box<dyn AnyData>),
-        )
+        ))
     }
     fn cogroup_iterator_any(
         &self,
         split: Box<dyn Split>,
-    ) -> Box<dyn Iterator<Item = Box<dyn AnyData>>> {
-        info!("inside cogroup iterator_any flatmapvaluesrdd",);
-        Box::new(
-            self.iterator(split)
-                .map(|(k, v)| Box::new((k, Box::new(v) as Box<dyn AnyData>)) as Box<dyn AnyData>),
-        )
+    ) -> Result<Box<dyn Iterator<Item = Box<dyn AnyData>>>> {
+        info!("inside iterator_any flatmapvaluesrdd",);
+        Ok(Box::new(self.iterator(split)?.map(|(k, v)| {
+            Box::new((k, Box::new(v) as Box<dyn AnyData>)) as Box<dyn AnyData>
+        })))
     }
 }
 
@@ -404,15 +422,13 @@ where
     fn get_rdd(&self) -> Arc<Self> {
         Arc::new(self.clone())
     }
-    fn compute(&self, split: Box<dyn Split>) -> Box<dyn Iterator<Item = (K, U)>> {
+    fn compute(&self, split: Box<dyn Split>) -> Result<Box<dyn Iterator<Item = (K, U)>>> {
         let f = self.f.clone();
-        Box::new(
+        Ok(Box::new(
             self.prev
-                .iterator(split)
-                .flat_map( move |(k,v)| f(v).map(move |x| (k.clone(),x)))
-//                .collect::<Vec<_>>()
-//                .into_iter(),
-        )
+                .iterator(split)?
+                .flat_map(move |(k, v)| f(v).map(move |x| (k.clone(), x))),
+        ))
         //        let res = res.collect::<Vec<_>>();
         //        let log_output = format!("inside iterator flatmaprdd values {:?}", res.get(0));
         //        env::log_file.lock().write(&log_output.as_bytes());

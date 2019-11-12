@@ -150,7 +150,7 @@ where
     fn run(&self, id: usize) -> serde_traitobject::Box<dyn serde_traitobject::Any + Send + Sync> {
         let split = self.rdd.splits()[self.partition].clone();
         let context = TasKContext::new(self.stage_id, self.partition, id);
-        serde_traitobject::Box::new((self.func)((context, self.rdd.iterator(split))))
+        serde_traitobject::Box::new((self.func)((context, self.rdd.iterator(split).unwrap())))
             as serde_traitobject::Box<dyn serde_traitobject::Any + Send + Sync>
     }
 }

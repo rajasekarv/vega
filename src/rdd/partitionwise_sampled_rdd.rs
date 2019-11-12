@@ -1,3 +1,4 @@
+use crate::error::*;
 use crate::rdd::*;
 
 #[derive(Serialize, Deserialize)]
@@ -89,19 +90,34 @@ where
     default fn cogroup_iterator_any(
         &self,
         split: Box<dyn Split>,
-    ) -> Box<dyn Iterator<Item = Box<dyn AnyData>>> {
+    ) -> Result<Box<dyn Iterator<Item = Box<dyn AnyData>>>> {
         self.iterator_any(split)
     }
 
     default fn iterator_any(
         &self,
         split: Box<dyn Split>,
-    ) -> Box<dyn Iterator<Item = Box<dyn AnyData>>> {
+    ) -> Result<Box<dyn Iterator<Item = Box<dyn AnyData>>>> {
         info!("inside PartitionwiseSampledRdd iterator_any");
-        Box::new(
-            self.iterator(split)
+        Ok(Box::new(
+            self.iterator(split)?
                 .map(|x| Box::new(x) as Box<dyn AnyData>),
-        )
+        ))
+    }
+}
+
+impl<RT: 'static, T: Data, V: Data> RddBase for PartitionwiseSampledRdd<RT, (T, V)>
+where
+    RT: Rdd<(T, V)>,
+{
+    fn cogroup_iterator_any(
+        &self,
+        split: Box<dyn Split>,
+    ) -> Result<Box<dyn Iterator<Item = Box<dyn AnyData>>>> {
+        info!("inside iterator_any maprdd",);
+        Ok(Box::new(self.iterator(split)?.map(|(k, v)| {
+            Box::new((k, Box::new(v) as Box<dyn AnyData>)) as Box<dyn AnyData>
+        })))
     }
 }
 
@@ -117,9 +133,9 @@ where
         Arc::new(self.clone())
     }
 
-    fn compute(&self, split: Box<dyn Split>) -> Box<dyn Iterator<Item = T>> {
+    fn compute(&self, split: Box<dyn Split>) -> Result<Box<dyn Iterator<Item = T>>> {
         let sampler_func = self.sampler.get_sampler();
-        let iter = self.prev.iterator(split);
-        Box::new(sampler_func(iter).into_iter()) as Box<dyn Iterator<Item = T>>
+        let iter = self.prev.iterator(split)?;
+        Ok(Box::new(sampler_func(iter).into_iter()) as Box<dyn Iterator<Item = T>>)
     }
 }

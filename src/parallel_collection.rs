@@ -147,12 +147,11 @@ impl<K: Data, V: Data> RddBase for ParallelCollection<(K, V)> {
     fn cogroup_iterator_any(
         &self,
         split: Box<dyn Split>,
-    ) -> Box<dyn Iterator<Item = Box<dyn AnyData>>> {
+    ) -> Result<Box<dyn Iterator<Item = Box<dyn AnyData>>>> {
         info!("inside iterator_any parallel collection",);
-        Box::new(
-            self.iterator(split)
-                .map(|(k, v)| Box::new((k, Box::new(v) as Box<dyn AnyData>)) as Box<dyn AnyData>),
-        )
+        Ok(Box::new(self.iterator(split)?.map(|(k, v)| {
+            Box::new((k, Box::new(v) as Box<dyn AnyData>)) as Box<dyn AnyData>
+        })))
     }
 }
 
@@ -185,19 +184,19 @@ impl<T: Data> RddBase for ParallelCollection<T> {
     default fn cogroup_iterator_any(
         &self,
         split: Box<dyn Split>,
-    ) -> Box<dyn Iterator<Item = Box<dyn AnyData>>> {
+    ) -> Result<Box<dyn Iterator<Item = Box<dyn AnyData>>>> {
         self.iterator_any(split)
     }
 
     default fn iterator_any(
         &self,
         split: Box<dyn Split>,
-    ) -> Box<dyn Iterator<Item = Box<dyn AnyData>>> {
+    ) -> Result<Box<dyn Iterator<Item = Box<dyn AnyData>>>> {
         info!("inside iterator_any parallel collection",);
-        Box::new(
-            self.iterator(split)
+        Ok(Box::new(
+            self.iterator(split)?
                 .map(|x| Box::new(x) as Box<dyn AnyData>),
-        )
+        ))
     }
 }
 
@@ -212,9 +211,9 @@ impl<T: Data> Rdd<T> for ParallelCollection<T> {
         Arc::new(self.clone()) as Arc<dyn RddBase>
     }
 
-    fn compute(&self, split: Box<dyn Split>) -> Box<dyn Iterator<Item = T>> {
+    fn compute(&self, split: Box<dyn Split>) -> Result<Box<dyn Iterator<Item = T>>> {
         if let Some(s) = split.downcast_ref::<ParallelCollectionSplit<T>>() {
-            s.iterator()
+            Ok(s.iterator())
         } else {
             panic!(
                 "Got split object from different concrete type other than ParallelCollectionSplit"

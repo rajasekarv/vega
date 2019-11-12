@@ -52,7 +52,7 @@ impl Schedulers {
         final_rdd: Arc<RT>,
         partitions: Vec<usize>,
         allow_local: bool,
-    ) -> Vec<U>
+    ) -> Result<Vec<U>>
     where
         F: SerFunc((TasKContext, Box<dyn Iterator<Item = T>>)) -> U,
         RT: Rdd<T> + 'static,
@@ -77,6 +77,7 @@ pub struct Context {
 impl Drop for Context {
     fn drop(&mut self) {
         //TODO clean up temp files
+        info!("inside context drop in master {}", self.distributed_master);
         self.drop_executors();
     }
 }
@@ -211,9 +212,8 @@ impl Context {
         }
     }
     fn drop_executors(&self) {
-        info!("inside context drop in master {}", self.distributed_master);
-
         for (address, port) in self.address_map.clone() {
+            info!("dropping executor in {:?}:{:?}", address, port);
             //            while let Err(_) = TcpStream::connect(format!("{}:{}", address, port + 10)) {
             //                continue;
             //            }
@@ -232,10 +232,10 @@ impl Context {
             }
         }
     }
-    pub fn new_rdd_id(&self) -> usize {
+    pub fn new_rdd_id(self: &Arc<Self>) -> usize {
         self.next_rdd_id.fetch_add(1, Ordering::SeqCst)
     }
-    pub fn new_shuffle_id(&self) -> usize {
+    pub fn new_shuffle_id(self: &Arc<Self>) -> usize {
         self.next_shuffle_id.fetch_add(1, Ordering::SeqCst)
     }
 
@@ -272,7 +272,11 @@ impl Context {
         parallel_readers.map(func)
     }
 
-    pub fn run_job<T: Data, U: Data, RT, F>(&self, rdd: Arc<RT>, func: F) -> Vec<U>
+    pub fn run_job<T: Data, U: Data, RT, F>(
+        self: &Arc<Self>,
+        rdd: Arc<RT>,
+        func: F,
+    ) -> Result<Vec<U>>
     where
         F: SerFunc(Box<dyn Iterator<Item = T>>) -> U,
         RT: Rdd<T> + 'static,
@@ -288,11 +292,11 @@ impl Context {
     }
 
     pub fn run_job_with_partitions<T: Data, U: Data, RT, F, P>(
-        &self,
+        self: &Arc<Self>,
         rdd: Arc<RT>,
         func: F,
         partitions: P,
-    ) -> Vec<U>
+    ) -> Result<Vec<U>>
     where
         F: SerFunc(Box<dyn Iterator<Item = T>>) -> U,
         RT: Rdd<T> + 'static,
@@ -303,7 +307,11 @@ impl Context {
             .run_job(Arc::new(cl), rdd, partitions.into_iter().collect(), false)
     }
 
-    pub fn run_job_with_context<T: Data, U: Data, RT, F>(&self, rdd: Arc<RT>, func: F) -> Vec<U>
+    pub fn run_job_with_context<T: Data, U: Data, RT, F>(
+        self: &Arc<Self>,
+        rdd: Arc<RT>,
+        func: F,
+    ) -> Result<Vec<U>>
     where
         F: SerFunc((TasKContext, Box<dyn Iterator<Item = T>>)) -> U,
         RT: Rdd<T> + 'static,
