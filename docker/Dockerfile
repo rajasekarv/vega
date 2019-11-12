@@ -1,9 +1,12 @@
 ## SPDX-License-Identifier: Apache-2.0
+
 # Stage 0
 ## Set up and compilation stage
 FROM ubuntu:18.04 AS building
 ENV tempPkgs='\
     build-essential \
+    pkg-config \
+    libssl-dev \
     ca-certificates \
     curl \
     file \
@@ -38,7 +41,7 @@ COPY --from=building /home/release .
 RUN set -oe; \
     # Instll requirements
     apt-get update -yq; \
-    apt-get install -yq locales ssh capnproto; \
+    apt-get install -yq locales ssh iputils-ping capnproto ; \
     # Locales
     locale-gen en_US.UTF-8; \
     # Cleanup

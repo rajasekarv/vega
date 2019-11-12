@@ -4,20 +4,19 @@ networks:
   native-spark:
 
 services:
-  master:
+  ns_master:
     image: native_spark:latest
-    deploy:
-      restart_policy:
-        condition: on-failure
     ports:
       - "3000"
     tty: true
+    networks:
+      native-spark:
 
-  worker:
+  ns_worker:
     image: native_spark:latest
-    deploy:
-      restart_policy:
-        condition: on-failure
     ports:
       - "10500"
+      - "22"
     tty: true
+    networks:
+      native-spark:
