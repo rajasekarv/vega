@@ -201,7 +201,7 @@ pub trait Rdd<T: Data>: RddBase {
         MapPartitionsRdd::new(
             self.get_rdd(),
             Box::new(Fn!(|iter: Box<dyn Iterator<Item = T>>| Box::new(
-                vec![iter.collect::<Vec<_>>()].into_iter()
+                std::iter::once(iter.collect::<Vec<_>>())
             )
                 as Box<Iterator<Item = Vec<T>>>)),
         )
