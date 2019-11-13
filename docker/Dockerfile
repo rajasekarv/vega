@@ -37,18 +37,23 @@ RUN set -e; cd native_spark; \
 ## Self-contained build with only necessary utils and binaries
 FROM ubuntu:18.04
 WORKDIR /home/release
-COPY --from=building /home/release .
-RUN set -oe; \
-    # Instll requirements
+RUN set -e; \
+    # Install requirements
     apt-get update -yq; \
-    apt-get install -yq locales ssh iputils-ping capnproto ; \
+    apt-get install --no-install-recommends -yq locales iputils-ping capnproto openssh-server; \
     # Locales
     locale-gen en_US.UTF-8; \
+    # Set SSH user
+    groupadd ns && useradd -ms /bin/bash -g ns ns_user; \
     # Cleanup
-    apt-get purge -y --auto-remove $tempPkgs; \
+    #apt-get purge -y --auto-remove $tempPkgs; \
     apt-get autoremove -q -y; \
     apt-get clean -yq; \
-    rm -rf /var/lib/apt/lists/* 
+    rm -rf /var/lib/apt/lists/*
+COPY --from=building /home/release .
+COPY --chown=ns_user:ns ./docker/id_rsa.pub /home/ns_user/.ssh/authorized_keys
+COPY ./docker/id_rsa /root/.ssh/ 
+RUN chmod 600 /root/.ssh/id_rsa /home/ns_user/.ssh/authorized_keys
 ENV LANG=en_US.UTF-8  \
     LANGUAGE=en_US:en \
     LC_ALL=en_US.UTF-8

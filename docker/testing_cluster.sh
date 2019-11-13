@@ -9,7 +9,7 @@ docker-compose up --scale ns_worker=3 -d
 WORKER_IPS=$(docker-compose ps | grep -oE "docker_ns_worker_[0-9]+" \
 | xargs -I{} docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' {})
 read -a WORKER_IPS <<< $(echo $WORKER_IPS)
-slaves=$(printf ",\"user@%s\"" "${WORKER_IPS[@]}")
+slaves=$(printf ",\"ns_user@%s\"" "${WORKER_IPS[@]}")
 slaves="slaves = [${slaves:1}]"
 
 MASTER_IP=$(docker-compose ps | grep -oE "docker_ns_master_[0-9]+" \
@@ -24,9 +24,13 @@ EOF
 for worker in $(docker-compose ps | grep -oE "docker_ns_worker_[0-9]+")
 do
     echo "Setting $worker"
-    docker exec -e CONF_FILE="$CONF_FILE" -w /root/ $worker bash -c 'echo "$CONF_FILE" >> hosts.conf'
+    docker exec -e CONF_FILE="$CONF_FILE" -w /home/ns_user/ $worker bash -c 'echo "$CONF_FILE" >> hosts.conf && service ssh start'
 done
 
 docker exec -e CONF_FILE="$CONF_FILE" -w /root/ docker_ns_master_1 bash -c 'echo "$CONF_FILE" >> hosts.conf'
+for WORKER_IP in ${WORKER_IPS[@]}
+do
+    docker exec docker_ns_master_1 bash -c "ssh-keyscan ${WORKER_IP} >> ~/.ssh/known_hosts"
+done
 
-# When done you can shell into the master and run any of examples in remote mode
+# When done is posible to open a shell into the master and run any of the examples in distributed mode
