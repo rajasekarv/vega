@@ -36,7 +36,7 @@ mod tests {
     #[test]
     fn test_missing_hosts_file() {
         match Hosts::load_from("/does_not_exist").unwrap_err() {
-            Error::LoadHosts { source: _, path: _ } => {}
+            Error::LoadHosts { .. } => {}
             _ => panic!("Expected Error::LoadHosts"),
         }
     }
@@ -47,7 +47,7 @@ mod tests {
         file.write_all("invalid data".as_ref()).unwrap();
 
         match Hosts::load_from(&path).unwrap_err() {
-            Error::ParseHosts { source: _, path: _ } => {}
+            Error::ParseHosts { .. } => {}
             _ => panic!("Expected Error::ParseHosts"),
         }
     }

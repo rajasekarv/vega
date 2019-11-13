@@ -1,8 +1,16 @@
 #![allow(where_clauses_object_safety)]
 use native_spark::*;
 
+fn get_mode() -> String {
+    let args = std::env::args().skip(1).collect::<Vec<_>>();
+    match args.get(0) {
+        Some(val) if val == "distributed" => val.to_owned(),
+        _ => "local".to_owned(),
+    }
+}
+
 fn main() -> Result<()> {
-    let sc = Context::new("local")?;
+    let sc = Context::new(&get_mode())?;
     let col1 = vec![
         (1, ("A".to_string(), "B".to_string())),
         (2, ("C".to_string(), "D".to_string())),
