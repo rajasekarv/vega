@@ -177,6 +177,15 @@ pub trait Rdd<T: Data>: RddBase {
         FlatMapperRdd::new(self.get_rdd(), f)
     }
 
+    /// Return a new RDD by applying a function to each partition of this RDD.
+    fn map_partitions<U:Data, F>(&self, f: F) -> MapPartitionsRdd<Self, T, U, F>
+    where 
+        F: SerFunc(Box<dyn Iterator<Item = T>>) -> Box<dyn Iterator<Item = U>>,
+        Self: Sized + 'static
+    {
+        MapPartitionsRdd::new(self.get_rdd(), f)
+    }
+
     /// Return an RDD created by coalescing all elements within each partition into an array.
     fn glom(
         &self,

@@ -63,6 +63,15 @@ fn test_make_rdd() {
 }
 
 #[test]
+fn test_map_partitions() {
+    let sc = CONTEXT.clone();
+    let rdd = sc.clone().make_rdd(vec![1,2,3,4], 2);
+    let partition_sums = rdd.map_partitions(Fn!(|iter: Box<dyn Iterator<Item = i64>>| Box::new(vec![iter.sum::<i64>()].into_iter()) as Box<dyn Iterator<Item = i64>>)).collect().unwrap();
+    assert_eq!(partition_sums, vec![3,7]);
+    assert_eq!(rdd.glom().collect().unwrap(), vec![vec![1, 2], vec![3, 4]]);
+}
+
+#[test]
 fn test_take() {
     let sc = CONTEXT.clone();
     let col1 = vec![1, 2, 3, 4, 5, 6];
