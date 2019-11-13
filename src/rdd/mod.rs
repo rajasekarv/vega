@@ -20,6 +20,8 @@ mod partitionwise_sampled_rdd;
 use partitionwise_sampled_rdd::PartitionwiseSampledRdd;
 mod shuffled_rdd;
 use shuffled_rdd::ShuffledRdd;
+mod map_partitions_rdd;
+use map_partitions_rdd::MapPartitionsRdd;
 
 use crate::aggregator::Aggregator;
 use crate::context::Context;
@@ -467,8 +469,6 @@ pub trait Rdd<T: Data>: RddBase {
     }
 }
 
-// Lot of visual noise here due to the generic implementation of RddValues.
-// Have to refactor a bit by converting repetitive traits into separate trait like Data trait
 #[derive(Serialize, Deserialize)]
 pub struct MapperRdd<RT, T: Data, U: Data, F>
 where
