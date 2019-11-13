@@ -177,6 +177,27 @@ pub trait Rdd<T: Data>: RddBase {
         FlatMapperRdd::new(self.get_rdd(), f)
     }
 
+    /// Return an RDD created by coalescing all elements within each partition into an array.
+    fn glom(
+        &self,
+    ) -> MapPartitionsRdd<
+        Self,
+        T,
+        Vec<T>,
+        Box<dyn Func(Box<dyn Iterator<Item = T>>) -> Box<dyn Iterator<Item = Vec<T>>>>,
+    >
+    where
+        Self: Sized + 'static,
+    {
+        MapPartitionsRdd::new(
+            self.get_rdd(),
+            Box::new(Fn!(|iter: Box<dyn Iterator<Item = T>>| Box::new(
+                vec![iter.collect::<Vec<_>>()].into_iter()
+            )
+                as Box<Iterator<Item = Vec<T>>>)),
+        )
+    }
+
     fn save_as_text_file(&self, path: String) -> Result<Vec<()>>
     where
         Self: Sized + 'static,
