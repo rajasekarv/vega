@@ -40,7 +40,8 @@ WORKDIR /home/release
 RUN set -e; \
     # Install requirements
     apt-get update -yq; \
-    apt-get install --no-install-recommends -yq locales iputils-ping capnproto openssh-server; \
+    apt-get install --no-install-recommends -yq \
+    locales iputils-ping capnproto openssh-server libssl-dev; \
     # Locales
     locale-gen en_US.UTF-8; \
     # Set SSH user
