@@ -3,10 +3,12 @@ dist: xenial
 language: rust
 rust:
 - nightly
+cache: cargo
 env:
   global:
     - export PATH="$PATH:$HOME/bin"
     - export LD_LIBRARY_PATH="$LD_LIBRARY_PATH:$HOME/lib"
+    - export SPARK_LOCAL_IP=0.0.0.0
 addons:
   apt:
     packages:
@@ -24,11 +26,11 @@ install:
 script:
 - cargo build
 - for file in $(find userGuide -name '*.md'); do rustdoc --test $file  -L ./target/debug/deps; done
-- cargo doc
+- cargo doc --no-deps
 after_success: |
   [ $TRAVIS_BRANCH = master ] &&
   [ $TRAVIS_PULL_REQUEST = false ] &&
   cargo install mdbook &&
-  (cd book; mdbook build) &&
+  (cd userGuide; mdbook build) &&
   ghp-import -n userGuide/book &&
   git push -fq https://${GH_TOKEN}@github.com/${TRAVIS_REPO_SLUG}.git gh-pages
