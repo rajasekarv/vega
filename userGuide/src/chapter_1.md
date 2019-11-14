@@ -10,7 +10,7 @@ Right now the framework lacks any sort of cluster manager of submit program/scri
 
 In order to use the framework you have to clone the repository and add the local dependency or add the upstream GitHub repository to your Rust project (the crate is not yet published on [crates.io](https://crates.io/)). E.g. add to your application Cargo.toml or:
 
-```
+```doc
 [dependencies]
 native_spark = { path = "/path/to/local/git/repo" }
 # or
@@ -31,7 +31,7 @@ In order to execute application code some preliminary setup is required. (So far
     * In `local` mode this means in your current user home, e.g.:
     > $ cp native_spark/config_files/hosts.conf $HOME
     * In `distributed` mode the same file is required in each host that may be deploying executors (the ones indicated in the `hosts.conf` file) and the master. E.g.:
-    ```
+    ```doc
     $ ssh remote_user@172.0.0.10 # this machine IP is in hosts.conf
     # create the same hosts.conf file in every machine:
     $ cd ~ && vim hosts.conf ...
@@ -40,7 +40,7 @@ In order to execute application code some preliminary setup is required. (So far
     * In `local` it suffices to set up for the current user:
     > $ export SPARK_LOCAL_IP=0.0.0.0
     * In `distributed` the variable is required, aditionally, to be set up for the users remotely connecting. Depending on the O.S. and ssh defaults this may require some additional configuration. E.g.:
-    ```
+    ```doc
     $ ssh remote_user@172.0.0.10
     $ sudo echo "SPARK_LOCAL_IP=172.0.0.10" >> .ssh/environment
     $ sudo echo "PermitUserEnvironment yes" >> /etc/ssh/sshd_config
@@ -73,7 +73,7 @@ and deploying distributed mode on your local host. In order to use them:
 > bash testing_cluster.sh
 
 This will execute all the necessary steeps to to deploy a working network of containers where you can execute the tests. When finished you can attach a shell to the master and run the examples:
-```
+```doc
 $ docker exec -it docker_ns_master_1 bash
 $ ./make_rdd distributed
 ```
