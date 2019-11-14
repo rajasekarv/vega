@@ -245,6 +245,36 @@ pub trait Rdd<T: Data>: RddBase {
         Ok(results?.into_iter().flatten().reduce(f))
     }
 
+    /// Aggregate the elements of each partition, and then the results for all the partitions, using a
+    /// given associative function and a neutral "initial value". The function
+    /// Fn(t1, t2) is allowed to modify t1 and return it as its result value to avoid object
+    /// allocation; however, it should not modify t2.
+    ///
+    /// This behaves somewhat differently from fold operations implemented for non-distributed
+    /// collections. This fold operation may be applied to partitions individually, and then fold 
+    /// those results into the final result, rather than apply the fold to each element sequentially
+    /// in some defined ordering. For functions that are not commutative, the result may differ from 
+    /// that of a fold applied to a non-distributed collection.
+    ///
+    /// * `init` - the initial value for the accumulated result of each partition for the `op`
+    ///                  operator, and also the initial value for the combine results from different
+    ///                  partitions for the `f` function - this will typically be the neutral
+    ///                  element (e.g. `0` for summation)
+    /// * `op` - a function used to both accumulate results within a partition and combine results
+    ///                  from different partitions
+    fn fold<F>(&self, init: T, f: F) -> Result<T> 
+    where 
+        Self: Sized + 'static,
+        F: SerFunc(T,T) -> T, 
+    {
+        let cf = f.clone();
+        let zero = init.clone();
+        let reduce_partition = Fn!(move |iter: Box<dyn Iterator<Item = T>>| iter.fold(zero.clone(), &cf));
+        let results = self.get_context().run_job(self.get_rdd(), reduce_partition);
+        Ok(results?.into_iter().fold(init, f))
+
+    }
+
     fn collect(&self) -> Result<Vec<T>>
     where
         Self: Sized + 'static,
