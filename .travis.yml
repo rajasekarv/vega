@@ -27,6 +27,7 @@ script:
 - cargo build
 - for file in $(find userGuide -name '*.md'); do rustdoc --test $file  -L ./target/debug/deps; done
 - cargo doc --no-deps
+- cargo test 
 after_success: |
   [ $TRAVIS_BRANCH = master ] &&
   [ $TRAVIS_PULL_REQUEST = false ] &&

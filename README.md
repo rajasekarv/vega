@@ -1,6 +1,7 @@
 # native_spark
 
 [![Join the chat at https://gitter.im/fast_spark/community](https://badges.gitter.im/fast_spark/community.svg)](https://gitter.im/fast_spark/community?utm_source=badge&utm_medium=badge&utm_campaign=pr-badge&utm_content=badge)
+[![Build Status](https://travis-ci.org/rajasekarv/native_spark.svg?branch=master)](https://travis-ci.org/rajasekarv/native_spark)
 
 A new arguably faster implementation of Apache Spark from scratch in Rust. WIP
 
@@ -42,14 +43,14 @@ Most of these except file reader and writer are trivial to implement
 - [x] count
 - [x] take_sample
 - [ ] union
-- [ ] glom
+- [x] glom
 - [ ] cartesian
 - [ ] pipe
-- [ ] map_partitions
+- [x] map_partitions
 - [x] for_each
 - [x] collect
 - [x] reduce
-- [ ] fold
+- [x] fold
 - [ ] aggregate
 - [x] take
 - [x] first
