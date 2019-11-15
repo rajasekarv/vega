@@ -7,17 +7,6 @@ use crate::rdd::*;
 
 // Trait containing pair rdd methods. No need of implicit conversion like in Spark version
 pub trait PairRdd<K: Data + Eq + Hash, V: Data>: Rdd<(K, V)> + Send + Sync {
-    //    fn iterator_any_in_pair_rdd(&self, split: Box<dyn Split>) -> Box<dyn Iterator<Item = Box<dyn AnyData>>> {
-    //        let log_output = format!("inside iterator_any pair rdd",);
-    //        env::log_file.lock().write(&log_output.as_bytes());
-    //        Box::new(self.iterator(split).map(|(k, v)| {
-    //            Box::new((
-    //                k,
-    //                Box::new(v) as Box<dyn AnyData>,
-    //            )) as Box<dyn AnyData>
-    //        }))
-    //    }
-
     fn combine_by_key<C: Data>(
         &self,
         create_combiner: Box<dyn serde_traitobject::Fn(V) -> C + Send + Sync>,

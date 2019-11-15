@@ -256,11 +256,13 @@ pub trait Rdd<T: Data>: RddBase {
     /// in some defined ordering. For functions that are not commutative, the result may differ from 
     /// that of a fold applied to a non-distributed collection.
     ///
-    /// * `init` - the initial value for the accumulated result of each partition for the `op`
+    /// # Arguments
+    /// 
+    /// * `init` - an initial value for the accumulated result of each partition for the `op`
     ///                  operator, and also the initial value for the combine results from different
     ///                  partitions for the `f` function - this will typically be the neutral
     ///                  element (e.g. `0` for summation)
-    /// * `op` - a function used to both accumulate results within a partition and combine results
+    /// * `f` - a function used to both accumulate results within a partition and combine results
     ///                  from different partitions
     fn fold<F>(&self, init: T, f: F) -> Result<T> 
     where 
@@ -272,6 +274,35 @@ pub trait Rdd<T: Data>: RddBase {
         let reduce_partition = Fn!(move |iter: Box<dyn Iterator<Item = T>>| iter.fold(zero.clone(), &cf));
         let results = self.get_context().run_job(self.get_rdd(), reduce_partition);
         Ok(results?.into_iter().fold(init, f))
+
+    }
+
+    /// Aggregate the elements of each partition, and then the results for all the partitions, using
+    /// given combine functions and a neutral "initial value". This function can return a different result
+    /// type, U, than the type of this RDD, T. Thus, we need one operation for merging a T into an U
+    /// and one operation for merging two U's, as in Rust Iterator fold method. Both of these functions are
+    /// allowed to modify and return their first argument instead of creating a new U to avoid memory
+    /// allocation.
+    ///
+    /// # Arguments
+    /// 
+    /// * `init` - an initial value for the accumulated result of each partition for the `seq_fn` function, 
+    ///                  and also the initial value for the combine results from
+    ///                  different partitions for the `comb_fn` function - this will typically be the
+    ///                  neutral element (e.g. `vec![]` for vector aggregation or `0` for summation)
+    /// * `seq_fn` - a function used to accumulate results within a partition
+    /// * `comb_fn` - an associative function used to combine results from different partitions
+    fn aggregate<U: Data, SF, CF>(&self, init: U, seq_fn: SF, comb_fn: CF) -> Result<U> 
+    where 
+        Self: Sized + 'static,
+        SF: SerFunc(U,T) -> U, 
+        CF: SerFunc(U,U) -> U, 
+    {
+        let sf = seq_fn.clone();
+        let zero = init.clone();
+        let reduce_partition = Fn!(move |iter: Box<dyn Iterator<Item = T>>| iter.fold(zero.clone(), &sf));
+        let results = self.get_context().run_job(self.get_rdd(), reduce_partition);
+        Ok(results?.into_iter().fold(init, comb_fn))
 
     }
 
