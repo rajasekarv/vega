@@ -17,6 +17,6 @@ fn main() -> Result<()> {
     //Fn! will make the closures serializable. It is necessary. use serde_closure version 0.1.3.
     let vec_iter = col.map(Fn!(|i| (0..i).collect::<Vec<_>>()));
     let res = vec_iter.collect().unwrap();
-    println!("{:?}", res);
+    println!("result: {:?}", res);
     Ok(())
 }

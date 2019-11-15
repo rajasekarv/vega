@@ -26,6 +26,8 @@ install:
 script:
 - cargo build
 - for file in $(find userGuide -name '*.md'); do rustdoc --test $file  -L ./target/debug/deps; done
+- sed -i 's/ip/0.0.0.0/g' config_files/hosts.conf
+- cp config_files/hosts.conf ~/hosts.conf
 - cargo doc --no-deps
 - cargo test 
 after_success: |
