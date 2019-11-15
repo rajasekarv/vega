@@ -178,10 +178,10 @@ pub trait Rdd<T: Data>: RddBase {
     }
 
     /// Return a new RDD by applying a function to each partition of this RDD.
-    fn map_partitions<U:Data, F>(&self, f: F) -> MapPartitionsRdd<Self, T, U, F>
-    where 
+    fn map_partitions<U: Data, F>(&self, f: F) -> MapPartitionsRdd<Self, T, U, F>
+    where
         F: SerFunc(Box<dyn Iterator<Item = T>>) -> Box<dyn Iterator<Item = U>>,
-        Self: Sized + 'static
+        Self: Sized + 'static,
     {
         MapPartitionsRdd::new(self.get_rdd(), f)
     }
@@ -200,10 +200,12 @@ pub trait Rdd<T: Data>: RddBase {
     {
         MapPartitionsRdd::new(
             self.get_rdd(),
-            Box::new(Fn!(|iter: Box<dyn Iterator<Item = T>>| Box::new(
-                std::iter::once(iter.collect::<Vec<_>>())
-            )
-                as Box<Iterator<Item = Vec<T>>>)),
+            Box::new(Fn!(
+                |iter: Box<dyn Iterator<Item = T>>| Box::new(std::iter::once(
+                    iter.collect::<Vec<_>>()
+                ))
+                    as Box<Iterator<Item = Vec<T>>>
+            )),
         )
     }
 
@@ -251,30 +253,30 @@ pub trait Rdd<T: Data>: RddBase {
     /// allocation; however, it should not modify t2.
     ///
     /// This behaves somewhat differently from fold operations implemented for non-distributed
-    /// collections. This fold operation may be applied to partitions individually, and then fold 
+    /// collections. This fold operation may be applied to partitions individually, and then fold
     /// those results into the final result, rather than apply the fold to each element sequentially
-    /// in some defined ordering. For functions that are not commutative, the result may differ from 
+    /// in some defined ordering. For functions that are not commutative, the result may differ from
     /// that of a fold applied to a non-distributed collection.
     ///
     /// # Arguments
-    /// 
+    ///
     /// * `init` - an initial value for the accumulated result of each partition for the `op`
     ///                  operator, and also the initial value for the combine results from different
     ///                  partitions for the `f` function - this will typically be the neutral
     ///                  element (e.g. `0` for summation)
     /// * `f` - a function used to both accumulate results within a partition and combine results
     ///                  from different partitions
-    fn fold<F>(&self, init: T, f: F) -> Result<T> 
-    where 
+    fn fold<F>(&self, init: T, f: F) -> Result<T>
+    where
         Self: Sized + 'static,
-        F: SerFunc(T,T) -> T, 
+        F: SerFunc(T, T) -> T,
     {
         let cf = f.clone();
         let zero = init.clone();
-        let reduce_partition = Fn!(move |iter: Box<dyn Iterator<Item = T>>| iter.fold(zero.clone(), &cf));
+        let reduce_partition =
+            Fn!(move |iter: Box<dyn Iterator<Item = T>>| iter.fold(zero.clone(), &cf));
         let results = self.get_context().run_job(self.get_rdd(), reduce_partition);
         Ok(results?.into_iter().fold(init, f))
-
     }
 
     /// Aggregate the elements of each partition, and then the results for all the partitions, using
@@ -285,25 +287,25 @@ pub trait Rdd<T: Data>: RddBase {
     /// allocation.
     ///
     /// # Arguments
-    /// 
-    /// * `init` - an initial value for the accumulated result of each partition for the `seq_fn` function, 
+    ///
+    /// * `init` - an initial value for the accumulated result of each partition for the `seq_fn` function,
     ///                  and also the initial value for the combine results from
     ///                  different partitions for the `comb_fn` function - this will typically be the
     ///                  neutral element (e.g. `vec![]` for vector aggregation or `0` for summation)
     /// * `seq_fn` - a function used to accumulate results within a partition
     /// * `comb_fn` - an associative function used to combine results from different partitions
-    fn aggregate<U: Data, SF, CF>(&self, init: U, seq_fn: SF, comb_fn: CF) -> Result<U> 
-    where 
+    fn aggregate<U: Data, SF, CF>(&self, init: U, seq_fn: SF, comb_fn: CF) -> Result<U>
+    where
         Self: Sized + 'static,
-        SF: SerFunc(U,T) -> U, 
-        CF: SerFunc(U,U) -> U, 
+        SF: SerFunc(U, T) -> U,
+        CF: SerFunc(U, U) -> U,
     {
         let sf = seq_fn.clone();
         let zero = init.clone();
-        let reduce_partition = Fn!(move |iter: Box<dyn Iterator<Item = T>>| iter.fold(zero.clone(), &sf));
+        let reduce_partition =
+            Fn!(move |iter: Box<dyn Iterator<Item = T>>| iter.fold(zero.clone(), &sf));
         let results = self.get_context().run_job(self.get_rdd(), reduce_partition);
         Ok(results?.into_iter().fold(init, comb_fn))
-
     }
 
     fn collect(&self) -> Result<Vec<T>>

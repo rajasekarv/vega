@@ -79,6 +79,71 @@ fn test_map_partitions() {
 }
 
 #[test]
+fn test_fold() {
+    let sc = CONTEXT.clone();
+    let rdd = sc.make_rdd((-1000..1000).collect::<Vec<_>>(), 10);
+    let f = Fn!(|c, x| c + x);
+    // def op: (Int, Int) => Int = (c: Int, x: Int) => c + x
+    let sum = rdd.fold(0, f).unwrap();
+    assert_eq!(sum, -1000)
+}
+
+#[test]
+fn test_fold_with_modifying_initial_value() {
+    let sc = CONTEXT.clone();
+    let rdd = sc
+        .make_rdd((-1000..1000).collect::<Vec<i32>>(), 10)
+        .map(Fn!(|x| vec![x]));
+    let f = Fn!(|mut c: Vec<i32>, x: Vec<i32>| {
+        c[0] = c[0] + x[0];
+        c
+    });
+    let sum = rdd.fold(vec![0], f).unwrap();
+    assert_eq!(sum[0], -1000)
+}
+
+#[test]
+fn test_aggregate() {
+    let sc = CONTEXT.clone();
+    let pairs = sc.make_rdd(
+        vec![
+            ("a".to_owned(), 1_i32),
+            ("b".to_owned(), 2),
+            ("a".to_owned(), 2),
+            ("c".to_owned(), 5),
+            ("a".to_owned(), 3),
+        ],
+        2,
+    );
+    use std::collections::{HashMap, HashSet};
+    type StringMap = HashMap<String, i32>;
+    let emptyMap = StringMap::new();
+    let merge_element = Fn!(|mut map: StringMap, pair: (String, i32)| {
+        *map.entry(pair.0).or_insert(0) += pair.1;
+        map
+    });
+    let merge_maps = Fn!(|mut map1: StringMap, map2: StringMap| {
+        for (key, value) in map2 {
+            *map1.entry(key).or_insert(0) += value;
+        }
+        map1
+    });
+    let result = pairs
+        .aggregate(emptyMap, merge_element, merge_maps)
+        .unwrap();
+    assert_eq!(
+        result.into_iter().collect::<HashSet<_>>(),
+        vec![
+            ("a".to_owned(), 6),
+            ("b".to_owned(), 2),
+            ("c".to_owned(), 5)
+        ]
+        .into_iter()
+        .collect()
+    )
+}
+
+#[test]
 fn test_take() {
     let sc = CONTEXT.clone();
     let col1 = vec![1, 2, 3, 4, 5, 6];
