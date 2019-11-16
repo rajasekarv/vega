@@ -52,10 +52,10 @@ impl Split for CoGroupSplit {
 
 #[derive(Clone, Serialize, Deserialize)]
 pub struct CoGroupedRdd<K: Data> {
-    pub vals: Arc<RddVals>,
-    pub rdds: Vec<serde_traitobject::Arc<dyn RddBase>>,
+    pub(crate) vals: Arc<RddVals>,
+    pub(crate) rdds: Vec<serde_traitobject::Arc<dyn RddBase>>,
     #[serde(with = "serde_traitobject")]
-    pub part: Box<dyn Partitioner>,
+    pub(crate) part: Box<dyn Partitioner>,
     _marker: PhantomData<K>,
 }
 
