@@ -1,29 +1,19 @@
-use super::*;
-use crate::io::ReaderConfiguration;
-
-use capnp::serialize_packed;
-use simplelog::*;
-//use parking_lot::Mutex;
-//use serde_derive;
-//use std::collections::HashMap;
+use std::any::Any;
 use std::fs::File;
-//use std::io::prelude::*;
-//use std::net::TcpListener;
 use std::net::TcpStream;
 use std::ops::Range;
-//use std::option::Iter;
+use std::path::PathBuf;
 use std::process::Command;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
-//use std::sync::Mutex;
-//use std::thread;
-//use std::time;
-//use std::time::Duration;
-//use std::time::{SystemTime, UNIX_EPOCH};
+
+use capnp::serialize_packed;
+use simplelog::*;
 use toml;
-//use uuid::parser::Expected::Exact;
-use std::path::PathBuf;
 use uuid::Uuid;
+
+use super::*;
+use crate::io::ReaderConfiguration;
 
 // there is a problem with this approach since T needs to satisfy PartialEq, Eq for Range
 // No such restrictions are needed for Vec
@@ -310,6 +300,10 @@ impl Context {
             false,
         )
     }
+
+    // pub fn union<T: Data>(rdds: &[Arc<dyn Rdd<T>>]) -> Result<UnionVariants<T>> {
+    //     UnionVariants::new(rdds)
+    // }
 }
 
 fn initialize_loggers(file_path: String) {

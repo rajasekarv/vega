@@ -1,0 +1,247 @@
+use std::any::Any;
+
+use serde_traitobject::{Arc as SerArc, Box as SerBox};
+
+use crate::rdd::*;
+use UnionVariants::*;
+
+#[derive(Clone, Serialize, Deserialize)]
+struct UnionSplit {
+    /// index of the partition
+    idx: usize,
+    /// the parent RDD this partition refers to
+    rdd: SerArc<dyn RddBase>,
+    /// index of the parent RDD this partition refers to
+    parent_rdd_index: usize,
+    /// index of the partition within the parent RDD this partition refers to
+    parent_rdd_split_index: usize,
+}
+
+impl UnionSplit {
+    fn parent_partition(&self) -> Box<dyn Split> {
+        unimplemented!()
+    }
+}
+
+impl Split for UnionSplit {
+    fn get_index(&self) -> usize {
+        self.idx
+    }
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+struct PartitionerAwareUnionSplit {
+    parents: Vec<SerArc<SerBox<dyn Split>>>,
+    idx: usize,
+}
+
+impl Split for PartitionerAwareUnionSplit {
+    fn get_index(&self) -> usize {
+        self.idx
+    }
+}
+
+// /// An RDD that applies the provided function to every partition of the parent RDD.
+// #[derive(Serialize, Deserialize, Clone)]
+// pub struct UnionRdd<T: Data>(UnionVariants<T>);
+
+// impl<T: Data> UnionRdd<T> {
+//     pub(crate) fn new<I>(rdds: &[Arc<dyn Rdd<T>>]) -> Result<Self> {
+//         Ok(UnionRdd(UnionVariants::new(rdds)?))
+//     }
+// }
+
+#[derive(Serialize, Deserialize, Clone)]
+pub enum UnionVariants<T: Data> {
+    NonUniquePartitioner {
+        rdds: Vec<SerArc<dyn RddBase>>,
+        vals: Arc<RddVals>,
+        _marker: PhantomData<T>,
+    },
+    /// An RDD that can take multiple RDDs partitioned by the same partitioner and
+    /// unify them into a single RDD while preserving the partitioner. So m RDDs with p partitions each
+    /// will be unified to a single RDD with p partitions and the same partitioner.
+    // TODO: The preferred location for each partition of the unified RDD will be the most common
+    // preferred location of the corresponding partitions of the parent RDDs. For example,
+    // location of partition 0 of the unified RDD will be where most of partition 0 of the
+    // parent RDDs are located.
+    PartitionerAware {
+        rdds: Vec<SerArc<dyn RddBase>>,
+        vals: Arc<RddVals>,
+        #[serde(with = "serde_traitobject")]
+        part: Box<dyn Partitioner>,
+        _marker: PhantomData<T>,
+    },
+}
+
+impl<T: Data> UnionVariants<T> {
+    pub(crate) fn new(rdds: &[Arc<dyn Rdd<T>>]) -> Result<Self> {
+        let context = rdds[0].get_context();
+        let vals = Arc::new(RddVals::new(context.clone()));
+        let final_rdds: Vec<_> = rdds
+            .iter()
+            .map(|rdd| SerArc::from(rdd.get_rdd_base()))
+            .collect();
+        if UnionVariants::has_unique_partitioner(&rdds) {
+            Ok(NonUniquePartitioner {
+                rdds: final_rdds,
+                vals,
+                _marker: PhantomData,
+            })
+        } else {
+            let part = rdds[0].partitioner().ok_or(Error::LackingPartitioner)?;
+            Ok(PartitionerAware {
+                rdds: final_rdds,
+                vals,
+                part,
+                _marker: PhantomData,
+            })
+        }
+    }
+
+    fn has_unique_partitioner(rdds: &[Arc<dyn Rdd<T>>]) -> bool {
+        rdds.iter()
+            .map(|p| p.partitioner())
+            .try_fold(None, |prev: Option<Box<dyn Partitioner>>, p| {
+                if let Some(partitioner) = p {
+                    if let Some(prev_partitioner) = prev {
+                        if prev_partitioner.equals(&partitioner) {
+                            // only continue in case both partitioners are the same
+                            Ok(Some(partitioner))
+                        } else {
+                            Err(())
+                        }
+                    } else {
+                        // first element
+                        Ok(Some(partitioner))
+                    }
+                } else {
+                    Err(())
+                }
+            })
+            .is_ok()
+    }
+}
+
+impl<T: Data> RddBase for UnionVariants<T> {
+    fn get_rdd_id(&self) -> usize {
+        match self {
+            NonUniquePartitioner { vals, .. } => vals.id,
+            PartitionerAware { vals, .. } => vals.id,
+        }
+    }
+
+    fn get_context(&self) -> Arc<Context> {
+        match self {
+            NonUniquePartitioner { vals, .. } => vals.context.clone(),
+            PartitionerAware { vals, .. } => vals.context.clone(),
+        }
+    }
+
+    fn get_dependencies(&self) -> &[Dependency] {
+        match self {
+            NonUniquePartitioner { vals, .. } => &vals.dependencies,
+            PartitionerAware { vals, .. } => &vals.dependencies,
+        }
+    }
+
+    fn number_of_splits(&self) -> usize {
+        match self {
+            NonUniquePartitioner { rdds, .. } => {
+                rdds.iter().fold(0, |l, rdd| l + rdd.number_of_splits())
+            }
+            PartitionerAware { rdds, .. } => {
+                rdds.iter().fold(0, |l, rdd| l + rdd.number_of_splits())
+            }
+        }
+    }
+
+    fn splits(&self) -> Vec<Box<dyn Split>> {
+        match self {
+            NonUniquePartitioner { rdds, .. } => rdds
+                .iter()
+                .enumerate()
+                .flat_map(|(rdd_idx, rdd)| {
+                    rdd.splits()
+                        .into_iter()
+                        .enumerate()
+                        .map(move |(split_idx, _split)| (rdd_idx, rdd, split_idx))
+                })
+                .enumerate()
+                .map(|(idx, (rdd_idx, rdd, s_idx))| {
+                    Box::new(UnionSplit {
+                        idx,
+                        rdd: rdd.clone(),
+                        parent_rdd_index: rdd_idx,
+                        parent_rdd_split_index: s_idx,
+                    }) as Box<dyn Split>
+                })
+                .collect(),
+            PartitionerAware { rdds, part, .. } => {
+                let num_partitions = part.get_num_of_partitions();
+                (0..num_partitions)
+                    .map(|idx| {
+                        //     parents = rdds.map(_.partitions(index)).toArray
+                        let parents: Vec<_> = rdds
+                            .iter()
+                            .map(|rdd| SerArc::new(SerBox::from(rdd.splits()[idx].clone())))
+                            .collect();
+                        Box::new(PartitionerAwareUnionSplit { idx, parents }) as Box<dyn Split>
+                    })
+                    .collect()
+            }
+        }
+    }
+
+    fn iterator_any(
+        &self,
+        split: Box<dyn Split>,
+    ) -> Result<Box<dyn Iterator<Item = Box<dyn AnyData>>>> {
+        info!("inside iterator_any union_rdd",);
+        Ok(Box::new(
+            self.iterator(split)?
+                .map(|x| Box::new(x) as Box<dyn AnyData>),
+        ))
+    }
+
+    fn partitioner(&self) -> Option<Box<dyn Partitioner>> {
+        match self {
+            NonUniquePartitioner { .. } => None,
+            PartitionerAware { part, .. } => Some(part.clone()),
+        }
+    }
+}
+
+impl<T: Data> Rdd<T> for UnionVariants<T> {
+    fn get_rdd_base(&self) -> Arc<dyn RddBase> {
+        Arc::new(self.clone()) as Arc<dyn RddBase>
+    }
+
+    fn get_rdd(&self) -> Arc<Self> {
+        Arc::new(self.clone())
+    }
+
+    fn compute(&self, split: Box<dyn Split>) -> Result<Box<dyn Iterator<Item = T>>> {
+        let context = self.get_context();
+        match self {
+            NonUniquePartitioner { rdds, .. } => {
+                let part = &*split
+                    .downcast::<UnionSplit>()
+                    .or(Err(Error::SplitDowncast("UnionSplit")))?;
+                let parent = (&rdds[part.parent_rdd_index]);
+                //parent.iterator(part.parent_partition());
+                unimplemented!()
+            }
+            PartitionerAware { rdds, part, .. } => {
+                let parent_partitions = &*split
+                    .downcast::<PartitionerAwareUnionSplit>()
+                    .or(Err(Error::SplitDowncast("PartitionerAwareUnionSplit")))?
+                    .parents;
+                let iter = Ok(Box::new(
+                    rdds.iter().zip(parent_partitions).map(|(rdd, p)| (rdd, p)),
+                ))?;
+                unimplemented!()
+            }
+        }
+    }
+}

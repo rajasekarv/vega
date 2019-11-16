@@ -10,6 +10,7 @@ use crate::rdd::*;
 struct ShuffledRddSplit {
     index: usize,
 }
+
 impl ShuffledRddSplit {
     fn new(index: usize) -> Self {
         ShuffledRddSplit { index }

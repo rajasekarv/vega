@@ -41,29 +41,29 @@ where
 }
 
 #[test]
-fn test_make_rdd() {
+fn test_make_rdd() -> Result<()> {
     // for distributed mode, use Context::new("distributed")
     let sc = CONTEXT.clone();
     let col = sc.clone().make_rdd((0..10).collect::<Vec<_>>(), 32);
     //Fn! will make the closures serializable. It is necessary. use serde_closure version 0.1.3.
     let vec_iter = col.map(Fn!(|i| (0..i).collect::<Vec<_>>()));
-    col.for_each(Fn!(|i| println!("{:?}", i))).unwrap();
+    col.for_each(Fn!(|i| println!("{:?}", i)))?;
     col.for_each_partition(Fn!(|i: Box<Iterator<Item = i64>>| println!(
         "{:?}",
         i.collect::<Vec<_>>()
-    )))
-    .unwrap();
-    let res = vec_iter.collect().unwrap();
+    )))?;
+    let res = vec_iter.collect()?;
 
     let expected = (0..10)
         .map(|i| (0..i).collect::<Vec<_>>())
         .collect::<Vec<_>>();
     println!("{:?}", res);
     assert_eq!(expected, res);
+    Ok(())
 }
 
 #[test]
-fn test_map_partitions() {
+fn test_map_partitions() -> Result<()> {
     let sc = CONTEXT.clone();
     let rdd = sc.clone().make_rdd(vec![1, 2, 3, 4], 2);
     let partition_sums = rdd
@@ -71,10 +71,10 @@ fn test_map_partitions() {
             |iter: Box<dyn Iterator<Item = i64>>| Box::new(std::iter::once(iter.sum::<i64>()))
                 as Box<dyn Iterator<Item = i64>>
         ))
-        .collect()
-        .unwrap();
+        .collect()?;
     assert_eq!(partition_sums, vec![3, 7]);
-    assert_eq!(rdd.glom().collect().unwrap(), vec![vec![1, 2], vec![3, 4]]);
+    assert_eq!(rdd.glom().collect()?, vec![vec![1, 2], vec![3, 4]]);
+    Ok(())
 }
 
 #[test]
@@ -143,24 +143,25 @@ fn test_aggregate() {
 }
 
 #[test]
-fn test_take() {
+fn test_take() -> Result<()> {
     let sc = CONTEXT.clone();
     let col1 = vec![1, 2, 3, 4, 5, 6];
     let col1_rdd = sc.clone().parallelize(col1, 4);
 
-    let taken_1 = col1_rdd.take(1).unwrap();
+    let taken_1 = col1_rdd.take(1)?;
     assert_eq!(taken_1.len(), 1);
 
-    let taken_3 = col1_rdd.take(3).unwrap();
+    let taken_3 = col1_rdd.take(3)?;
     assert_eq!(taken_3.len(), 3);
 
-    let taken_7 = col1_rdd.take(7).unwrap();
+    let taken_7 = col1_rdd.take(7)?;
     assert_eq!(taken_7.len(), 6);
 
     let col2: Vec<i32> = vec![];
     let col2_rdd = sc.clone().parallelize(col2, 4);
-    let taken_0 = col2_rdd.take(1).unwrap();
+    let taken_0 = col2_rdd.take(1)?;
     assert!(taken_0.is_empty());
+    Ok(())
 }
 
 #[test]
@@ -179,7 +180,7 @@ fn test_first() {
 }
 
 #[test]
-fn test_read_files() {
+fn test_read_files() -> Result<()> {
     // Single file test
     let file_name = "test_file_01";
     let file_path = WORK_DIR.join(TEST_DIR).join(file_name);
@@ -244,64 +245,60 @@ fn test_read_files() {
         let result: Vec<_> = files.collect().unwrap().into_iter().flatten().collect();
         assert_eq!(result.len(), 20);
     });
+    Ok(())
 }
 
 #[test]
-fn test_distinct() {
+fn test_distinct() -> Result<()> {
     use std::collections::HashSet;
     let sc = CONTEXT.clone();
     let rdd = sc
         .clone()
         .parallelize(vec![1, 2, 2, 2, 3, 3, 3, 4, 4, 5], 3);
-    assert!(rdd.distinct().collect().unwrap().len() == 5);
+    assert!(rdd.distinct().collect()?.len() == 5);
     assert!(
         rdd.distinct()
-            .collect()
-            .unwrap()
+            .collect()?
             .into_iter()
             .collect::<HashSet<_>>()
             == rdd
                 .distinct()
-                .collect()
-                .unwrap()
+                .collect()?
                 .into_iter()
                 .collect::<HashSet<_>>()
     );
     assert!(
         rdd.distinct_with_num_partitions(2)
-            .collect()
-            .unwrap()
+            .collect()?
             .into_iter()
             .collect::<HashSet<_>>()
             == rdd
                 .distinct()
-                .collect()
-                .unwrap()
+                .collect()?
                 .into_iter()
                 .collect::<HashSet<_>>()
     );
     assert!(
         rdd.distinct_with_num_partitions(10)
-            .collect()
-            .unwrap()
+            .collect()?
             .into_iter()
             .collect::<HashSet<_>>()
             == rdd
                 .distinct()
-                .collect()
-                .unwrap()
+                .collect()?
                 .into_iter()
                 .collect::<HashSet<_>>()
     );
+    Ok(())
 }
 
 #[test]
-fn test_partition_wise_sampling() {
+fn test_partition_wise_sampling() -> Result<()> {
     let sc = CONTEXT.clone();
     // w/o replace & num < sample
     {
         let rdd = sc.clone().parallelize(vec![1, 2, 3, 4, 5], 6);
-        let result = rdd.take_sample(false, 6, Some(123)).unwrap();
+        let result = rdd.take_sample(false, 6, Some(123))?;
         assert!(result.len() == 5);
         // guaranteed with this seed:
         assert!(result[0] > result[1]);
@@ -311,16 +308,27 @@ fn test_partition_wise_sampling() {
     {
         // high enough samples param to guarantee drawing >1 times w/ replacement
         let rdd = sc.clone().parallelize((0_i32..100).collect::<Vec<_>>(), 5);
-        let result = rdd.take_sample(true, 80, None).unwrap();
+        let result = rdd.take_sample(true, 80, None)?;
         assert!(result.len() == 80);
     }
 
     // no replace & Bernoulli + GapSampling
     {
         let rdd = sc.clone().parallelize((0_i32..100).collect::<Vec<_>>(), 5);
-        let result = rdd.take_sample(false, 10, None).unwrap();
+        let result = rdd.take_sample(false, 10, None)?;
         assert!(result.len() == 10);
     }
+    Ok(())
+}
+
+#[test]
+fn test_union() -> Result<()> {
+    let sc = CONTEXT.clone();
+    let rdd0 = sc.parallelize(vec![1i32, 2, 3, 4], 2);
+    let rdd1 = sc.parallelize(vec![5i32, 6, 7, 8], 2);
+    let res = rdd0.union(rdd1)?;
+    assert_eq!(res.collect()?.len(), 8);
+    Ok(())
 }
 
 #[test]
