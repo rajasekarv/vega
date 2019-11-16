@@ -12,6 +12,8 @@ use rand::{RngCore, SeedableRng};
 use serde_derive::{Deserialize, Serialize};
 use serde_traitobject::{Deserialize, Serialize};
 
+mod cartesian_rdd;
+use cartesian_rdd::CartesianRdd;
 mod co_grouped_rdd;
 use co_grouped_rdd::CoGroupedRdd;
 mod pair_rdd;
@@ -155,10 +157,13 @@ pub trait Rdd<T: Data>: RddBase {
     fn get_rdd(&self) -> Arc<Self>
     where
         Self: Sized;
+
     fn get_rdd_base(&self) -> Arc<dyn RddBase>;
+
     fn iterator(&self, split: Box<dyn Split>) -> Result<Box<dyn Iterator<Item = T>>> {
         self.compute(split)
     }
+
     fn compute(&self, split: Box<dyn Split>) -> Result<Box<dyn Iterator<Item = T>>>;
 
     fn map<U: Data, F>(&self, f: F) -> MapperRdd<Self, T, U, F>
@@ -187,6 +192,7 @@ pub trait Rdd<T: Data>: RddBase {
     }
 
     /// Return an RDD created by coalescing all elements within each partition into an array.
+    #[allow(clippy::type_complexity)]
     fn glom(
         &self,
     ) -> MapPartitionsRdd<
@@ -308,6 +314,14 @@ pub trait Rdd<T: Data>: RddBase {
         Ok(results?.into_iter().fold(init, comb_fn))
     }
 
+    fn cartesian<O, U: Data>(&self, other: Arc<O>) -> CartesianRdd<T, U, Self, O>
+    where
+        Self: 'static + Sized + Rdd<T>,
+        O: 'static + Sized + Rdd<U>,
+    {
+        CartesianRdd::new(self.get_rdd(), other)
+    }
+
     fn collect(&self) -> Result<Vec<T>>
     where
         Self: Sized + 'static,
@@ -366,7 +380,7 @@ pub trait Rdd<T: Data>: RddBase {
         if let Some(result) = self.take(1)?.into_iter().next() {
             Ok(result)
         } else {
-            Err(Error::UnsupportedOperation("empty collection".to_owned()))
+            Err(Error::UnsupportedOperation("empty collection"))
         }
     }
 
@@ -678,18 +692,13 @@ where
     fn get_rdd_base(&self) -> Arc<dyn RddBase> {
         Arc::new(self.clone()) as Arc<dyn RddBase>
     }
+
     fn get_rdd(&self) -> Arc<Self> {
         Arc::new(self.clone())
     }
-    fn compute(&self, split: Box<dyn Split>) -> Result<Box<dyn Iterator<Item = U>>> {
-        //        let res = Box::new(self.prev.iterator(split).map((*self.f).clone()));
-        Ok(Box::new(self.prev.iterator(split)?.map(self.f.clone())))
 
-        //        let res = res.collect::<Vec<_>>();
-        //        let log_output = format!("inside iterator maprdd {:?}", res.get(0));
-        //        env::log_file.lock().write(&log_output.as_bytes());
-        //        Box::new(res.into_iter()) as Box<dyn Iterator<Item = U>>
-        //        let f = (**self.f).clone();
+    fn compute(&self, split: Box<dyn Split>) -> Result<Box<dyn Iterator<Item = U>>> {
+        Ok(Box::new(self.prev.iterator(split)?.map(self.f.clone())))
     }
 }
 
@@ -809,9 +818,11 @@ where
     fn get_rdd_base(&self) -> Arc<dyn RddBase> {
         Arc::new(self.clone()) as Arc<dyn RddBase>
     }
+
     fn get_rdd(&self) -> Arc<Self> {
         Arc::new(self.clone())
     }
+
     fn compute(&self, split: Box<dyn Split>) -> Result<Box<dyn Iterator<Item = U>>> {
         let f = self.f.clone();
         Ok(Box::new(self.prev.iterator(split)?.flat_map(f)))

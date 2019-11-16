@@ -69,6 +69,7 @@ and deploying distributed mode on your local host. In order to use them:
 
 1. Build the examples image under the repository `docker` directory:
 > bash docker/build_image.sh
+
 2. When done, you can deploy a testing cluster:
 > bash testing_cluster.sh
 

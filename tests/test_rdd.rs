@@ -95,7 +95,7 @@ fn test_fold_with_modifying_initial_value() {
         .make_rdd((-1000..1000).collect::<Vec<i32>>(), 10)
         .map(Fn!(|x| vec![x]));
     let f = Fn!(|mut c: Vec<i32>, x: Vec<i32>| {
-        c[0] = c[0] + x[0];
+        c[0] += x[0];
         c
     });
     let sum = rdd.fold(vec![0], f).unwrap();
@@ -117,7 +117,7 @@ fn test_aggregate() {
     );
     use std::collections::{HashMap, HashSet};
     type StringMap = HashMap<String, i32>;
-    let emptyMap = StringMap::new();
+    let empty_map = StringMap::new();
     let merge_element = Fn!(|mut map: StringMap, pair: (String, i32)| {
         *map.entry(pair.0).or_insert(0) += pair.1;
         map
@@ -129,7 +129,7 @@ fn test_aggregate() {
         map1
     });
     let result = pairs
-        .aggregate(emptyMap, merge_element, merge_maps)
+        .aggregate(empty_map, merge_element, merge_maps)
         .unwrap();
     assert_eq!(
         result.into_iter().collect::<HashSet<_>>(),

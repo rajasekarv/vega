@@ -36,7 +36,7 @@ Most of these except file reader and writer are trivial to implement
 - [x] collect
 - [x] reduce
 - [x] fold
-- [ ] aggregate
+- [x] aggregate
 - [x] take
 - [x] first
 - [x] sample

@@ -13,10 +13,8 @@ pub trait PairRdd<K: Data + Eq + Hash, V: Data>: Rdd<(K, V)> + Send + Sync {
         merge_value: Box<dyn serde_traitobject::Fn((C, V)) -> C + Send + Sync>,
         merge_combiners: Box<dyn serde_traitobject::Fn((C, C)) -> C + Send + Sync>,
         partitioner: Box<dyn Partitioner>,
-        //    ) -> Arc<RddBox<(K, C)>>
     ) -> ShuffledRdd<K, V, C, Self>
     where
-        //        RT: RddBox<(K, V)>,
         Self: Sized + Serialize + Deserialize + 'static,
     {
         let aggregator = Arc::new(Aggregator::<K, V, C>::new(
@@ -56,6 +54,7 @@ pub trait PairRdd<K: Data + Eq + Hash, V: Data>: Rdd<(K, V)> + Send + Sync {
         let merge_combiners = Box::new(Fn!(|(b1, b2)| merge_combiners::<V>(b1, b2)));
         self.combine_by_key(create_combiner, merge_value, merge_combiners, partitioner)
     }
+
     fn reduce_by_key<F>(&self, func: F, num_splits: usize) -> ShuffledRdd<K, V, V, Self>
     where
         F: SerFunc((V, V)) -> V,
@@ -188,7 +187,6 @@ where
     #[serde(with = "serde_traitobject")]
     prev: Arc<RT>,
     vals: Arc<RddVals>,
-    // #[serde(with = "serde_traitobject")]
     f: F,
     _marker_t: PhantomData<K>, // phantom data is necessary because of type parameter T
     _marker_v: PhantomData<V>,
@@ -221,7 +219,6 @@ where
         let mut vals = RddVals::new(prev.get_context());
         vals.dependencies
             .push(Dependency::OneToOneDependency(Arc::new(
-                //                OneToOneDependencyVals::new(prev.get_rdd(), prev.get_rdd()),
                 OneToOneDependencyVals::new(prev.get_rdd_base()),
             )));
         let vals = Arc::new(vals);
@@ -294,10 +291,6 @@ where
         Ok(Box::new(
             self.prev.iterator(split)?.map(move |(k, v)| (k, f(v))),
         ))
-        //        let res = res.collect::<Vec<_>>();
-        //        let log_output = format!("inside iterator maprdd values {:?}", res.get(0));
-        //        env::log_file.lock().write(&log_output.as_bytes());
-        //        Box::new(res.into_iter()) as Box<dyn Iterator<Item = (K, U)>>
     }
 }
 
@@ -310,7 +303,6 @@ where
     #[serde(with = "serde_traitobject")]
     prev: Arc<RT>,
     vals: Arc<RddVals>,
-    // #[serde(with = "serde_traitobject")]
     f: F,
     _marker_t: PhantomData<K>, // phantom data is necessary because of type parameter T
     _marker_v: PhantomData<V>,
@@ -418,10 +410,5 @@ where
                 .iterator(split)?
                 .flat_map(move |(k, v)| f(v).map(move |x| (k.clone(), x))),
         ))
-        //        let res = res.collect::<Vec<_>>();
-        //        let log_output = format!("inside iterator flatmaprdd values {:?}", res.get(0));
-        //        env::log_file.lock().write(&log_output.as_bytes());
-        //        Box::new(res.into_iter()) as Box<dyn Iterator<Item = (K, U)>>
-        //        Box::new(self.prev.iterator(split).map(move |(k,v)| (k, f(v))))
     }
 }
