@@ -137,7 +137,7 @@ where
     fn compute(&self, split: Box<dyn Split>) -> Result<Box<dyn Iterator<Item = (T, U)>>> {
         let current_split = split
             .downcast::<CartesianSplit>()
-            .or(Err(Error::UnsupportedOperation("CartesianSplit")))?;
+            .or(Err(Error::SplitDowncast("CartesianSplit")))?;
 
         let iter1 = self.rdd1.iterator(current_split.s1)?;
         // required because iter2 must be clonable:
