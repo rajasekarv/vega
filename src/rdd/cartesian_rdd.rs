@@ -1,4 +1,4 @@
-use itertools::iproduct;
+use itertools::{iproduct, Itertools};
 
 use crate::rdd::*;
 
@@ -40,8 +40,17 @@ where
     RT: 'static + Rdd<T>,
     RU: 'static + Rdd<U>,
 {
-    pub(crate) fn new(s1: Arc<RT>, s2: Arc<RU>) -> CartesianRdd<T, U, RT, RU> {
-        unimplemented!()
+    pub(crate) fn new(rdd1: Arc<RT>, rdd2: Arc<RU>) -> CartesianRdd<T, U, RT, RU> {
+        let vals = Arc::new(RddVals::new(rdd1.get_context()));
+        let num_partitions_in_rdd2 = rdd2.number_of_splits();
+        CartesianRdd {
+            vals,
+            rdd1,
+            rdd2,
+            num_partitions_in_rdd2,
+            _marker_t: PhantomData,
+            _market_u: PhantomData,
+        }
     }
 }
 
@@ -130,14 +139,9 @@ where
             .downcast::<CartesianSplit>()
             .or(Err(Error::UnsupportedOperation("CartesianSplit")))?;
 
-        // for (x, y) in iproduct!(
-        //     self.rdd1.iterator(current_split.s1)?,
-        //     self.rdd2.iterator(current_split.s2)?
-        // ) {}
-
         let iter1 = self.rdd1.iterator(current_split.s1)?;
-        let iter2 = self.rdd2.iterator(current_split.s2)?;
-
-        unimplemented!()
+        // required because iter2 must be clonable:
+        let iter2: Vec<_> = self.rdd2.iterator(current_split.s2)?.collect();
+        Ok(Box::new(iter1.cartesian_product(iter2.into_iter())))
     }
 }

@@ -314,12 +314,14 @@ pub trait Rdd<T: Data>: RddBase {
         Ok(results?.into_iter().fold(init, comb_fn))
     }
 
-    fn cartesian<O, U: Data>(&self, other: Arc<O>) -> CartesianRdd<T, U, Self, O>
+    /// Return the Cartesian product of this RDD and another one, that is, the RDD of all pairs of
+    /// elements (a, b) where a is in `this` and b is in `other`.
+    fn cartesian<O, U: Data>(&self, other: O) -> CartesianRdd<T, U, Self, O>
     where
         Self: 'static + Sized + Rdd<T>,
         O: 'static + Sized + Rdd<U>,
     {
-        CartesianRdd::new(self.get_rdd(), other)
+        CartesianRdd::new(self.get_rdd(), Arc::new(other))
     }
 
     fn collect(&self) -> Result<Vec<T>>

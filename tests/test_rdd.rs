@@ -323,3 +323,14 @@ fn test_partition_wise_sampling() {
         assert!(result.len() == 10);
     }
 }
+
+#[test]
+fn test_cartesian() -> Result<()> {
+    let sc = CONTEXT.clone();
+    let rdd1 = sc.parallelize((0..2).collect::<Vec<_>>(), 2);
+    let rdd2 = sc.parallelize("αβ".chars().collect::<Vec<_>>(), 2);
+
+    let res = rdd1.cartesian(rdd2).collect()?;
+    itertools::assert_equal(res, vec![(0, 'α'), (0, 'β'), (1, 'α'), (1, 'β')]);
+    Ok(())
+}
