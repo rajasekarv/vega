@@ -19,7 +19,7 @@ struct UnionSplit {
 
 impl UnionSplit {
     fn parent_partition(&self) -> Box<dyn Split> {
-        unimplemented!()
+        self.rdd.splits()[self.parent_rdd_split_index].clone()
     }
 }
 
@@ -31,8 +31,16 @@ impl Split for UnionSplit {
 
 #[derive(Clone, Serialize, Deserialize)]
 struct PartitionerAwareUnionSplit {
-    parents: Vec<SerArc<SerBox<dyn Split>>>,
     idx: usize,
+}
+
+impl PartitionerAwareUnionSplit {
+    fn parents<'a>(
+        &'a self,
+        rdds: &'a [SerArc<dyn RddBase>],
+    ) -> impl Iterator<Item = Box<dyn Split>> + 'a {
+        rdds.iter().map(move |rdd| rdd.splits()[self.idx].clone())
+    }
 }
 
 impl Split for PartitionerAwareUnionSplit {
@@ -40,16 +48,6 @@ impl Split for PartitionerAwareUnionSplit {
         self.idx
     }
 }
-
-// /// An RDD that applies the provided function to every partition of the parent RDD.
-// #[derive(Serialize, Deserialize, Clone)]
-// pub struct UnionRdd<T: Data>(UnionVariants<T>);
-
-// impl<T: Data> UnionRdd<T> {
-//     pub(crate) fn new<I>(rdds: &[Arc<dyn Rdd<T>>]) -> Result<Self> {
-//         Ok(UnionRdd(UnionVariants::new(rdds)?))
-//     }
-// }
 
 #[derive(Serialize, Deserialize, Clone)]
 pub enum UnionVariants<T: Data> {
@@ -180,14 +178,7 @@ impl<T: Data> RddBase for UnionVariants<T> {
             PartitionerAware { rdds, part, .. } => {
                 let num_partitions = part.get_num_of_partitions();
                 (0..num_partitions)
-                    .map(|idx| {
-                        //     parents = rdds.map(_.partitions(index)).toArray
-                        let parents: Vec<_> = rdds
-                            .iter()
-                            .map(|rdd| SerArc::new(SerBox::from(rdd.splits()[idx].clone())))
-                            .collect();
-                        Box::new(PartitionerAwareUnionSplit { idx, parents }) as Box<dyn Split>
-                    })
+                    .map(|idx| Box::new(PartitionerAwareUnionSplit { idx }) as Box<dyn Split>)
                     .collect()
             }
         }
@@ -212,7 +203,7 @@ impl<T: Data> RddBase for UnionVariants<T> {
     }
 }
 
-impl<T: Data> Rdd<T> for UnionVariants<T> {
+impl<T: Data> Rdd<Box<dyn AnyData>> for UnionVariants<T> {
     fn get_rdd_base(&self) -> Arc<dyn RddBase> {
         Arc::new(self.clone()) as Arc<dyn RddBase>
     }
@@ -221,7 +212,7 @@ impl<T: Data> Rdd<T> for UnionVariants<T> {
         Arc::new(self.clone())
     }
 
-    fn compute(&self, split: Box<dyn Split>) -> Result<Box<dyn Iterator<Item = T>>> {
+    fn compute(&self, split: Box<dyn Split>) -> Result<Box<dyn Iterator<Item = Box<dyn AnyData>>>> {
         let context = self.get_context();
         match self {
             NonUniquePartitioner { rdds, .. } => {
@@ -229,18 +220,18 @@ impl<T: Data> Rdd<T> for UnionVariants<T> {
                     .downcast::<UnionSplit>()
                     .or(Err(Error::SplitDowncast("UnionSplit")))?;
                 let parent = (&rdds[part.parent_rdd_index]);
-                //parent.iterator(part.parent_partition());
-                unimplemented!()
+                parent.iterator_any(part.parent_partition())
             }
-            PartitionerAware { rdds, part, .. } => {
-                let parent_partitions = &*split
+            PartitionerAware { rdds, .. } => {
+                let split = split
                     .downcast::<PartitionerAwareUnionSplit>()
-                    .or(Err(Error::SplitDowncast("PartitionerAwareUnionSplit")))?
-                    .parents;
-                let iter = Ok(Box::new(
-                    rdds.iter().zip(parent_partitions).map(|(rdd, p)| (rdd, p)),
-                ))?;
-                unimplemented!()
+                    .or(Err(Error::SplitDowncast("PartitionerAwareUnionSplit")))?;
+                let iter: Result<Vec<_>> = rdds
+                    .iter()
+                    .zip(split.parents(&rdds))
+                    .map(|(rdd, p)| rdd.iterator_any(p.clone()))
+                    .collect();
+                Ok(Box::new(iter?.into_iter().flatten()))
             }
         }
     }
