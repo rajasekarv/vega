@@ -80,7 +80,7 @@ impl<T: Data> UnionVariants<T> {
             .iter()
             .map(|rdd| SerArc::from(rdd.get_rdd_base()))
             .collect();
-        if UnionVariants::has_unique_partitioner(&rdds) {
+        if !UnionVariants::has_unique_partitioner(&rdds) {
             Ok(NonUniquePartitioner {
                 rdds: final_rdds,
                 vals,
@@ -103,7 +103,7 @@ impl<T: Data> UnionVariants<T> {
             .try_fold(None, |prev: Option<Box<dyn Partitioner>>, p| {
                 if let Some(partitioner) = p {
                     if let Some(prev_partitioner) = prev {
-                        if prev_partitioner.equals(&partitioner) {
+                        if prev_partitioner.equals((&*partitioner).as_any()) {
                             // only continue in case both partitioners are the same
                             Ok(Some(partitioner))
                         } else {
@@ -234,5 +234,44 @@ impl<T: Data> Rdd<Box<dyn AnyData>> for UnionVariants<T> {
                 Ok(Box::new(iter?.into_iter().flatten()))
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    use crate::partitioner::HashPartitioner;
+
+    #[test]
+    fn test_union() -> Result<()> {
+        let sc = Context::new("local")?;
+        // does not have unique partitioner:
+        {
+            // let rdd0 = sc.parallelize(vec![1i32, 2, 3, 4], 2);
+            // let rdd1 = sc.parallelize(vec![5i32, 6, 7, 8], 2);
+            // let res = rdd0.union(rdd1)?;
+            // assert_eq!(res.collect()?.len(), 8);
+        }
+        // has a unique partitioner:
+        {
+            let partitioner = HashPartitioner::<i32>::new(2);
+            let co_grouped = || {
+                let rdd = vec![
+                    (1i32, "A".to_string()),
+                    (2, "B".to_string()),
+                    (3, "C".to_string()),
+                    (4, "D".to_string()),
+                ];
+                let rdd0 = SerArc::new(sc.parallelize(rdd.clone(), 2)) as SerArc<dyn RddBase>;
+                let rdd1 = SerArc::new(sc.parallelize(rdd, 2)) as SerArc<dyn RddBase>;
+                CoGroupedRdd::<i32>::new(vec![rdd0, rdd1], Box::new(partitioner.clone()))
+            };
+            let rdd0 = co_grouped();
+            let rdd1 = co_grouped();
+            let res = rdd0.union(rdd1)?.collect()?;
+            assert_eq!(res.len(), 8);
+        }
+
+        Ok(())
     }
 }
