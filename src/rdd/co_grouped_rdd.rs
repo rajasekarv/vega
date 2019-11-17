@@ -37,6 +37,7 @@ impl Hasher for CoGroupSplit {
     fn finish(&self) -> u64 {
         self.index as u64
     }
+
     fn write(&mut self, bytes: &[u8]) {
         for i in bytes {
             self.write_u8(*i);
@@ -133,11 +134,13 @@ impl<K: Data + Eq + Hash> RddBase for CoGroupedRdd<K> {
     fn get_rdd_id(&self) -> usize {
         self.vals.id
     }
+
     fn get_context(&self) -> Arc<Context> {
         self.vals.context.clone()
     }
-    fn get_dependencies(&self) -> Vec<Dependency> {
-        self.vals.dependencies.clone()
+
+    fn get_dependencies(&self) -> &[Dependency] {
+        &self.vals.dependencies
     }
 
     fn splits(&self) -> Vec<Box<dyn Split>> {
@@ -165,13 +168,16 @@ impl<K: Data + Eq + Hash> RddBase for CoGroupedRdd<K> {
         }
         splits
     }
+
     fn number_of_splits(&self) -> usize {
         self.part.get_num_of_partitions()
     }
+
     fn partitioner(&self) -> Option<Box<dyn Partitioner>> {
         let part = self.part.clone() as Box<dyn Partitioner>;
         Some(part)
     }
+
     fn iterator_any(
         &self,
         split: Box<dyn Split>,
@@ -179,10 +185,6 @@ impl<K: Data + Eq + Hash> RddBase for CoGroupedRdd<K> {
         Ok(Box::new(self.iterator(split)?.map(|(k, v)| {
             Box::new((k, Box::new(v) as Box<dyn AnyData>)) as Box<dyn AnyData>
         })))
-        //        Box::new(
-        //            self.iterator(split)
-        //                .map(|x| Box::new(x) as Box<dyn AnyData>),
-        //        )
     }
 }
 
@@ -191,14 +193,13 @@ impl<K: Data + Eq + Hash> Rdd for CoGroupedRdd<K> {
     fn get_rdd(&self) -> Arc<dyn Rdd<Item = Self::Item>> {
         Arc::new(self.clone())
     }
+
     fn get_rdd_base(&self) -> Arc<dyn RddBase> {
         Arc::new(self.clone()) as Arc<dyn RddBase>
     }
+
     #[allow(clippy::type_complexity)]
-    fn compute(
-        &self,
-        split: Box<dyn Split>,
-    ) -> Result<Box<dyn Iterator<Item = Self::Item>>> {
+    fn compute(&self, split: Box<dyn Split>) -> Result<Box<dyn Iterator<Item = Self::Item>>> {
         if let Ok(split) = split.downcast::<CoGroupSplit>() {
             let mut agg: HashMap<K, Vec<Vec<Box<dyn AnyData>>>> = HashMap::new();
             for (dep_num, dep) in split.clone().deps.into_iter().enumerate() {
