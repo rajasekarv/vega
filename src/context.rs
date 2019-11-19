@@ -301,6 +301,17 @@ impl Context {
         )
     }
 
+    pub(crate) fn get_preferred_locs(
+        &self,
+        rdd: Arc<dyn RddBase>,
+        partition: usize,
+    ) -> Vec<std::net::Ipv4Addr> {
+        match &self.scheduler {
+            Schedulers::Distributed(scheduler) => scheduler.get_preferred_locs(rdd, partition),
+            Schedulers::Local(scheduler) => scheduler.get_preferred_locs(rdd, partition),
+        }
+    }
+
     // pub fn union<T: Data>(rdds: &[Arc<dyn Rdd<T>>]) -> Result<UnionVariants<T>> {
     //     UnionVariants::new(rdds)
     // }

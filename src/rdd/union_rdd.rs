@@ -1,5 +1,7 @@
 use std::any::Any;
 
+use itertools::{Itertools, MinMaxResult};
+use log::debug;
 use serde_traitobject::{Arc as SerArc, Box as SerBox};
 
 use crate::rdd::*;
@@ -119,6 +121,16 @@ impl<T: Data> UnionVariants<T> {
             })
             .is_ok()
     }
+
+    fn current_pref_locs<'a>(
+        &'a self,
+        rdd: Arc<dyn RddBase>,
+        split: &dyn Split,
+    ) -> impl Iterator<Item = std::net::Ipv4Addr> + 'a {
+        self.get_context()
+            .get_preferred_locs(rdd, split.get_index())
+            .into_iter()
+    }
 }
 
 impl<T: Data> RddBase for UnionVariants<T> {
@@ -140,6 +152,42 @@ impl<T: Data> RddBase for UnionVariants<T> {
         match self {
             NonUniquePartitioner { vals, .. } => &vals.dependencies,
             PartitionerAware { vals, .. } => &vals.dependencies,
+        }
+    }
+
+    fn preferred_locations(&self, split: Box<dyn Split>) -> Vec<Ipv4Addr> {
+        match self {
+            NonUniquePartitioner { .. } => Vec::new(),
+            PartitionerAware { rdds, .. } => {
+                debug!(
+                    "finding preferred location for PartitionerAwareUnionRdd, partition {}",
+                    split.get_index()
+                );
+                let split = &*split
+                    .downcast::<PartitionerAwareUnionSplit>()
+                    .or(Err(Error::SplitDowncast("UnionSplit")))
+                    .unwrap();
+                let locations = rdds.iter().zip(split.parents(&rdds)).map(|(rdd, part)| {
+                    let parent_locations = self.current_pref_locs(rdd.clone().into(), &*part);
+                    debug!("location of {} partition {} = {}", 1, 2, 3);
+                    parent_locations
+                });
+
+                // Find the location that maximum number of parent partitions prefer
+                let location = match locations.flatten().minmax_by_key(|loc| *loc) {
+                    MinMaxResult::MinMax(_, max) => Some(max),
+                    MinMaxResult::OneElement(e) => Some(e),
+                    MinMaxResult::NoElements => None,
+                };
+
+                debug!(
+                    "selected location for PartitionerAwareRdd, partition {} = {:?}",
+                    split.get_index(),
+                    location
+                );
+
+                location.into_iter().collect()
+            }
         }
     }
 
@@ -247,10 +295,10 @@ mod test {
         let sc = Context::new("local")?;
         // does not have unique partitioner:
         {
-            // let rdd0 = sc.parallelize(vec![1i32, 2, 3, 4], 2);
-            // let rdd1 = sc.parallelize(vec![5i32, 6, 7, 8], 2);
-            // let res = rdd0.union(rdd1)?;
-            // assert_eq!(res.collect()?.len(), 8);
+            let rdd0 = sc.parallelize(vec![1i32, 2, 3, 4], 2);
+            let rdd1 = sc.parallelize(vec![5i32, 6, 7, 8], 2);
+            let res = rdd0.union(rdd1)?;
+            assert_eq!(res.collect()?.len(), 8);
         }
         // has a unique partitioner:
         {
