@@ -116,15 +116,12 @@ impl<K: Data + Eq + Hash> CoGroupedRdd<K> {
                         part,
                     )) as Arc<dyn ShuffleDependencyTrait>,
                 ))
-                //                deps.push(Arc::new(OneToOneDependencyVals::new(rdd)))
             }
         }
-        //        vals.dependencies = deps;
         vals.dependencies = deps;
         let vals = Arc::new(vals);
         CoGroupedRdd {
             vals,
-            //                context,
             rdds,
             part,
             _marker: PhantomData,

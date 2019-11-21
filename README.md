@@ -29,14 +29,14 @@ Most of these except file reader and writer are trivial to implement
 - [x] take_sample
 - [ ] union
 - [x] glom
-- [ ] cartesian
+- [x] cartesian
 - [ ] pipe
 - [x] map_partitions
 - [x] for_each
 - [x] collect
 - [x] reduce
 - [x] fold
-- [ ] aggregate
+- [x] aggregate
 - [x] take
 - [x] first
 - [x] sample
