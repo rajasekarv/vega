@@ -296,10 +296,10 @@ impl LocalScheduler {
         //TODO update cache
         //TODO logging
 
-        if allow_local && jt.final_stage.parents.is_empty() && (jt.num_output_parts == 1) {
-            let split = (final_rdd.splits()[jt.output_parts[0]]).clone();
-            let task_context = TasKContext::new(jt.final_stage.id, jt.output_parts[0], 0);
-            return Ok(vec![func((task_context, final_rdd.iterator(split)?))]);
+        if allow_local {
+            if let Some(result) = LocalScheduler::local_execution(jt.clone())? {
+                return Ok(result);
+            }
         }
 
         self.event_queues.lock().insert(jt.run_id, VecDeque::new());
@@ -540,6 +540,26 @@ impl LocalScheduler {
                 .unwrap()
                 .clone(),
         );
+    }
+
+    /// Fast path for execution. Runs the DD in the driver main thread if possible.
+    fn local_execution<T: Data, U: Data, F, RT>(
+        jt: JobTracker<F, RT, U, T>,
+    ) -> Result<Option<Vec<U>>>
+    where
+        F: SerFunc((TasKContext, Box<dyn Iterator<Item = T>>)) -> U,
+        RT: Rdd<T> + 'static,
+    {
+        if jt.final_stage.parents.is_empty() && (jt.num_output_parts == 1) {
+            let split = (jt.final_rdd.splits()[jt.output_parts[0]]).clone();
+            let task_context = TasKContext::new(jt.final_stage.id, jt.output_parts[0], 0);
+            Ok(Some(vec![(&jt.func)((
+                task_context,
+                jt.final_rdd.iterator(split)?,
+            ))]))
+        } else {
+            Ok(None)
+        }
     }
 
     fn submit_stage<T: Data, U: Data, F, RT>(&self, stage: Stage, jt: JobTracker<F, RT, U, T>)
