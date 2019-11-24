@@ -139,8 +139,8 @@ impl<K: Data + Eq + Hash> RddBase for CoGroupedRdd<K> {
         self.vals.context.clone()
     }
 
-    fn get_dependencies(&self) -> &[Dependency] {
-        &self.vals.dependencies
+    fn get_dependencies(&self) -> Vec<Dependency> {
+        self.vals.dependencies.clone()
     }
 
     fn splits(&self) -> Vec<Box<dyn Split>> {
