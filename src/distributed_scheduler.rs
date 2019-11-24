@@ -1,8 +1,6 @@
 use super::*;
 use crate::scheduler::Scheduler;
 
-use capnp::serialize_packed;
-use parking_lot::Mutex;
 use std::any::Any;
 use std::collections::btree_map::BTreeMap;
 use std::collections::btree_set::BTreeSet;
@@ -11,12 +9,15 @@ use std::collections::{HashMap, HashSet};
 use std::iter::FromIterator;
 use std::net::{Ipv4Addr, TcpStream};
 use std::option::Option;
+use std::rc::Rc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::thread;
 use std::time;
 use std::time::{Duration, Instant};
 
+use capnp::serialize_packed;
+use parking_lot::Mutex;
 use threadpool::ThreadPool;
 
 //just for now, creating an entire scheduler functions without dag scheduler trait. Later change it to extend from dag scheduler
@@ -32,7 +33,7 @@ pub struct DistributedScheduler {
     next_run_id: Arc<AtomicUsize>,
     next_task_id: Arc<AtomicUsize>,
     next_stage_id: Arc<AtomicUsize>,
-    id_to_stage: Arc<Mutex<HashMap<usize, Stage>>>,
+    stage_cache: Arc<Mutex<HashMap<usize, Stage>>>,
     shuffle_to_map_stage: Arc<Mutex<HashMap<usize, Stage>>>,
     cache_locs: Arc<Mutex<HashMap<usize, Vec<Vec<Ipv4Addr>>>>>,
     master: bool,
@@ -73,7 +74,7 @@ impl DistributedScheduler {
             next_run_id: Arc::new(AtomicUsize::new(0)),
             next_task_id: Arc::new(AtomicUsize::new(0)),
             next_stage_id: Arc::new(AtomicUsize::new(0)),
-            id_to_stage: Arc::new(Mutex::new(HashMap::new())),
+            stage_cache: Arc::new(Mutex::new(HashMap::new())),
             shuffle_to_map_stage: Arc::new(Mutex::new(HashMap::new())),
             cache_locs: Arc::new(Mutex::new(HashMap::new())),
             master,
@@ -120,7 +121,7 @@ impl DistributedScheduler {
         }
     }
 
-    pub fn run_job<T: Data, U: Data, F, RT>(
+    pub fn run_job<T: Data, U: Data, F>(
         &self,
         func: Arc<F>,
         final_rdd: Arc<dyn Rdd<Item = T>>,
@@ -167,7 +168,7 @@ impl DistributedScheduler {
 
             if let Some(mut evt) = event_option {
                 info!("event starting");
-                let stage = self.id_to_stage.lock()[&evt.task.get_stage_id()].clone();
+                let stage = self.stage_cache.lock()[&evt.task.get_stage_id()].clone();
                 info!(
                     "removing stage task from pending tasks {} {}",
                     stage.id,
@@ -229,12 +230,14 @@ impl DistributedScheduler {
             .unwrap()
             .pop_front()
     }
+}
 
+impl NativeScheduler for DistributedScheduler {
     fn submit_task<T: Data, U: Data, F>(
         &self,
         task: TaskOption,
         id_in_job: usize,
-        thread_pool: Arc<ThreadPool>,
+        thread_pool: Rc<ThreadPool>,
     ) where
         F: SerFunc((TasKContext, Box<dyn Iterator<Item = T>>)) -> U,
     {
@@ -342,70 +345,5 @@ impl DistributedScheduler {
         }
     }
 
-    fn update_cache_locs(&self) {
-        let mut locs = self.cache_locs.lock();
-        *locs = env::env.cache_tracker.get_location_snapshot();
-    }
-
-    fn insert_into_stage_cache(&mut self, id: usize, stage: Stage) {
-        self.id_to_stage.lock().insert(id, stage.clone());
-    }
-
-    fn register_shuffle(&mut self, shuffle_id: usize, num_maps: usize) {
-        self.map_output_tracker
-            .register_shuffle(shuffle_id, num_maps);
-    }
-
-    fn get_cache_locs(&self, rdd: Arc<dyn RddBase>) -> Option<Vec<Vec<Ipv4Addr>>> {
-        let cache_locs = self.cache_locs.lock();
-        let locs_opt = cache_locs.get(&rdd.get_rdd_id());
-        match locs_opt {
-            Some(locs) => Some(locs.clone()),
-            None => None,
-        }
-    }
-
-    fn get_missing_parent_stages(&self, stage: Stage) -> Vec<Stage> {
-        info!("inside get missing parent stages");
-        let mut missing: BTreeSet<Stage> = BTreeSet::new();
-        let mut visited: BTreeSet<Arc<dyn RddBase>> = BTreeSet::new();
-        self.visit_for_missing_parent_stages(&mut missing, &mut visited, stage.get_rdd());
-        missing.into_iter().collect()
-    }
-
-    fn get_next_job_id(&self) -> usize {
-        self.next_job_id.fetch_add(1, Ordering::SeqCst)
-    }
-
-    fn get_next_stage_id(&self) -> usize {
-        self.next_stage_id.fetch_add(1, Ordering::SeqCst)
-    }
-
-    fn get_next_task_id(&self) -> usize {
-        self.next_task_id.fetch_add(1, Ordering::SeqCst)
-    }
-
-    fn get_shuffle_map_stage(&self, shuf: Arc<dyn ShuffleDependencyTrait>) -> Stage {
-        info!("inside get_shufflemap stage");
-        let stage = match self.shuffle_to_map_stage.lock().get(&shuf.get_shuffle_id()) {
-            Some(s) => Some(s.clone()),
-            None => None,
-        };
-        match stage {
-            Some(stage) => stage.clone(),
-            None => {
-                info!("inside get_shufflemap stage before");
-                let stage = self.new_stage(shuf.get_rdd_base(), Some(shuf.clone()));
-                self.shuffle_to_map_stage
-                    .lock()
-                    .insert(shuf.get_shuffle_id(), stage.clone());
-                info!("inside get_shufflemap return");
-                stage
-            }
-        }
-    }
-
-    fn num_threads(&self) -> usize {
-        self.threads
-    }
+    impl_common_funcs!();
 }

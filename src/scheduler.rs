@@ -2,35 +2,34 @@ use super::*;
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::net::Ipv4Addr;
+use std::rc::Rc;
 use std::sync::Arc;
+
+use threadpool::ThreadPool;
 
 pub trait Scheduler {
     fn start(&self);
     fn wait_for_register(&self);
-    fn run_job<T: Data, U: Data, RT, F>(
+    fn run_job<T: Data, U: Data, F>(
         &self,
-        rdd: &RT,
+        rdd: &dyn Rdd<Item = T>,
         func: F,
         partitions: Vec<i64>,
         allow_local: bool,
     ) -> Vec<U>
     where
         Self: Sized,
-        RT: Rdd<Item = T>,
         F: Fn(Box<dyn Iterator<Item = T>>) -> U;
     fn stop(&self);
     fn default_parallelism(&self) -> i64;
 }
 
 /// Functionality by the library built-in schedulers
-pub(crate) trait SharedScheduler {
+pub(crate) trait NativeScheduler {
     /// Fast path for execution. Runs the DD in the driver main thread if possible.
-    fn local_execution<T: Data, U: Data, F, RT>(
-        jt: JobTracker<F, RT, U, T>,
-    ) -> Result<Option<Vec<U>>>
+    fn local_execution<T: Data, U: Data, F>(jt: JobTracker<F, U, T>) -> Result<Option<Vec<U>>>
     where
         F: SerFunc((TasKContext, Box<dyn Iterator<Item = T>>)) -> U,
-        RT: Rdd<T> + 'static,
     {
         if jt.final_stage.parents.is_empty() && (jt.num_output_parts == 1) {
             let split = (jt.final_rdd.splits()[jt.output_parts[0]]).clone();
@@ -45,7 +44,7 @@ pub(crate) trait SharedScheduler {
     }
 
     fn new_stage(
-        &mut self,
+        &self,
         rdd_base: Arc<dyn RddBase>,
         shuffle_dependency: Option<Arc<dyn ShuffleDependencyTrait>>,
     ) -> Stage {
@@ -178,14 +177,13 @@ pub(crate) trait SharedScheduler {
         parents.into_iter().collect()
     }
 
-    fn on_event_failure<T: Data, U: Data, F, RT>(
+    fn on_event_failure<T: Data, U: Data, F>(
         &self,
-        jt: JobTracker<F, RT, U, T>,
+        jt: JobTracker<F, U, T>,
         failed_vals: FetchFailedVals,
         stage_id: usize,
     ) where
         F: SerFunc((TasKContext, Box<dyn Iterator<Item = T>>)) -> U,
-        RT: Rdd<T> + 'static,
     {
         let FetchFailedVals {
             server_uri,
@@ -195,46 +193,37 @@ pub(crate) trait SharedScheduler {
         } = failed_vals;
 
         //TODO mapoutput tracker needs to be finished for this
-        let failed_stage = self.id_to_stage.lock().get(&stage_id).unwrap().clone();
+        // let failed_stage = self.id_to_stage.lock().get(&stage_id).unwrap().clone();
+        let failed_stage = self.fetch_from_stage_cache(stage_id);
         jt.running.borrow_mut().remove(&failed_stage);
-        jt.failed.borrow_mut().insert(failed_stage);
+        jt.failed.borrow_mut().insert(failed_stage.clone());
         //TODO logging
-        self.shuffle_to_map_stage
-            .lock()
-            .get_mut(&shuffle_id)
-            .unwrap()
-            .remove_output_loc(map_id, server_uri.clone());
-        self.map_output_tracker
-            .unregister_map_output(shuffle_id, map_id, server_uri.clone());
+        self.remove_output_loc_from_stage(shuffle_id, map_id, &server_uri);
+        self.unregister_map_output(shuffle_id, map_id, server_uri.clone());
         //logging
-        jt.failed.borrow_mut().insert(
-            self.shuffle_to_map_stage
-                .lock()
-                .get(&shuffle_id)
-                .unwrap()
-                .clone(),
-        );
+        jt.failed
+            .borrow_mut()
+            .insert(self.fetch_from_shuffle_to_cache(shuffle_id));
     }
 
-    fn on_event_success<T: Data, U: Data, F, RT>(
+    fn on_event_success<T: Data, U: Data, F>(
         &self,
         mut completed_event: CompletionEvent,
         results: &mut Vec<Option<U>>,
         num_finished: &mut usize,
-        jt: JobTracker<F, RT, U, T>,
+        jt: JobTracker<F, U, T>,
     ) where
         F: SerFunc((TasKContext, Box<dyn Iterator<Item = T>>)) -> U,
-        RT: Rdd<T> + 'static,
     {
         //TODO logging
         //TODO add to Accumulator
 
         let mut result_type = completed_event
             .task
-            .downcast_ref::<ResultTask<T, U, RT, F>>()
+            .downcast_ref::<ResultTask<T, U, F>>()
             .is_some();
         if result_type {
-            if let Ok(rt) = completed_event.task.downcast::<ResultTask<T, U, RT, F>>() {
+            if let Ok(rt) = completed_event.task.downcast::<ResultTask<T, U, F>>() {
                 let result = completed_event
                     .result
                     .take()
@@ -257,12 +246,10 @@ pub(crate) trait SharedScheduler {
                 .clone();
 
             info!("result inside queue {:?}", result);
-            self.id_to_stage
-                .lock()
-                .get_mut(&smt.stage_id)
-                .unwrap()
-                .add_output_loc(smt.partition, result);
-            let stage = self.id_to_stage.lock().clone()[&smt.stage_id].clone();
+            self.add_output_loc_to_stage(smt.stage_id, smt.partition, result);
+
+            let stage = self.fetch_from_stage_cache(smt.stage_id);
+            // id_to_stage.lock().clone()[&smt.stage_id].clone();
             info!(
                 "pending stages {:?}",
                 jt.pending_tasks
@@ -314,7 +301,7 @@ pub(crate) trait SharedScheduler {
                         stage.clone().shuffle_dependency.unwrap().get_shuffle_id(),
                         locs
                     );
-                    self.map_output_tracker.register_map_outputs(
+                    self.register_map_outputs(
                         stage.shuffle_dependency.unwrap().get_shuffle_id(),
                         locs,
                     );
@@ -349,10 +336,9 @@ pub(crate) trait SharedScheduler {
         }
     }
 
-    fn submit_stage<T: Data, U: Data, F, RT>(&self, stage: Stage, jt: JobTracker<F, RT, U, T>)
+    fn submit_stage<T: Data, U: Data, F>(&self, stage: Stage, jt: JobTracker<F, U, T>)
     where
         F: SerFunc((TasKContext, Box<dyn Iterator<Item = T>>)) -> U,
-        RT: Rdd<T> + 'static,
     {
         info!("submiting stage {}", stage.id);
         if !jt.waiting.borrow().contains(&stage) && !jt.running.borrow().contains(&stage) {
@@ -373,13 +359,9 @@ pub(crate) trait SharedScheduler {
         }
     }
 
-    fn submit_missing_tasks<T: Data, U: Data, F, RT>(
-        &self,
-        stage: Stage,
-        mut jt: JobTracker<F, RT, U, T>,
-    ) where
+    fn submit_missing_tasks<T: Data, U: Data, F>(&self, stage: Stage, mut jt: JobTracker<F, U, T>)
+    where
         F: SerFunc((TasKContext, Box<dyn Iterator<Item = T>>)) -> U,
-        RT: Rdd<T> + 'static,
     {
         let mut pending_tasks = jt.pending_tasks.borrow_mut();
         let my_pending = pending_tasks
@@ -389,7 +371,7 @@ pub(crate) trait SharedScheduler {
             info!("final stage {}", stage.id);
             let mut id_in_job = 0;
             for (id, part) in jt.output_parts.iter().enumerate().take(jt.num_output_parts) {
-                let locs = self.get_preferred_locs(jt.final_rdd.clone() as Arc<dyn RddBase>, *part);
+                let locs = self.get_preferred_locs(jt.final_rdd.get_rdd_base(), *part);
                 let result_task = ResultTask::new(
                     self.get_next_task_id(),
                     jt.run_id,
@@ -401,7 +383,7 @@ pub(crate) trait SharedScheduler {
                     id,
                 );
                 my_pending.insert(Box::new(result_task.clone()));
-                self.submit_task::<T, U, RT, F>(
+                self.submit_task::<T, U, F>(
                     TaskOption::ResultTask(Box::new(result_task)),
                     id_in_job,
                     jt.thread_pool.clone(),
@@ -431,7 +413,7 @@ pub(crate) trait SharedScheduler {
                         shuffle_map_task.dep.get_shuffle_id()
                     );
                     my_pending.insert(Box::new(shuffle_map_task.clone()));
-                    self.submit_task::<T, U, RT, F>(
+                    self.submit_task::<T, U, F>(
                         TaskOption::ShuffleMapTask(Box::new(shuffle_map_task)),
                         id_in_job,
                         jt.thread_pool.clone(),
@@ -442,22 +424,27 @@ pub(crate) trait SharedScheduler {
         }
     }
 
-    fn submit_task<T: Data, U: Data, RT, F>(
+    fn submit_task<T: Data, U: Data, F>(
         &self,
         task: TaskOption,
         id_in_job: usize,
         thread_pool: Rc<ThreadPool>,
     ) where
-        F: SerFunc((TasKContext, Box<dyn Iterator<Item = T>>)) -> U,
-        RT: Rdd<T> + 'static;
+        F: SerFunc((TasKContext, Box<dyn Iterator<Item = T>>)) -> U;
 
-    // setters:
-    fn insert_into_stage_cache(&mut self, id: usize, stage: Stage);
-    fn register_shuffle(&mut self, shuffle_id: usize, num_maps: usize);
+    // mutators:
+    fn add_output_loc_to_stage(&self, stage_id: usize, partition: usize, host: String);
+    fn insert_into_stage_cache(&self, id: usize, stage: Stage);
     /// refreshes cache locations
+    fn register_shuffle(&self, shuffle_id: usize, num_maps: usize);
+    fn register_map_outputs(&self, shuffle_id: usize, locs: Vec<Option<String>>);
+    fn remove_output_loc_from_stage(&self, shuffle_id: usize, map_id: usize, server_uri: &str);
     fn update_cache_locs(&self);
+    fn unregister_map_output(&self, shuffle_id: usize, map_id: usize, server_uri: String);
 
     // getters:
+    fn fetch_from_stage_cache(&self, id: usize) -> Stage;
+    fn fetch_from_shuffle_to_cache(&self, id: usize) -> Stage;
     fn get_cache_locs(&self, rdd: Arc<dyn RddBase>) -> Option<Vec<Vec<Ipv4Addr>>>;
     fn get_missing_parent_stages(&self, stage: Stage) -> Vec<Stage>;
     fn get_next_job_id(&self) -> usize;
@@ -494,4 +481,116 @@ pub(crate) trait SharedScheduler {
     fn num_threads(&self) -> usize {
         num_cpus::get()
     }
+}
+
+macro_rules! impl_common_funcs {
+    () => {
+        fn add_output_loc_to_stage(&self, stage_id: usize, partition: usize, host: String) {
+            self.stage_cache
+                .lock()
+                .get_mut(&stage_id)
+                .unwrap()
+                .add_output_loc(partition, host);
+        }
+
+        fn insert_into_stage_cache(&self, id: usize, stage: Stage) {
+            self.stage_cache.lock().insert(id, stage.clone());
+        }
+
+        fn fetch_from_stage_cache(&self, id: usize) -> Stage {
+            self.stage_cache.lock().get(&id).unwrap().clone()
+        }
+
+        fn fetch_from_shuffle_to_cache(&self, id: usize) -> Stage {
+            self.shuffle_to_map_stage.lock().get(&id).unwrap().clone()
+        }
+
+        fn update_cache_locs(&self) {
+            let mut locs = self.cache_locs.lock();
+            *locs = env::env.cache_tracker.get_location_snapshot();
+        }
+
+        fn unregister_map_output(&self, shuffle_id: usize, map_id: usize, server_uri: String) {
+            self.map_output_tracker.unregister_map_output(
+                shuffle_id,
+                map_id,
+                server_uri
+            )
+        }
+
+        fn register_shuffle(&self, shuffle_id: usize, num_maps: usize) {
+            self.map_output_tracker.register_shuffle(
+                shuffle_id,
+                num_maps
+            )
+        }
+
+        fn register_map_outputs(&self, shuffle_id: usize, locs: Vec<Option<String>>) {
+            self.map_output_tracker.register_map_outputs(
+                shuffle_id,
+                locs
+            )
+        }
+
+        fn remove_output_loc_from_stage(&self, shuffle_id: usize, map_id: usize, server_uri: &str) {
+            self.shuffle_to_map_stage
+                .lock()
+                .get_mut(&shuffle_id)
+                .unwrap()
+                .remove_output_loc(map_id, server_uri);
+        }
+
+        fn get_cache_locs(&self, rdd: Arc<dyn RddBase>) -> Option<Vec<Vec<Ipv4Addr>>> {
+            let cache_locs = self.cache_locs.lock();
+            let locs_opt = cache_locs.get(&rdd.get_rdd_id());
+            match locs_opt {
+                Some(locs) => Some(locs.clone()),
+                None => None,
+            }
+        }
+
+        fn get_next_job_id(&self) -> usize {
+            self.next_job_id.fetch_add(1, Ordering::SeqCst)
+        }
+
+        fn get_next_stage_id(&self) -> usize {
+            self.next_stage_id.fetch_add(1, Ordering::SeqCst)
+        }
+
+        fn get_next_task_id(&self) -> usize {
+            self.next_task_id.fetch_add(1, Ordering::SeqCst)
+        }
+
+        fn get_missing_parent_stages(&self, stage: Stage) -> Vec<Stage> {
+            info!("inside get missing parent stages");
+            let mut missing: BTreeSet<Stage> = BTreeSet::new();
+            let mut visited: BTreeSet<Arc<dyn RddBase>> = BTreeSet::new();
+            self.visit_for_missing_parent_stages(&mut missing, &mut visited, stage.get_rdd());
+            missing.into_iter().collect()
+        }
+
+        fn get_shuffle_map_stage(&self, shuf: Arc<dyn ShuffleDependencyTrait>) -> Stage {
+            info!("inside get_shufflemap stage");
+            let stage = match self.shuffle_to_map_stage.lock().get(&shuf.get_shuffle_id()) {
+                Some(s) => Some(s.clone()),
+                None => None,
+            };
+            match stage {
+                Some(stage) => stage.clone(),
+                None => {
+                    info!("inside get_shufflemap stage before");
+                    let stage = self.new_stage(shuf.get_rdd_base(), Some(shuf.clone()));
+                    self.shuffle_to_map_stage
+                        .lock()
+                        .insert(shuf.get_shuffle_id(), stage.clone());
+                    info!("inside get_shufflemap return");
+                    stage
+                }
+            }
+        }
+
+        fn num_threads(&self) -> usize {
+            self.threads
+        }
+    };
 }

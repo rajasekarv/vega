@@ -55,16 +55,15 @@ impl Ord for Job {
 type PendingTasks = BTreeMap<Stage, BTreeSet<Box<dyn TaskBase>>>;
 
 /// Contains all the necessary types to run and track a job progress
-pub(crate) struct JobTracker<F, RT, U: Data, T: Data>
+pub(crate) struct JobTracker<F, U: Data, T: Data>
 where
     F: SerFunc((TasKContext, Box<dyn Iterator<Item = T>>)) -> U,
-    RT: Rdd<T> + 'static,
 {
     pub output_parts: Vec<usize>,
     pub num_output_parts: usize,
     pub final_stage: Stage,
     pub func: Arc<F>,
-    pub final_rdd: Arc<RT>,
+    pub final_rdd: Arc<dyn Rdd<Item = T>>,
     pub run_id: usize,
     pub thread_pool: Rc<ThreadPool>,
     pub waiting: Rc<RefCell<BTreeSet<Stage>>>,
@@ -76,23 +75,21 @@ where
     _marker_u: PhantomData<U>,
 }
 
-impl<RT, F, U: Data, T: Data> JobTracker<F, RT, U, T>
+impl<F, U: Data, T: Data> JobTracker<F, U, T>
 where
     F: SerFunc((TasKContext, Box<dyn Iterator<Item = T>>)) -> U,
-    RT: 'static + Rdd<T>,
 {
     pub fn from_scheduler<S>(
         scheduler: &S,
         func: Arc<F>,
-        final_rdd: Arc<RT>,
+        final_rdd: Arc<dyn Rdd<Item = T>>,
         output_parts: Vec<usize>,
-    ) -> JobTracker<F, RT, U, T>
+    ) -> JobTracker<F, U, T>
     where
-        RT: Rdd<T>,
-        S: SharedScheduler,
+        S: NativeScheduler,
     {
         let run_id = scheduler.get_next_job_id();
-        let final_stage = scheduler.new_stage(final_rdd.clone(), None);
+        let final_stage = scheduler.new_stage(final_rdd.clone().get_rdd_base(), None);
         let threadpool = Rc::new(ThreadPool::new(scheduler.num_threads()));
         JobTracker::new(
             run_id,
@@ -108,13 +105,10 @@ where
         run_id: usize,
         final_stage: Stage,
         func: Arc<F>,
-        final_rdd: Arc<RT>,
+        final_rdd: Arc<dyn Rdd<Item = T>>,
         output_parts: Vec<usize>,
         thread_pool: Rc<ThreadPool>,
-    ) -> JobTracker<F, RT, U, T>
-    where
-        RT: Rdd<T>,
-    {
+    ) -> JobTracker<F, U, T> {
         let finished: Vec<bool> = (0..output_parts.len()).map(|_| false).collect();
         let mut pending_tasks: BTreeMap<Stage, BTreeSet<Box<dyn TaskBase>>> = BTreeMap::new();
         JobTracker {
@@ -136,10 +130,9 @@ where
     }
 }
 
-impl<RT, F, U: Data, T: Data> Clone for JobTracker<F, RT, U, T>
+impl<F, U: Data, T: Data> Clone for JobTracker<F, U, T>
 where
     F: SerFunc((TasKContext, Box<dyn Iterator<Item = T>>)) -> U,
-    RT: 'static + Rdd<T>,
 {
     fn clone(&self) -> Self {
         JobTracker {

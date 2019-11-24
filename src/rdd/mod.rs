@@ -1,3 +1,4 @@
+use serde_traitobject::Arc as SerArc;
 use std::cmp::Ordering;
 use std::fs;
 use std::hash::Hash;
@@ -6,7 +7,6 @@ use std::marker::PhantomData;
 use std::net::Ipv4Addr;
 use std::path::Path;
 use std::sync::Arc;
-use serde_traitobject::Arc as SerArc;
 
 use log::info;
 use rand::{RngCore, SeedableRng};

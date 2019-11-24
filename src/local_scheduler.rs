@@ -1,6 +1,6 @@
 use super::*;
 use crate::job::JobTracker;
-use crate::scheduler::SharedScheduler;
+use crate::scheduler::NativeScheduler;
 
 use std::any::Any;
 use std::cell::RefCell;
@@ -33,7 +33,7 @@ pub struct LocalScheduler {
     next_run_id: Arc<AtomicUsize>,
     next_task_id: Arc<AtomicUsize>,
     next_stage_id: Arc<AtomicUsize>,
-    id_to_stage: Arc<Mutex<HashMap<usize, Stage>>>,
+    stage_cache: Arc<Mutex<HashMap<usize, Stage>>>,
     shuffle_to_map_stage: Arc<Mutex<HashMap<usize, Stage>>>,
     cache_locs: Arc<Mutex<HashMap<usize, Vec<Vec<Ipv4Addr>>>>>,
     master: bool,
@@ -61,7 +61,7 @@ impl LocalScheduler {
             next_run_id: Arc::new(AtomicUsize::new(0)),
             next_task_id: Arc::new(AtomicUsize::new(0)),
             next_stage_id: Arc::new(AtomicUsize::new(0)),
-            id_to_stage: Arc::new(Mutex::new(HashMap::new())),
+            stage_cache: Arc::new(Mutex::new(HashMap::new())),
             shuffle_to_map_stage: Arc::new(Mutex::new(HashMap::new())),
             cache_locs: Arc::new(Mutex::new(HashMap::new())),
             master,
@@ -77,7 +77,7 @@ impl LocalScheduler {
         }
     }
 
-    pub fn run_job<T: Data, U: Data, F, RT>(
+    pub fn run_job<T: Data, U: Data, F>(
         &self,
         func: Arc<F>,
         final_rdd: Arc<dyn Rdd<Item = T>>,
@@ -124,7 +124,7 @@ impl LocalScheduler {
 
             if let Some(mut evt) = event_option {
                 info!("event starting");
-                let stage = self.id_to_stage.lock()[&evt.task.get_stage_id()].clone();
+                let stage = self.stage_cache.lock()[&evt.task.get_stage_id()].clone();
                 info!(
                     "removing stage task from pending tasks {} {}",
                     stage.id,
@@ -188,7 +188,7 @@ impl LocalScheduler {
             .pop_front()
     }
 
-    fn run_task<T: Data, U: Data, RT, F>(
+    fn run_task<T: Data, U: Data, F>(
         event_queues: Arc<Mutex<HashMap<usize, VecDeque<CompletionEvent>>>>,
         task: Vec<u8>,
         id_in_job: usize,
@@ -253,90 +253,24 @@ impl LocalScheduler {
     }
 }
 
-impl SharedScheduler for LocalScheduler {
+impl NativeScheduler for LocalScheduler {
     /// Every single task in run in the local thread pool
-    fn submit_task<T: Data, U: Data, RT, F>(
+    fn submit_task<T: Data, U: Data, F>(
         &self,
         task: TaskOption,
         id_in_job: usize,
         thread_pool: Rc<ThreadPool>,
     ) where
         F: SerFunc((TasKContext, Box<dyn Iterator<Item = T>>)) -> U,
-        RT: Rdd<T> + 'static,
     {
         info!("inside submit task");
         let my_attempt_id = self.attempt_id.fetch_add(1, Ordering::SeqCst);
         let event_queues = self.event_queues.clone();
         let task = bincode::serialize(&task).unwrap();
         thread_pool.execute(move || {
-            LocalScheduler::run_task::<T, U, RT, F>(event_queues, task, id_in_job, my_attempt_id)
+            LocalScheduler::run_task::<T, U, F>(event_queues, task, id_in_job, my_attempt_id)
         });
     }
 
-    fn insert_into_stage_cache(&mut self, id: usize, stage: Stage) {
-        self.id_to_stage.lock().insert(id, stage.clone());
-    }
-
-    fn register_shuffle(&mut self, shuffle_id: usize, num_maps: usize) {
-        self.map_output_tracker
-            .register_shuffle(shuffle_id, num_maps);
-    }
-
-    fn update_cache_locs(&self) {
-        let mut locs = self.cache_locs.lock();
-        *locs = env::env.cache_tracker.get_location_snapshot();
-    }
-
-    fn get_cache_locs(&self, rdd: Arc<dyn RddBase>) -> Option<Vec<Vec<Ipv4Addr>>> {
-        let cache_locs = self.cache_locs.lock();
-        let locs_opt = cache_locs.get(&rdd.get_rdd_id());
-        match locs_opt {
-            Some(locs) => Some(locs.clone()),
-            None => None,
-        }
-    }
-
-    fn get_next_job_id(&self) -> usize {
-        self.next_job_id.fetch_add(1, Ordering::SeqCst)
-    }
-
-    fn get_next_stage_id(&self) -> usize {
-        self.next_stage_id.fetch_add(1, Ordering::SeqCst)
-    }
-
-    fn get_next_task_id(&self) -> usize {
-        self.next_task_id.fetch_add(1, Ordering::SeqCst)
-    }
-
-    fn get_missing_parent_stages(&self, stage: Stage) -> Vec<Stage> {
-        info!("inside get missing parent stages");
-        let mut missing: BTreeSet<Stage> = BTreeSet::new();
-        let mut visited: BTreeSet<Arc<dyn RddBase>> = BTreeSet::new();
-        self.visit_for_missing_parent_stages(&mut missing, &mut visited, stage.get_rdd());
-        missing.into_iter().collect()
-    }
-
-    fn get_shuffle_map_stage(&self, shuf: Arc<dyn ShuffleDependencyTrait>) -> Stage {
-        info!("inside get_shufflemap stage");
-        let stage = match self.shuffle_to_map_stage.lock().get(&shuf.get_shuffle_id()) {
-            Some(s) => Some(s.clone()),
-            None => None,
-        };
-        match stage {
-            Some(stage) => stage.clone(),
-            None => {
-                info!("inside get_shufflemap stage before");
-                let stage = self.new_stage(shuf.get_rdd_base(), Some(shuf.clone()));
-                self.shuffle_to_map_stage
-                    .lock()
-                    .insert(shuf.get_shuffle_id(), stage.clone());
-                info!("inside get_shufflemap return");
-                stage
-            }
-        }
-    }
-
-    fn num_threads(&self) -> usize {
-        self.threads
-    }
+    impl_common_funcs!();
 }

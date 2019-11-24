@@ -58,7 +58,9 @@ impl Schedulers {
     {
         use Schedulers::*;
         match self {
-            Distributed(local) => local.run_job(func, final_rdd, partitions, allow_local),
+            Distributed(distributed) => {
+                distributed.run_job(func, final_rdd, partitions, allow_local)
+            }
             Local(local) => local.run_job(func, final_rdd, partitions, allow_local),
         }
     }

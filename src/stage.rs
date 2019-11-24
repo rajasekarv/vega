@@ -94,12 +94,12 @@ impl Stage {
         self.output_locs[partition].push(host);
     }
 
-    pub fn remove_output_loc(&mut self, partition: usize, host: String) {
+    pub fn remove_output_loc(&mut self, partition: usize, host: &str) {
         let prev_vec = self.output_locs[partition].clone();
         let new_vec = prev_vec
             .clone()
             .into_iter()
-            .filter(|x| x != &host)
+            .filter(|x| x != host)
             .collect::<Vec<_>>();
         if (!prev_vec.is_empty()) && (new_vec.is_empty()) {
             self.num_available_outputs -= 1;
