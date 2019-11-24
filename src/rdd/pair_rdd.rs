@@ -3,7 +3,6 @@ use std::marker::PhantomData;
 use std::sync::Arc;
 use serde_traitobject::Arc as SerArc;
 
-use crate::rdd::rdd_rt;
 use crate::rdd::*;
 
 // Trait containing pair rdd methods. No need of implicit conversion like in Spark version
