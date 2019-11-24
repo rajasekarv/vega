@@ -46,16 +46,15 @@ impl Default for Schedulers {
 }
 
 impl Schedulers {
-    pub fn run_job<T: Data, U: Data, F, RT>(
+    pub fn run_job<T: Data, U: Data, F>(
         &self,
         func: Arc<F>,
-        final_rdd: Arc<RT>,
+        final_rdd: Arc<Rdd<Item =T>>,
         partitions: Vec<usize>,
         allow_local: bool,
     ) -> Result<Vec<U>>
     where
         F: SerFunc((TasKContext, Box<dyn Iterator<Item = T>>)) -> U,
-        RT: Rdd<T> + 'static,
     {
         use Schedulers::*;
         match self {
@@ -261,7 +260,7 @@ impl Context {
     }
 
     /// Load files from the local host and turn them into a parallel collection.
-    pub fn read_files<F, C, R, D: Data>(self: &Arc<Self>, config: C, func: F) -> impl Rdd<D>
+    pub fn read_files<F, C, R, D: Data>(self: &Arc<Self>, config: C, func: F) -> impl Rdd<Item = D>
     where
         F: SerFunc(R) -> D,
         C: ReaderConfiguration<R>,
@@ -272,14 +271,13 @@ impl Context {
         parallel_readers.map(func)
     }
 
-    pub fn run_job<T: Data, U: Data, RT, F>(
+    pub fn run_job<T: Data, U: Data, F>(
         self: &Arc<Self>,
-        rdd: Arc<RT>,
+        rdd: Arc<Rdd<Item = T>>,
         func: F,
     ) -> Result<Vec<U>>
     where
         F: SerFunc(Box<dyn Iterator<Item = T>>) -> U,
-        RT: Rdd<T> + 'static,
     {
         let cl = Fn!(move |(task_context, iter)| (func)(iter));
         let func = Arc::new(cl);
@@ -291,15 +289,14 @@ impl Context {
         )
     }
 
-    pub fn run_job_with_partitions<T: Data, U: Data, RT, F, P>(
+    pub fn run_job_with_partitions<T: Data, U: Data, F, P>(
         self: &Arc<Self>,
-        rdd: Arc<RT>,
+        rdd: Arc<Rdd<Item = T>>,
         func: F,
         partitions: P,
     ) -> Result<Vec<U>>
     where
         F: SerFunc(Box<dyn Iterator<Item = T>>) -> U,
-        RT: Rdd<T> + 'static,
         P: IntoIterator<Item = usize>,
     {
         let cl = Fn!(move |(task_context, iter)| (func)(iter));
@@ -307,14 +304,13 @@ impl Context {
             .run_job(Arc::new(cl), rdd, partitions.into_iter().collect(), false)
     }
 
-    pub fn run_job_with_context<T: Data, U: Data, RT, F>(
+    pub fn run_job_with_context<T: Data, U: Data, F>(
         self: &Arc<Self>,
-        rdd: Arc<RT>,
+        rdd: Arc<Rdd<Item = T>>,
         func: F,
     ) -> Result<Vec<U>>
     where
         F: SerFunc((TasKContext, Box<dyn Iterator<Item = T>>)) -> U,
-        RT: Rdd<T> + 'static,
     {
         info!("inside run job in context");
         let func = Arc::new(func);

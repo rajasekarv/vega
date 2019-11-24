@@ -323,7 +323,7 @@ impl CacheTracker {
 
     pub fn get_or_compute<T: Data>(
         &self,
-        rdd: Arc<dyn Rdd<T>>,
+        rdd: Arc<dyn Rdd<Item = T>>,
         split: Box<dyn Split>,
     ) -> Box<dyn Iterator<Item = T>> {
         if let Some(cached_val) = self.cache.get(rdd.get_rdd_id(), split.get_index()) {

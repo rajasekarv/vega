@@ -162,8 +162,8 @@ impl<T: Data> RddBase for ParallelCollection<T> {
     fn get_context(&self) -> Arc<Context> {
         self.rdd_vals.vals.context.clone()
     }
-    fn get_dependencies(&self) -> &[Dependency] {
-        &self.rdd_vals.vals.dependencies
+    fn get_dependencies(&self) -> Vec<Dependency> {
+        self.rdd_vals.vals.dependencies.clone()
     }
     fn splits(&self) -> Vec<Box<dyn Split>> {
         //        let slices = self.slice();
@@ -200,8 +200,9 @@ impl<T: Data> RddBase for ParallelCollection<T> {
     }
 }
 
-impl<T: Data> Rdd<T> for ParallelCollection<T> {
-    fn get_rdd(&self) -> Arc<Self> {
+impl<T: Data> Rdd for ParallelCollection<T> {
+    type Item = T;
+    fn get_rdd(&self) -> Arc<Rdd<Item = Self::Item>> {
         Arc::new(ParallelCollection {
             rdd_vals: self.rdd_vals.clone(),
         })
@@ -211,7 +212,7 @@ impl<T: Data> Rdd<T> for ParallelCollection<T> {
         Arc::new(self.clone()) as Arc<dyn RddBase>
     }
 
-    fn compute(&self, split: Box<dyn Split>) -> Result<Box<dyn Iterator<Item = T>>> {
+    fn compute(&self, split: Box<dyn Split>) -> Result<Box<dyn Iterator<Item = Self::Item>>> {
         if let Some(s) = split.downcast_ref::<ParallelCollectionSplit<T>>() {
             Ok(s.iterator())
         } else {

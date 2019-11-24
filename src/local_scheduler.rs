@@ -272,16 +272,15 @@ impl LocalScheduler {
         missing.into_iter().collect()
     }
 
-    pub fn run_job<T: Data, U: Data, F, RT>(
+    pub fn run_job<T: Data, U: Data, F>(
         &self,
         func: Arc<F>,
-        final_rdd: Arc<RT>,
+        final_rdd: Arc<Rdd<Item = T>>,
         partitions: Vec<usize>,
         allow_local: bool,
     ) -> Result<Vec<U>>
     where
         F: SerFunc((TasKContext, Box<dyn Iterator<Item = T>>)) -> U,
-        RT: Rdd<T> + 'static,
     {
         info!(
             "shuffle maanger in final rdd of run job {:?}",
@@ -333,7 +332,7 @@ impl LocalScheduler {
                     .remove(&evt.task);
                 use super::dag_scheduler::TastEndReason::*;
                 match evt.reason {
-                    Success => self.on_event_success::<T, U, F, RT>(
+                    Success => self.on_event_success::<T, U, F>(
                         evt,
                         &mut results,
                         &mut num_finished,
@@ -371,25 +370,24 @@ impl LocalScheduler {
             .collect())
     }
 
-    fn on_event_success<T: Data, U: Data, F, RT>(
+    fn on_event_success<T: Data, U: Data, F>(
         &self,
         mut completed_event: CompletionEvent,
         results: &mut Vec<Option<U>>,
         num_finished: &mut usize,
-        jt: JobTracker<F, RT, U, T>,
+        jt: JobTracker<F, U, T>,
     ) where
         F: SerFunc((TasKContext, Box<dyn Iterator<Item = T>>)) -> U,
-        RT: Rdd<T> + 'static,
     {
         //TODO logging
         //TODO add to Accumulator
 
         let mut result_type = completed_event
             .task
-            .downcast_ref::<ResultTask<T, U, RT, F>>()
+            .downcast_ref::<ResultTask<T, U, F>>()
             .is_some();
         if result_type {
-            if let Ok(rt) = completed_event.task.downcast::<ResultTask<T, U, RT, F>>() {
+            if let Ok(rt) = completed_event.task.downcast::<ResultTask<T, U, F>>() {
                 let result = completed_event
                     .result
                     .take()
@@ -504,14 +502,13 @@ impl LocalScheduler {
         }
     }
 
-    fn on_event_failure<T: Data, U: Data, F, RT>(
+    fn on_event_failure<T: Data, U: Data, F>(
         &self,
-        jt: JobTracker<F, RT, U, T>,
+        jt: JobTracker<F, U, T>,
         failed_vals: FetchFailedVals,
         stage_id: usize,
     ) where
         F: SerFunc((TasKContext, Box<dyn Iterator<Item = T>>)) -> U,
-        RT: Rdd<T> + 'static,
     {
         let FetchFailedVals {
             server_uri,
@@ -543,12 +540,11 @@ impl LocalScheduler {
     }
 
     /// Fast path for execution. Runs the DD in the driver main thread if possible.
-    fn local_execution<T: Data, U: Data, F, RT>(
-        jt: JobTracker<F, RT, U, T>,
+    fn local_execution<T: Data, U: Data, F>(
+        jt: JobTracker<F, U, T>,
     ) -> Result<Option<Vec<U>>>
     where
         F: SerFunc((TasKContext, Box<dyn Iterator<Item = T>>)) -> U,
-        RT: Rdd<T> + 'static,
     {
         if jt.final_stage.parents.is_empty() && (jt.num_output_parts == 1) {
             let split = (jt.final_rdd.splits()[jt.output_parts[0]]).clone();
@@ -562,10 +558,9 @@ impl LocalScheduler {
         }
     }
 
-    fn submit_stage<T: Data, U: Data, F, RT>(&self, stage: Stage, jt: JobTracker<F, RT, U, T>)
+    fn submit_stage<T: Data, U: Data, F>(&self, stage: Stage, jt: JobTracker<F, U, T>)
     where
         F: SerFunc((TasKContext, Box<dyn Iterator<Item = T>>)) -> U,
-        RT: Rdd<T> + 'static,
     {
         info!("submiting stage {}", stage.id);
         if !jt.waiting.borrow().contains(&stage) && !jt.running.borrow().contains(&stage) {
@@ -586,13 +581,12 @@ impl LocalScheduler {
         }
     }
 
-    fn submit_missing_tasks<T: Data, U: Data, F, RT>(
+    fn submit_missing_tasks<T: Data, U: Data, F>(
         &self,
         stage: Stage,
-        mut jt: JobTracker<F, RT, U, T>,
+        mut jt: JobTracker<F, U, T>,
     ) where
         F: SerFunc((TasKContext, Box<dyn Iterator<Item = T>>)) -> U,
-        RT: Rdd<T> + 'static,
     {
         let mut pending_tasks = jt.pending_tasks.borrow_mut();
         let my_pending = pending_tasks
@@ -602,7 +596,7 @@ impl LocalScheduler {
             info!("final stage {}", stage.id);
             let mut id_in_job = 0;
             for (id, part) in jt.output_parts.iter().enumerate().take(jt.num_output_parts) {
-                let locs = self.get_preferred_locs(jt.final_rdd.clone() as Arc<dyn RddBase>, *part);
+                let locs = self.get_preferred_locs(jt.final_rdd.get_rdd_base(), *part);
                 let result_task = ResultTask::new(
                     self.next_task_id.fetch_add(1, Ordering::SeqCst),
                     jt.run_id,
@@ -614,7 +608,7 @@ impl LocalScheduler {
                     id,
                 );
                 my_pending.insert(Box::new(result_task.clone()));
-                self.submit_task::<T, U, RT, F>(
+                self.submit_task::<T, U, F>(
                     TaskOption::ResultTask(Box::new(result_task)),
                     id_in_job,
                     jt.thread_pool.clone(),
@@ -644,7 +638,7 @@ impl LocalScheduler {
                         shuffle_map_task.dep.get_shuffle_id()
                     );
                     my_pending.insert(Box::new(shuffle_map_task.clone()));
-                    self.submit_task::<T, U, RT, F>(
+                    self.submit_task::<T, U, F>(
                         TaskOption::ShuffleMapTask(Box::new(shuffle_map_task)),
                         id_in_job,
                         jt.thread_pool.clone(),
@@ -696,32 +690,30 @@ impl LocalScheduler {
             .pop_front()
     }
 
-    fn submit_task<T: Data, U: Data, RT, F>(
+    fn submit_task<T: Data, U: Data, F>(
         &self,
         task: TaskOption,
         id_in_job: usize,
         thread_pool: Rc<ThreadPool>,
     ) where
         F: SerFunc((TasKContext, Box<dyn Iterator<Item = T>>)) -> U,
-        RT: Rdd<T> + 'static,
     {
         info!("inside submit task");
         let my_attempt_id = self.attempt_id.fetch_add(1, Ordering::SeqCst);
         let event_queues = self.event_queues.clone();
         let task = bincode::serialize(&task).unwrap();
         thread_pool.execute(move || {
-            LocalScheduler::run_task::<T, U, RT, F>(event_queues, task, id_in_job, my_attempt_id)
+            LocalScheduler::run_task::<T, U, F>(event_queues, task, id_in_job, my_attempt_id)
         });
     }
 
-    fn run_task<T: Data, U: Data, RT, F>(
+    fn run_task<T: Data, U: Data, F>(
         event_queues: Arc<Mutex<HashMap<usize, VecDeque<CompletionEvent>>>>,
         task: Vec<u8>,
         id_in_job: usize,
         attempt_id: usize,
     ) where
         F: SerFunc((TasKContext, Box<dyn Iterator<Item = T>>)) -> U,
-        RT: Rdd<T> + 'static,
     {
         let des_task: TaskOption = bincode::deserialize(&task).unwrap();
         let result = des_task.run(attempt_id);
@@ -731,7 +723,7 @@ impl LocalScheduler {
                     TaskResult::ResultTask(r) => r,
                     _ => panic!("wrong result type"),
                 };
-                if let Ok(task_final) = tsk.downcast::<ResultTask<T, U, RT, F>>() {
+                if let Ok(task_final) = tsk.downcast::<ResultTask<T, U, F>>() {
                     let task_final = task_final as Box<dyn TaskBase>;
                     LocalScheduler::task_ended(
                         event_queues,
@@ -763,16 +755,15 @@ impl LocalScheduler {
 type PendingTasks = BTreeMap<Stage, BTreeSet<Box<dyn TaskBase>>>;
 
 /// Contains all the necessary types to run and track a job progress
-struct JobTracker<F, RT, U: Data, T: Data>
+struct JobTracker<F, U: Data, T: Data>
 where
     F: SerFunc((TasKContext, Box<dyn Iterator<Item = T>>)) -> U,
-    RT: 'static + RddBase,
 {
     output_parts: Vec<usize>,
     num_output_parts: usize,
     final_stage: Stage,
     func: Arc<F>,
-    final_rdd: Arc<RT>,
+    final_rdd: Arc<Rdd<Item = T>>,
     run_id: usize,
     thread_pool: Rc<ThreadPool>,
     waiting: Rc<RefCell<BTreeSet<Stage>>>,
@@ -784,24 +775,23 @@ where
     _marker_u: PhantomData<U>,
 }
 
-impl<RT, F, U: Data, T: Data> JobTracker<F, RT, U, T>
+impl<F, U: Data, T: Data> JobTracker<F, U, T>
 where
     F: SerFunc((TasKContext, Box<dyn Iterator<Item = T>>)) -> U,
-    RT: 'static + RddBase,
 {
     fn new(
         scheduler: &LocalScheduler,
         func: Arc<F>,
-        final_rdd: Arc<RT>,
+        final_rdd: Arc<Rdd<Item = T>>,
         output_parts: Vec<usize>,
-    ) -> JobTracker<F, RT, U, T> {
+    ) -> JobTracker<F, U, T> {
         let run_id = scheduler.next_job_id.fetch_add(1, Ordering::SeqCst);
         let finished: Vec<bool> = (0..output_parts.len()).map(|_| false).collect();
         let mut pending_tasks: BTreeMap<Stage, BTreeSet<Box<dyn TaskBase>>> = BTreeMap::new();
         JobTracker {
             num_output_parts: output_parts.len(),
             output_parts,
-            final_stage: scheduler.new_stage(final_rdd.clone(), None),
+            final_stage: scheduler.new_stage(final_rdd.get_rdd_base(), None),
             func,
             final_rdd,
             run_id,
@@ -817,10 +807,9 @@ where
     }
 }
 
-impl<RT, F, U: Data, T: Data> Clone for JobTracker<F, RT, U, T>
+impl<F, U: Data, T: Data> Clone for JobTracker<F, U, T>
 where
     F: SerFunc((TasKContext, Box<dyn Iterator<Item = T>>)) -> U,
-    RT: 'static + RddBase,
 {
     fn clone(&self) -> Self {
         JobTracker {

@@ -136,8 +136,8 @@ impl<K: Data + Eq + Hash> RddBase for CoGroupedRdd<K> {
     fn get_context(&self) -> Arc<Context> {
         self.vals.context.clone()
     }
-    fn get_dependencies(&self) -> &[Dependency] {
-        &self.vals.dependencies
+    fn get_dependencies(&self) -> Vec<Dependency> {
+        self.vals.dependencies.clone()
     }
 
     fn splits(&self) -> Vec<Box<dyn Split>> {
@@ -186,8 +186,9 @@ impl<K: Data + Eq + Hash> RddBase for CoGroupedRdd<K> {
     }
 }
 
-impl<K: Data + Eq + Hash> Rdd<(K, Vec<Vec<Box<dyn AnyData>>>)> for CoGroupedRdd<K> {
-    fn get_rdd(&self) -> Arc<Self> {
+impl<K: Data + Eq + Hash> Rdd for CoGroupedRdd<K> {
+    type Item = (K, Vec<Vec<Box<dyn AnyData>>>);
+    fn get_rdd(&self) -> Arc<Rdd<Item = Self::Item>> {
         Arc::new(self.clone())
     }
     fn get_rdd_base(&self) -> Arc<dyn RddBase> {
@@ -197,7 +198,7 @@ impl<K: Data + Eq + Hash> Rdd<(K, Vec<Vec<Box<dyn AnyData>>>)> for CoGroupedRdd<
     fn compute(
         &self,
         split: Box<dyn Split>,
-    ) -> Result<Box<dyn Iterator<Item = (K, Vec<Vec<Box<dyn AnyData>>>)>>> {
+    ) -> Result<Box<dyn Iterator<Item = Self::Item>>> {
         if let Ok(split) = split.downcast::<CoGroupSplit>() {
             let mut agg: HashMap<K, Vec<Vec<Box<dyn AnyData>>>> = HashMap::new();
             for (dep_num, dep) in split.clone().deps.into_iter().enumerate() {

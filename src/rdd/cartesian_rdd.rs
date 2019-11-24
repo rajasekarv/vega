@@ -20,27 +20,21 @@ impl Split for CartesianSplit {
 }
 
 #[derive(Serialize, Deserialize)]
-pub struct CartesianRdd<T: Data, U: Data, RT, RU>
-where
-    RT: 'static + Rdd<T>,
-    RU: 'static + Rdd<U>,
+pub struct CartesianRdd<T: Data, U: Data>
 {
     vals: Arc<RddVals>,
     #[serde(with = "serde_traitobject")]
-    rdd1: Arc<RT>,
+    rdd1: Arc<Rdd<Item = T>>,
     #[serde(with = "serde_traitobject")]
-    rdd2: Arc<RU>,
+    rdd2: Arc<Rdd<Item = U>>,
     num_partitions_in_rdd2: usize,
     _marker_t: PhantomData<T>,
     _market_u: PhantomData<U>,
 }
 
-impl<T: Data, U: Data, RT, RU> CartesianRdd<T, U, RT, RU>
-where
-    RT: 'static + Rdd<T>,
-    RU: 'static + Rdd<U>,
+impl<T: Data, U: Data> CartesianRdd<T, U>
 {
-    pub(crate) fn new(rdd1: Arc<RT>, rdd2: Arc<RU>) -> CartesianRdd<T, U, RT, RU> {
+    pub(crate) fn new(rdd1: Arc<Rdd<Item = T>>, rdd2: Arc<Rdd<Item = U>>) -> CartesianRdd<T, U> {
         let vals = Arc::new(RddVals::new(rdd1.get_context()));
         let num_partitions_in_rdd2 = rdd2.number_of_splits();
         CartesianRdd {
@@ -54,10 +48,7 @@ where
     }
 }
 
-impl<T: Data, U: Data, RT, RU> Clone for CartesianRdd<T, U, RT, RU>
-where
-    RT: 'static + Rdd<T>,
-    RU: 'static + Rdd<U>,
+impl<T: Data, U: Data> Clone for CartesianRdd<T, U>
 {
     fn clone(&self) -> Self {
         CartesianRdd {
@@ -71,10 +62,7 @@ where
     }
 }
 
-impl<T: Data, U: Data, RT, RU> RddBase for CartesianRdd<T, U, RT, RU>
-where
-    RT: 'static + Rdd<T>,
-    RU: 'static + Rdd<U>,
+impl<T: Data, U: Data> RddBase for CartesianRdd<T, U>
 {
     fn get_rdd_id(&self) -> usize {
         self.vals.id
@@ -84,8 +72,8 @@ where
         self.vals.context.clone()
     }
 
-    fn get_dependencies(&self) -> &[Dependency] {
-        &self.vals.dependencies
+    fn get_dependencies(&self) -> Vec<Dependency> {
+        self.vals.dependencies.clone()
     }
 
     fn splits(&self) -> Vec<Box<dyn Split>> {
@@ -118,12 +106,10 @@ where
     }
 }
 
-impl<T: Data, U: Data, RT, RU> Rdd<(T, U)> for CartesianRdd<T, U, RT, RU>
-where
-    RT: 'static + Rdd<T>,
-    RU: 'static + Rdd<U>,
+impl<T: Data, U: Data> Rdd for CartesianRdd<T, U>
 {
-    fn get_rdd(&self) -> Arc<Self>
+    type Item = (T,U);
+    fn get_rdd(&self) -> Arc<Rdd<Item = Self::Item>>
     where
         Self: Sized,
     {
@@ -134,7 +120,7 @@ where
         Arc::new(self.clone()) as Arc<dyn RddBase>
     }
 
-    fn compute(&self, split: Box<dyn Split>) -> Result<Box<dyn Iterator<Item = (T, U)>>> {
+    fn compute(&self, split: Box<dyn Split>) -> Result<Box<dyn Iterator<Item = Self::Item>>> {
         let current_split = split
             .downcast::<CartesianSplit>()
             .or(Err(Error::SplitDowncast("CartesianSplit")))?;

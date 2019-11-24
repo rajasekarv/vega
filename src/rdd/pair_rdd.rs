@@ -6,14 +6,14 @@ use crate::rdd::rdd_rt;
 use crate::rdd::*;
 
 // Trait containing pair rdd methods. No need of implicit conversion like in Spark version
-pub trait PairRdd<K: Data + Eq + Hash, V: Data>: Rdd<(K, V)> + Send + Sync {
+pub trait PairRdd<K: Data + Eq + Hash, V: Data>: Rdd<Item = (K, V)> + Send + Sync {
     fn combine_by_key<C: Data>(
         &self,
         create_combiner: Box<dyn serde_traitobject::Fn(V) -> C + Send + Sync>,
         merge_value: Box<dyn serde_traitobject::Fn((C, V)) -> C + Send + Sync>,
         merge_combiners: Box<dyn serde_traitobject::Fn((C, C)) -> C + Send + Sync>,
         partitioner: Box<dyn Partitioner>,
-    ) -> ShuffledRdd<K, V, C, Self>
+    ) -> ShuffledRdd<K, V, C>
     where
         Self: Sized + Serialize + Deserialize + 'static,
     {
@@ -25,7 +25,7 @@ pub trait PairRdd<K: Data + Eq + Hash, V: Data>: Rdd<(K, V)> + Send + Sync {
         ShuffledRdd::new(self.get_rdd(), aggregator, partitioner)
     }
 
-    fn group_by_key(&self, num_splits: usize) -> ShuffledRdd<K, V, Vec<V>, Self>
+    fn group_by_key(&self, num_splits: usize) -> ShuffledRdd<K, V, Vec<V>>
     where
         Self: Sized + Serialize + Deserialize + 'static,
     {
@@ -37,7 +37,7 @@ pub trait PairRdd<K: Data + Eq + Hash, V: Data>: Rdd<(K, V)> + Send + Sync {
     fn group_by_key_using_partitioner(
         &self,
         partitioner: Box<dyn Partitioner>,
-    ) -> ShuffledRdd<K, V, Vec<V>, Self>
+    ) -> ShuffledRdd<K, V, Vec<V>>
     where
         Self: Sized + Serialize + Deserialize + 'static,
     {
@@ -55,7 +55,7 @@ pub trait PairRdd<K: Data + Eq + Hash, V: Data>: Rdd<(K, V)> + Send + Sync {
         self.combine_by_key(create_combiner, merge_value, merge_combiners, partitioner)
     }
 
-    fn reduce_by_key<F>(&self, func: F, num_splits: usize) -> ShuffledRdd<K, V, V, Self>
+    fn reduce_by_key<F>(&self, func: F, num_splits: usize) -> ShuffledRdd<K, V, V>
     where
         F: SerFunc((V, V)) -> V,
         Self: Sized + Serialize + Deserialize + 'static,
@@ -70,7 +70,7 @@ pub trait PairRdd<K: Data + Eq + Hash, V: Data>: Rdd<(K, V)> + Send + Sync {
         &self,
         func: F,
         partitioner: Box<dyn Partitioner>,
-    ) -> ShuffledRdd<K, V, V, Self>
+    ) -> ShuffledRdd<K, V, V>
     where
         F: SerFunc((V, V)) -> V,
         Self: Sized + Serialize + Deserialize + 'static,
@@ -104,7 +104,7 @@ pub trait PairRdd<K: Data + Eq + Hash, V: Data>: Rdd<(K, V)> + Send + Sync {
     fn map_values<U: Data, F: Func(V) -> U + Clone>(
         &self,
         f: F,
-    ) -> MappedValuesRdd<Self, K, V, U, F>
+    ) -> MappedValuesRdd<K, V, U, F>
     where
         Self: Sized,
     {
@@ -114,16 +114,16 @@ pub trait PairRdd<K: Data + Eq + Hash, V: Data>: Rdd<(K, V)> + Send + Sync {
     fn flat_map_values<U: Data, F: Func(V) -> Box<dyn Iterator<Item = U>> + Clone>(
         &self,
         f: F,
-    ) -> FlatMappedValuesRdd<Self, K, V, U, F>
+    ) -> FlatMappedValuesRdd<K, V, U, F>
     where
         Self: Sized,
     {
         FlatMappedValuesRdd::new(self.get_rdd(), f)
     }
 
-    fn join<W: Data, RT: Rdd<(K, W)>>(
+    fn join<W: Data>(
         &self,
-        other: RT,
+        other: Arc<Rdd<Item = (K,W)>>,
         num_splits: usize,
     ) -> rdd_rt::JoinRT<V, W, K> {
         let f = Fn!(|v: (Vec<V>, Vec<W>)| {
@@ -140,9 +140,9 @@ pub trait PairRdd<K: Data + Eq + Hash, V: Data>: Rdd<(K, V)> + Send + Sync {
         .flat_map_values(Box::new(f))
     }
 
-    fn cogroup<W: Data, RT: Rdd<(K, W)>>(
+    fn cogroup<W: Data>(
         &self,
-        other: RT,
+        other: Arc<Rdd<Item = (K,W)>>,
         partitioner: Box<dyn Partitioner>,
     ) -> rdd_rt::CoGroupedValues<V, W, K> {
         let rdds: Vec<serde_traitobject::Arc<dyn RddBase>> = vec![
@@ -176,16 +176,15 @@ pub trait PairRdd<K: Data + Eq + Hash, V: Data>: Rdd<(K, V)> + Send + Sync {
 }
 
 // Implementing the PairRdd trait for all types which implements Rdd
-impl<K: Data + Eq + Hash, V: Data, T> PairRdd<K, V> for T where T: Rdd<(K, V)> {}
+impl<K: Data + Eq + Hash, V: Data, T> PairRdd<K, V> for T where T: Rdd<Item = (K, V)> {}
 
 #[derive(Serialize, Deserialize)]
-pub struct MappedValuesRdd<RT: 'static, K: Data, V: Data, U: Data, F>
+pub struct MappedValuesRdd<K: Data, V: Data, U: Data, F>
 where
     F: Func(V) -> U + Clone,
-    RT: Rdd<(K, V)>,
 {
     #[serde(with = "serde_traitobject")]
-    prev: Arc<RT>,
+    prev: Arc<Rdd<Item = (K,V)>>,
     vals: Arc<RddVals>,
     f: F,
     _marker_t: PhantomData<K>, // phantom data is necessary because of type parameter T
@@ -193,10 +192,9 @@ where
     _marker_u: PhantomData<U>,
 }
 
-impl<RT: 'static, K: Data, V: Data, U: Data, F> Clone for MappedValuesRdd<RT, K, V, U, F>
+impl<K: Data, V: Data, U: Data, F> Clone for MappedValuesRdd<K, V, U, F>
 where
     F: Func(V) -> U + Clone,
-    RT: Rdd<(K, V)>,
 {
     fn clone(&self) -> Self {
         MappedValuesRdd {
@@ -210,12 +208,11 @@ where
     }
 }
 
-impl<RT: 'static, K: Data, V: Data, U: Data, F> MappedValuesRdd<RT, K, V, U, F>
+impl<K: Data, V: Data, U: Data, F> MappedValuesRdd<K, V, U, F>
 where
     F: Func(V) -> U + Clone,
-    RT: Rdd<(K, V)>,
 {
-    fn new(prev: Arc<RT>, f: F) -> Self {
+    fn new(prev: Arc<Rdd<Item = (K,V)>>, f: F) -> Self {
         let mut vals = RddVals::new(prev.get_context());
         vals.dependencies
             .push(Dependency::OneToOneDependency(Arc::new(
@@ -233,10 +230,9 @@ where
     }
 }
 
-impl<RT: 'static, K: Data, V: Data, U: Data, F> RddBase for MappedValuesRdd<RT, K, V, U, F>
+impl<K: Data, V: Data, U: Data, F> RddBase for MappedValuesRdd<K, V, U, F>
 where
     F: SerFunc(V) -> U,
-    RT: Rdd<(K, V)>,
 {
     fn get_rdd_id(&self) -> usize {
         self.vals.id
@@ -244,8 +240,8 @@ where
     fn get_context(&self) -> Arc<Context> {
         self.vals.context.clone()
     }
-    fn get_dependencies(&self) -> &[Dependency] {
-        &self.vals.dependencies
+    fn get_dependencies(&self) -> Vec<Dependency> {
+        self.vals.dependencies.clone()
     }
     fn splits(&self) -> Vec<Box<dyn Split>> {
         self.prev.splits()
@@ -275,18 +271,18 @@ where
     }
 }
 
-impl<RT: 'static, K: Data, V: Data, U: Data, F> Rdd<(K, U)> for MappedValuesRdd<RT, K, V, U, F>
+impl<K: Data, V: Data, U: Data, F> Rdd for MappedValuesRdd<K, V, U, F>
 where
     F: SerFunc(V) -> U,
-    RT: Rdd<(K, V)>,
 {
+    type Item = (K,U);
     fn get_rdd_base(&self) -> Arc<dyn RddBase> {
         Arc::new(self.clone()) as Arc<dyn RddBase>
     }
-    fn get_rdd(&self) -> Arc<Self> {
+    fn get_rdd(&self) -> Arc<Rdd<Item = Self::Item>> {
         Arc::new(self.clone())
     }
-    fn compute(&self, split: Box<dyn Split>) -> Result<Box<dyn Iterator<Item = (K, U)>>> {
+    fn compute(&self, split: Box<dyn Split>) -> Result<Box<dyn Iterator<Item = Self::Item>>> {
         let f = self.f.clone();
         Ok(Box::new(
             self.prev.iterator(split)?.map(move |(k, v)| (k, f(v))),
@@ -295,13 +291,12 @@ where
 }
 
 #[derive(Serialize, Deserialize)]
-pub struct FlatMappedValuesRdd<RT: 'static, K: Data, V: Data, U: Data, F>
+pub struct FlatMappedValuesRdd<K: Data, V: Data, U: Data, F>
 where
     F: Func(V) -> Box<dyn Iterator<Item = U>> + Clone,
-    RT: Rdd<(K, V)>,
 {
     #[serde(with = "serde_traitobject")]
-    prev: Arc<RT>,
+    prev: Arc<Rdd<Item = (K,V)>>,
     vals: Arc<RddVals>,
     f: F,
     _marker_t: PhantomData<K>, // phantom data is necessary because of type parameter T
@@ -309,10 +304,9 @@ where
     _marker_u: PhantomData<U>,
 }
 
-impl<RT: 'static, K: Data, V: Data, U: Data, F> Clone for FlatMappedValuesRdd<RT, K, V, U, F>
+impl<K: Data, V: Data, U: Data, F> Clone for FlatMappedValuesRdd<K, V, U, F>
 where
     F: Func(V) -> Box<dyn Iterator<Item = U>> + Clone,
-    RT: Rdd<(K, V)>,
 {
     fn clone(&self) -> Self {
         FlatMappedValuesRdd {
@@ -326,12 +320,11 @@ where
     }
 }
 
-impl<RT: 'static, K: Data, V: Data, U: Data, F> FlatMappedValuesRdd<RT, K, V, U, F>
+impl<K: Data, V: Data, U: Data, F> FlatMappedValuesRdd<K, V, U, F>
 where
     F: Func(V) -> Box<dyn Iterator<Item = U>> + Clone,
-    RT: Rdd<(K, V)>,
 {
-    fn new(prev: Arc<RT>, f: F) -> Self {
+    fn new(prev: Arc<Rdd<Item = (K,V)>>, f: F) -> Self {
         let mut vals = RddVals::new(prev.get_context());
         vals.dependencies
             .push(Dependency::OneToOneDependency(Arc::new(
@@ -350,10 +343,9 @@ where
     }
 }
 
-impl<RT: 'static, K: Data, V: Data, U: Data, F> RddBase for FlatMappedValuesRdd<RT, K, V, U, F>
+impl<K: Data, V: Data, U: Data, F> RddBase for FlatMappedValuesRdd<K, V, U, F>
 where
     F: SerFunc(V) -> Box<dyn Iterator<Item = U>>,
-    RT: Rdd<(K, V)>,
 {
     fn get_rdd_id(&self) -> usize {
         self.vals.id
@@ -361,8 +353,8 @@ where
     fn get_context(&self) -> Arc<Context> {
         self.vals.context.clone()
     }
-    fn get_dependencies(&self) -> &[Dependency] {
-        &self.vals.dependencies
+    fn get_dependencies(&self) -> Vec<Dependency> {
+        self.vals.dependencies.clone()
     }
     fn splits(&self) -> Vec<Box<dyn Split>> {
         self.prev.splits()
@@ -392,18 +384,18 @@ where
     }
 }
 
-impl<RT: 'static, K: Data, V: Data, U: Data, F> Rdd<(K, U)> for FlatMappedValuesRdd<RT, K, V, U, F>
+impl<K: Data, V: Data, U: Data, F> Rdd for FlatMappedValuesRdd<K, V, U, F>
 where
     F: SerFunc(V) -> Box<dyn Iterator<Item = U>>,
-    RT: Rdd<(K, V)>,
 {
+    type Item = (K,U);
     fn get_rdd_base(&self) -> Arc<dyn RddBase> {
         Arc::new(self.clone()) as Arc<dyn RddBase>
     }
-    fn get_rdd(&self) -> Arc<Self> {
+    fn get_rdd(&self) -> Arc<Rdd<Item = Self::Item>> {
         Arc::new(self.clone())
     }
-    fn compute(&self, split: Box<dyn Split>) -> Result<Box<dyn Iterator<Item = (K, U)>>> {
+    fn compute(&self, split: Box<dyn Split>) -> Result<Box<dyn Iterator<Item = Self::Item>>> {
         let f = self.f.clone();
         Ok(Box::new(
             self.prev

@@ -11,7 +11,7 @@ use std::sync::Arc;
 //use serde_traitobject::Any;
 
 // Revise if enum is good choice. Considering enum since down casting one trait object to another trait object is difficult.
-#[derive(Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub enum Dependency {
     #[serde(with = "serde_traitobject")]
     NarrowDependency(Arc<dyn NarrowDependencyTrait>),

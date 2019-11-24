@@ -4,9 +4,8 @@ use std::marker::PhantomData;
 use std::net::Ipv4Addr;
 use std::sync::Arc;
 #[derive(Serialize, Deserialize)]
-pub struct ResultTask<T: Data, U: Data, RT, F>
+pub struct ResultTask<T: Data, U: Data, F>
 where
-    RT: Rdd<T> + 'static,
     F: Fn((TasKContext, Box<dyn Iterator<Item = T>>)) -> U
         + 'static
         + Send
@@ -19,7 +18,7 @@ where
     pub run_id: usize,
     pub stage_id: usize,
     #[serde(with = "serde_traitobject")]
-    pub rdd: Arc<RT>,
+    pub rdd: Arc<Rdd<Item = T>>,
     pub func: Arc<F>,
     pub partition: usize,
     pub locs: Vec<Ipv4Addr>,
@@ -27,9 +26,8 @@ where
     _marker: PhantomData<T>,
 }
 
-impl<T: Data, U: Data, RT, F> Display for ResultTask<T, U, RT, F>
+impl<T: Data, U: Data, F> Display for ResultTask<T, U, F>
 where
-    RT: Rdd<T> + 'static,
     F: Fn((TasKContext, Box<dyn Iterator<Item = T>>)) -> U
         + 'static
         + Send
@@ -43,9 +41,8 @@ where
     }
 }
 
-impl<T: Data, U: Data, RT, F> ResultTask<T, U, RT, F>
+impl<T: Data, U: Data, F> ResultTask<T, U, F>
 where
-    RT: Rdd<T> + 'static,
     F: Fn((TasKContext, Box<dyn Iterator<Item = T>>)) -> U
         + 'static
         + Send
@@ -69,9 +66,8 @@ where
     }
 }
 
-impl<T: Data, U: Data, RT, F> ResultTask<T, U, RT, F>
+impl<T: Data, U: Data, F> ResultTask<T, U, F>
 where
-    RT: Rdd<T> + 'static,
     F: Fn((TasKContext, Box<dyn Iterator<Item = T>>)) -> U
         + 'static
         + Send
@@ -84,7 +80,7 @@ where
         task_id: usize,
         run_id: usize,
         stage_id: usize,
-        rdd: Arc<RT>,
+        rdd: Arc<Rdd<Item = T>>,
         func: Arc<F>,
         partition: usize,
         locs: Vec<Ipv4Addr>,
@@ -104,9 +100,8 @@ where
     }
 }
 
-impl<T: Data, U: Data, RT, F> TaskBase for ResultTask<T, U, RT, F>
+impl<T: Data, U: Data, F> TaskBase for ResultTask<T, U, F>
 where
-    RT: Rdd<T> + 'static,
     F: Fn((TasKContext, Box<dyn Iterator<Item = T>>)) -> U
         + 'static
         + Send
@@ -136,9 +131,8 @@ where
     }
 }
 
-impl<T: Data, U: Data, RT, F> Task for ResultTask<T, U, RT, F>
+impl<T: Data, U: Data, F> Task for ResultTask<T, U, F>
 where
-    RT: Rdd<T> + 'static,
     F: Fn((TasKContext, Box<dyn Iterator<Item = T>>)) -> U
         + 'static
         + Send

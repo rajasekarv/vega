@@ -12,7 +12,7 @@ pub trait Scheduler {
     ) -> Vec<U>
     where
         Self: Sized,
-        RT: Rdd<T>,
+        RT: Rdd<Item = T>,
         F: Fn(Box<dyn Iterator<Item = T>>) -> U;
     fn stop(&self);
     fn default_parallelism(&self) -> i64;

@@ -23,12 +23,10 @@ impl Split for ShuffledRddSplit {
 }
 
 #[derive(Serialize, Deserialize)]
-pub struct ShuffledRdd<K: Data + Eq + Hash, V: Data, C: Data, RT: 'static>
-where
-    RT: Rdd<(K, V)>,
+pub struct ShuffledRdd<K: Data + Eq + Hash, V: Data, C: Data>
 {
     #[serde(with = "serde_traitobject")]
-    parent: Arc<RT>,
+    parent: Arc<Rdd<Item = (K,V)>>,
     #[serde(with = "serde_traitobject")]
     aggregator: Arc<Aggregator<K, V, C>>,
     vals: Arc<RddVals>,
@@ -37,9 +35,7 @@ where
     shuffle_id: usize,
 }
 
-impl<K: Data + Eq + Hash, V: Data, C: Data, RT: 'static> Clone for ShuffledRdd<K, V, C, RT>
-where
-    RT: Rdd<(K, V)>,
+impl<K: Data + Eq + Hash, V: Data, C: Data> Clone for ShuffledRdd<K, V, C>
 {
     fn clone(&self) -> Self {
         ShuffledRdd {
@@ -52,12 +48,10 @@ where
     }
 }
 
-impl<K: Data + Eq + Hash, V: Data, C: Data, RT: 'static> ShuffledRdd<K, V, C, RT>
-where
-    RT: Rdd<(K, V)>,
+impl<K: Data + Eq + Hash, V: Data, C: Data> ShuffledRdd<K, V, C>
 {
     pub(crate) fn new(
-        parent: Arc<RT>,
+        parent: Arc<Rdd<Item = (K,V)>>,
         aggregator: Arc<Aggregator<K, V, C>>,
         part: Box<dyn Partitioner>,
     ) -> Self {
@@ -69,7 +63,7 @@ where
                 ShuffleDependency::new(
                     shuffle_id,
                     false,
-                    parent.get_rdd(),
+                    parent.get_rdd_base(),
                     aggregator.clone(),
                     part.clone(),
                 ),
@@ -85,9 +79,7 @@ where
     }
 }
 
-impl<K: Data + Eq + Hash, V: Data, C: Data, RT: 'static> RddBase for ShuffledRdd<K, V, C, RT>
-where
-    RT: Rdd<(K, V)>,
+impl<K: Data + Eq + Hash, V: Data, C: Data> RddBase for ShuffledRdd<K, V, C>
 {
     fn get_rdd_id(&self) -> usize {
         self.vals.id
@@ -95,8 +87,8 @@ where
     fn get_context(&self) -> Arc<Context> {
         self.vals.context.clone()
     }
-    fn get_dependencies(&self) -> &[Dependency] {
-        &self.vals.dependencies
+    fn get_dependencies(&self) -> Vec<Dependency> {
+        self.vals.dependencies.clone()
     }
     fn splits(&self) -> Vec<Box<dyn Split>> {
         (0..self.part.get_num_of_partitions())
@@ -130,20 +122,19 @@ where
     }
 }
 
-impl<K: Data + Eq + Hash, V: Data, C: Data, RT: 'static> Rdd<(K, C)> for ShuffledRdd<K, V, C, RT>
-where
-    RT: Rdd<(K, V)>,
+impl<K: Data + Eq + Hash, V: Data, C: Data> Rdd for ShuffledRdd<K, V, C>
 {
+    type Item = (K,C);
     fn get_rdd_base(&self) -> Arc<dyn RddBase> {
         Arc::new(self.clone()) as Arc<dyn RddBase>
     }
-    fn get_rdd(&self) -> Arc<Self> {
+    fn get_rdd(&self) -> Arc<Rdd<Item = Self::Item>> {
         Arc::new(self.clone())
     }
     //    fn partitioner<P1: Partitioner + Clone>(&self) -> Option<P1> {
     //        Some(self.part.clone())
     //    }
-    fn compute(&self, split: Box<dyn Split>) -> Result<Box<dyn Iterator<Item = (K, C)>>> {
+    fn compute(&self, split: Box<dyn Split>) -> Result<Box<dyn Iterator<Item = Self::Item>>> {
         info!("compute inside shuffled rdd");
         //        let combiners: Arc<Mutex<HashMap<K, Arc<Mutex<C>>>>> = Arc::new(Mutex::new(HashMap::new()));
         // ArcMutex is being used in combiner because it needs to sent to closure.

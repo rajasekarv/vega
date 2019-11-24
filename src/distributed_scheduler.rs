@@ -304,16 +304,15 @@ impl DistributedScheduler {
         missing.into_iter().collect()
     }
 
-    pub fn run_job<T: Data, U: Data, F, RT>(
+    pub fn run_job<T: Data, U: Data, F>(
         &self,
         func: Arc<F>,
-        final_rdd: Arc<RT>,
+        final_rdd: Arc<Rdd<Item = T>>,
         partitions: Vec<usize>,
         allow_local: bool,
     ) -> Result<Vec<U>>
     where
         F: SerFunc((TasKContext, Box<dyn Iterator<Item = T>>)) -> U,
-        RT: Rdd<T> + 'static,
     {
         info!(
             "shuffle maanger in final rdd of run job {:?}",
@@ -323,7 +322,7 @@ impl DistributedScheduler {
         let run_id = self.next_run_id.fetch_add(1, Ordering::SeqCst);
         let output_parts = partitions;
         let num_output_parts = output_parts.len();
-        let final_stage = self.new_stage(final_rdd.clone(), None);
+        let final_stage = self.new_stage(final_rdd.get_rdd_base(), None);
         let mut results: Vec<Option<U>> = (0..num_output_parts).map(|_| None).collect();
         let mut finished: Vec<bool> = (0..num_output_parts).map(|_| false).collect();
         let mut num_finished = 0;
@@ -388,10 +387,10 @@ impl DistributedScheduler {
                         // ResultTask alone done now.
                         //                        if let Some(result) = evt.get_result::<U>();
                         let result_type =
-                            evt.task.downcast_ref::<ResultTask<T, U, RT, F>>().is_some();
+                            evt.task.downcast_ref::<ResultTask<T, U, F>>().is_some();
                         //                        println!("result task in master {} {:?}", self.master, result_type);
                         if result_type {
-                            if let Ok(rt) = evt.task.downcast::<ResultTask<T, U, RT, F>>() {
+                            if let Ok(rt) = evt.task.downcast::<ResultTask<T, U, F>>() {
                                 //                                println!(
                                 //                                    "result task result before unwrapping in master {}",
                                 //                                    self.master
@@ -602,7 +601,7 @@ impl DistributedScheduler {
             .collect())
     }
 
-    fn submit_stage<T: Data, U: Data, F, RT>(
+    fn submit_stage<T: Data, U: Data, F>(
         &self,
         stage: Stage,
         waiting: &mut BTreeSet<Stage>,
@@ -613,12 +612,11 @@ impl DistributedScheduler {
         num_output_parts: usize,
         final_stage: Stage,
         func: Arc<F>,
-        final_rdd: Arc<RT>,
+        final_rdd: Arc<Rdd<Item = T>>,
         run_id: usize,
         thread_pool: Arc<ThreadPool>,
     ) where
         F: SerFunc((TasKContext, Box<dyn Iterator<Item = T>>)) -> U,
-        RT: Rdd<T> + 'static,
     {
         info!("submiting stage {}", stage.id);
         if !waiting.contains(&stage) && !running.contains(&stage) {
@@ -663,7 +661,7 @@ impl DistributedScheduler {
         }
     }
 
-    fn submit_missing_tasks<T: Data, U: Data, F, RT>(
+    fn submit_missing_tasks<T: Data, U: Data, F>(
         &self,
         stage: Stage,
         finished: &mut Vec<bool>,
@@ -672,12 +670,11 @@ impl DistributedScheduler {
         num_output_parts: usize,
         final_stage: Stage,
         func: Arc<F>,
-        final_rdd: Arc<RT>,
+        final_rdd: Arc<Rdd<Item = T>>,
         run_id: usize,
         thread_pool: Arc<ThreadPool>,
     ) where
         F: SerFunc((TasKContext, Box<dyn Iterator<Item = T>>)) -> U,
-        RT: Rdd<T> + 'static,
     {
         let my_pending = pending_tasks
             .entry(stage.clone())
@@ -687,7 +684,7 @@ impl DistributedScheduler {
             info!("final stage {}", stage.id);
             let mut id_in_job = 0;
             for (id, part) in output_parts.iter().enumerate().take(num_output_parts) {
-                let locs = self.get_preferred_locs(final_rdd.clone() as Arc<dyn RddBase>, *part);
+                let locs = self.get_preferred_locs(final_rdd.get_rdd_base(), *part);
                 let result_task = ResultTask::new(
                     self.next_task_id.fetch_add(1, Ordering::SeqCst),
                     run_id,
@@ -699,7 +696,7 @@ impl DistributedScheduler {
                     id,
                 );
                 my_pending.insert(Box::new(result_task.clone()));
-                self.submit_task::<T, U, RT, F>(
+                self.submit_task::<T, U, F>(
                     TaskOption::ResultTask(Box::new(result_task)),
                     id_in_job,
                     thread_pool.clone(),
@@ -729,7 +726,7 @@ impl DistributedScheduler {
                         shuffle_map_task.dep.get_shuffle_id()
                     );
                     my_pending.insert(Box::new(shuffle_map_task.clone()));
-                    self.submit_task::<T, U, RT, F>(
+                    self.submit_task::<T, U, F>(
                         TaskOption::ShuffleMapTask(Box::new(shuffle_map_task)),
                         id_in_job,
                         thread_pool.clone(),
@@ -780,14 +777,13 @@ impl DistributedScheduler {
             .pop_front()
     }
 
-    fn submit_task<T: Data, U: Data, RT, F>(
+    fn submit_task<T: Data, U: Data, F>(
         &self,
         task: TaskOption,
         id_in_job: usize,
         thread_pool: Arc<ThreadPool>,
     ) where
         F: SerFunc((TasKContext, Box<dyn Iterator<Item = T>>)) -> U,
-        RT: Rdd<T> + 'static,
     {
         info!("inside submit task");
         let my_attempt_id = self.attempt_id.fetch_add(1, Ordering::SeqCst);
@@ -861,7 +857,7 @@ impl DistributedScheduler {
                             TaskResult::ResultTask(r) => r,
                             _ => panic!("wrong result type"),
                         };
-                        if let Ok(task_final) = tsk.downcast::<ResultTask<T, U, RT, F>>() {
+                        if let Ok(task_final) = tsk.downcast::<ResultTask<T, U, F>>() {
                             let task_final = task_final as Box<dyn TaskBase>;
                             DistributedScheduler::task_ended(
                                 event_queues_clone,

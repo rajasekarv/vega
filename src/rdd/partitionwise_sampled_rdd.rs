@@ -2,12 +2,10 @@ use crate::error::*;
 use crate::rdd::*;
 
 #[derive(Serialize, Deserialize)]
-pub struct PartitionwiseSampledRdd<RT, T: Data>
-where
-    RT: 'static + Rdd<T>,
+pub struct PartitionwiseSampledRdd<T: Data>
 {
     #[serde(with = "serde_traitobject")]
-    prev: Arc<RT>,
+    prev: Arc<Rdd<Item = T>>,
     vals: Arc<RddVals>,
     #[serde(with = "serde_traitobject")]
     sampler: Arc<dyn RandomSampler<T>>,
@@ -15,19 +13,17 @@ where
     _marker_t: PhantomData<T>,
 }
 
-impl<RT: 'static, T: Data> PartitionwiseSampledRdd<RT, T>
-where
-    RT: Rdd<T>,
+impl<T: Data> PartitionwiseSampledRdd<T>
 {
     pub(crate) fn new(
-        prev: Arc<RT>,
+        prev: Arc<Rdd<Item = T>>,
         sampler: Arc<dyn RandomSampler<T>>,
         preserves_partitioning: bool,
     ) -> Self {
         let mut vals = RddVals::new(prev.get_context());
         vals.dependencies
             .push(Dependency::OneToOneDependency(Arc::new(
-                OneToOneDependencyVals::new(prev.get_rdd()),
+                OneToOneDependencyVals::new(prev.get_rdd_base()),
             )));
         let vals = Arc::new(vals);
 
@@ -41,9 +37,7 @@ where
     }
 }
 
-impl<RT: 'static, T: Data> Clone for PartitionwiseSampledRdd<RT, T>
-where
-    RT: Rdd<T>,
+impl<T: Data> Clone for PartitionwiseSampledRdd<T>
 {
     fn clone(&self) -> Self {
         PartitionwiseSampledRdd {
@@ -56,9 +50,7 @@ where
     }
 }
 
-impl<RT: 'static, T: Data> RddBase for PartitionwiseSampledRdd<RT, T>
-where
-    RT: Rdd<T>,
+impl<T: Data> RddBase for PartitionwiseSampledRdd<T>
 {
     fn get_rdd_id(&self) -> usize {
         self.vals.id
@@ -68,8 +60,8 @@ where
         self.vals.context.clone()
     }
 
-    fn get_dependencies(&self) -> &[Dependency] {
-        &self.vals.dependencies
+    fn get_dependencies(&self) -> Vec<Dependency> {
+        self.vals.dependencies.clone()
     }
 
     fn splits(&self) -> Vec<Box<dyn Split>> {
@@ -107,9 +99,7 @@ where
     }
 }
 
-impl<RT: 'static, T: Data, V: Data> RddBase for PartitionwiseSampledRdd<RT, (T, V)>
-where
-    RT: Rdd<(T, V)>,
+impl<T: Data, V: Data> RddBase for PartitionwiseSampledRdd<(T, V)>
 {
     fn cogroup_iterator_any(
         &self,
@@ -122,19 +112,18 @@ where
     }
 }
 
-impl<RT: 'static, T: Data> Rdd<T> for PartitionwiseSampledRdd<RT, T>
-where
-    RT: Rdd<T>,
+impl<T: Data> Rdd for PartitionwiseSampledRdd<T>
 {
+    type Item  = T;
     fn get_rdd_base(&self) -> Arc<dyn RddBase> {
         Arc::new(self.clone()) as Arc<dyn RddBase>
     }
 
-    fn get_rdd(&self) -> Arc<Self> {
+    fn get_rdd(&self) -> Arc<Rdd<Item = Self::Item>> {
         Arc::new(self.clone())
     }
 
-    fn compute(&self, split: Box<dyn Split>) -> Result<Box<dyn Iterator<Item = T>>> {
+    fn compute(&self, split: Box<dyn Split>) -> Result<Box<dyn Iterator<Item = Self::Item>>> {
         let sampler_func = self.sampler.get_sampler();
         let iter = self.prev.iterator(split)?;
         Ok(Box::new(sampler_func(iter).into_iter()) as Box<dyn Iterator<Item = T>>)
