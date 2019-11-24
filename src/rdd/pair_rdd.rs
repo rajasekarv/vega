@@ -121,9 +121,9 @@ pub trait PairRdd<K: Data + Eq + Hash, V: Data>: Rdd<Item = (K, V)> + Send + Syn
         FlatMappedValuesRdd::new(self.get_rdd(), f)
     }
 
-    fn join<W: Data>(
+    fn join<W: Data, RT: Into<Arc<Rdd<Item = (K,W)>>>>(
         &self,
-        other: Arc<Rdd<Item = (K,W)>>,
+        other: RT,
         num_splits: usize,
     ) -> rdd_rt::JoinRT<V, W, K> {
         let f = Fn!(|v: (Vec<V>, Vec<W>)| {
@@ -140,14 +140,14 @@ pub trait PairRdd<K: Data + Eq + Hash, V: Data>: Rdd<Item = (K, V)> + Send + Syn
         .flat_map_values(Box::new(f))
     }
 
-    fn cogroup<W: Data>(
+    fn cogroup<W: Data, RT:Into<Arc<Rdd<Item = (K,W)>>>>(
         &self,
-        other: Arc<Rdd<Item = (K,W)>>,
+        other: RT,
         partitioner: Box<dyn Partitioner>,
     ) -> rdd_rt::CoGroupedValues<V, W, K> {
         let rdds: Vec<serde_traitobject::Arc<dyn RddBase>> = vec![
             serde_traitobject::Arc::from(self.get_rdd_base()),
-            serde_traitobject::Arc::from(other.get_rdd_base()),
+            serde_traitobject::Arc::from(other.into().get_rdd_base()),
         ];
         let cg_rdd = CoGroupedRdd::<K>::new(rdds, partitioner);
         let f = Fn!(|v: Vec<Vec<Box<dyn AnyData>>>| -> (Vec<V>, Vec<W>) {

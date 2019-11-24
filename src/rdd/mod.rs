@@ -348,12 +348,11 @@ pub trait Rdd: RddBase + 'static{
 
     /// Return the Cartesian product of this RDD and another one, that is, the RDD of all pairs of
     /// elements (a, b) where a is in `this` and b is in `other`.
-    fn cartesian<O, U: Data>(&self, other: Arc<Rdd<Item = U>>) -> CartesianRdd<Self::Item, U>
+    fn cartesian<U: Data>(&self, other: serde_traitobject::Arc<Rdd<Item = U>>) -> CartesianRdd<Self::Item, U>
     where
         Self:  Sized,
     {
-        unimplemented!()
-        // CartesianRdd::new(self.get_rdd(), Arc::new(other))
+        CartesianRdd::new(self.get_rdd(), other)
     }
 
     fn collect(&self) -> Result<Vec<Self::Item>>
@@ -384,22 +383,21 @@ pub trait Rdd: RddBase + 'static{
     }
 
     /// Return a new RDD containing the distinct elements in this RDD.
-    fn distinct_with_num_partitions(&self, num_partitions: usize) -> rdd_rt::DistinctRT<Self::Item>
+    fn distinct_with_num_partitions(&self, num_partitions: usize) -> serde_traitobject::Arc<Rdd<Item = Self::Item>>
     where
         Self: Sized,
         Self::Item: Data + Eq + Hash,
     {
-        unimplemented!()
-        // self.map(Box::new(Fn!(|x| (Some(x), None))) as Box<dyn Func(Self::Item) -> (Option<Self::Item>, Option<Self::Item>)>)
-        //     .reduce_by_key(Box::new(Fn!(|(x, y)| y)), num_partitions)
-        //     .map(Box::new(Fn!(|x: (Option<Self::Item>, Option<Self::Item>)| {
-        //         let (x, y) = x;
-        //         x.unwrap()
-        //     })))
+        self.map(Box::new(Fn!(|x| (Some(x), None))) as Box<dyn Func(Self::Item) -> (Option<Self::Item>, Option<Self::Item>)>)
+            .reduce_by_key(Box::new(Fn!(|(x, y)| y)), num_partitions)
+            .map(Box::new(Fn!(|x: (Option<Self::Item>, Option<Self::Item>)| {
+                let (x, y) = x;
+                x.unwrap()
+            })))
     }
 
     /// Return a new RDD containing the distinct elements in this RDD.
-    fn distinct(&self) -> rdd_rt::DistinctRT<Self::Item>
+    fn distinct(&self) -> serde_traitobject::Arc<Rdd<Item = Self::Item>>
     where
         Self: Sized,
         Self::Item: Data + Eq + Hash,

@@ -246,7 +246,7 @@ impl Context {
         self: &Arc<Self>,
         seq: Vec<T>,
         num_slices: usize,
-    ) -> ParallelCollection<T> {
+    ) -> serde_traitobject::Arc<Rdd<Item = T>> {
         //let num_slices = seq.len() / num_slices;
         self.parallelize(seq, num_slices)
     }
@@ -255,8 +255,8 @@ impl Context {
         self: &Arc<Self>,
         seq: Vec<T>,
         num_slices: usize,
-    ) -> ParallelCollection<T> {
-        ParallelCollection::new(self.clone(), seq, num_slices)
+    ) -> serde_traitobject::Arc<Rdd<Item = T>> {
+        serde_traitobject::Arc::new(ParallelCollection::new(self.clone(), seq, num_slices))
     }
 
     /// Load files from the local host and turn them into a parallel collection.
