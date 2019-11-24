@@ -352,7 +352,7 @@ pub trait Rdd: RddBase + 'static{
     where
         Self:  Sized,
     {
-        CartesianRdd::new(self.get_rdd(), other)
+        CartesianRdd::new(self.get_rdd(), other.into())
     }
 
     fn collect(&self) -> Result<Vec<Self::Item>>

@@ -34,13 +34,13 @@ pub struct CartesianRdd<T: Data, U: Data>
 
 impl<T: Data, U: Data> CartesianRdd<T, U>
 {
-    pub(crate) fn new(rdd1: Arc<dyn Rdd<Item = T>>, rdd2: serde_traitobject::Arc<dyn Rdd<Item = U>>) -> CartesianRdd<T, U> {
+    pub(crate) fn new(rdd1: Arc<dyn Rdd<Item = T>>, rdd2: Arc<dyn Rdd<Item = U>>) -> CartesianRdd<T, U> {
         let vals = Arc::new(RddVals::new(rdd1.get_context()));
         let num_partitions_in_rdd2 = rdd2.number_of_splits();
         CartesianRdd {
             vals,
             rdd1,
-            rdd2:rdd2.into(),
+            rdd2,
             num_partitions_in_rdd2,
             _marker_t: PhantomData,
             _market_u: PhantomData,
