@@ -275,7 +275,7 @@ impl LocalScheduler {
     pub fn run_job<T: Data, U: Data, F>(
         &self,
         func: Arc<F>,
-        final_rdd: Arc<Rdd<Item = T>>,
+        final_rdd: Arc<dyn Rdd<Item = T>>,
         partitions: Vec<usize>,
         allow_local: bool,
     ) -> Result<Vec<U>>
@@ -763,7 +763,7 @@ where
     num_output_parts: usize,
     final_stage: Stage,
     func: Arc<F>,
-    final_rdd: Arc<Rdd<Item = T>>,
+    final_rdd: Arc<dyn Rdd<Item = T>>,
     run_id: usize,
     thread_pool: Rc<ThreadPool>,
     waiting: Rc<RefCell<BTreeSet<Stage>>>,
@@ -782,7 +782,7 @@ where
     fn new(
         scheduler: &LocalScheduler,
         func: Arc<F>,
-        final_rdd: Arc<Rdd<Item = T>>,
+        final_rdd: Arc<dyn Rdd<Item = T>>,
         output_parts: Vec<usize>,
     ) -> JobTracker<F, U, T> {
         let run_id = scheduler.next_job_id.fetch_add(1, Ordering::SeqCst);

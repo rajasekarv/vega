@@ -26,7 +26,7 @@ impl Split for ShuffledRddSplit {
 pub struct ShuffledRdd<K: Data + Eq + Hash, V: Data, C: Data>
 {
     #[serde(with = "serde_traitobject")]
-    parent: Arc<Rdd<Item = (K,V)>>,
+    parent: Arc<dyn Rdd<Item = (K,V)>>,
     #[serde(with = "serde_traitobject")]
     aggregator: Arc<Aggregator<K, V, C>>,
     vals: Arc<RddVals>,
@@ -51,7 +51,7 @@ impl<K: Data + Eq + Hash, V: Data, C: Data> Clone for ShuffledRdd<K, V, C>
 impl<K: Data + Eq + Hash, V: Data, C: Data> ShuffledRdd<K, V, C>
 {
     pub(crate) fn new(
-        parent: Arc<Rdd<Item = (K,V)>>,
+        parent: Arc<dyn Rdd<Item = (K,V)>>,
         aggregator: Arc<Aggregator<K, V, C>>,
         part: Box<dyn Partitioner>,
     ) -> Self {
@@ -128,7 +128,7 @@ impl<K: Data + Eq + Hash, V: Data, C: Data> Rdd for ShuffledRdd<K, V, C>
     fn get_rdd_base(&self) -> Arc<dyn RddBase> {
         Arc::new(self.clone()) as Arc<dyn RddBase>
     }
-    fn get_rdd(&self) -> Arc<Rdd<Item = Self::Item>> {
+    fn get_rdd(&self) -> Arc<dyn Rdd<Item = Self::Item>> {
         Arc::new(self.clone())
     }
     //    fn partitioner<P1: Partitioner + Clone>(&self) -> Option<P1> {

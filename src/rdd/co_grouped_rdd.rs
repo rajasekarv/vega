@@ -188,7 +188,7 @@ impl<K: Data + Eq + Hash> RddBase for CoGroupedRdd<K> {
 
 impl<K: Data + Eq + Hash> Rdd for CoGroupedRdd<K> {
     type Item = (K, Vec<Vec<Box<dyn AnyData>>>);
-    fn get_rdd(&self) -> Arc<Rdd<Item = Self::Item>> {
+    fn get_rdd(&self) -> Arc<dyn Rdd<Item = Self::Item>> {
         Arc::new(self.clone())
     }
     fn get_rdd_base(&self) -> Arc<dyn RddBase> {

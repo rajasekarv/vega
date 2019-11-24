@@ -202,7 +202,7 @@ impl<T: Data> RddBase for ParallelCollection<T> {
 
 impl<T: Data> Rdd for ParallelCollection<T> {
     type Item = T;
-    fn get_rdd(&self) -> Arc<Rdd<Item = Self::Item>> {
+    fn get_rdd(&self) -> Arc<dyn Rdd<Item = Self::Item>> {
         Arc::new(ParallelCollection {
             rdd_vals: self.rdd_vals.clone(),
         })

@@ -174,7 +174,7 @@ impl<I: Rdd + ?Sized> RddBase for serde_traitobject::Arc<I> {
 
 impl<I: Rdd + ?Sized> Rdd for serde_traitobject::Arc<I> {
     type Item = I::Item;
-    fn get_rdd(&self) -> Arc<Rdd<Item = Self::Item>>{
+    fn get_rdd(&self) -> Arc<dyn Rdd<Item = Self::Item>>{
         (**self).get_rdd()
     }
     fn get_rdd_base(&self) -> Arc<dyn RddBase>{
@@ -189,7 +189,7 @@ impl<I: Rdd + ?Sized> Rdd for serde_traitobject::Arc<I> {
 // Rdd containing methods associated with processing
 pub trait Rdd: RddBase + 'static{
     type Item:Data;
-    fn get_rdd(&self) -> Arc<Rdd<Item = Self::Item>>;
+    fn get_rdd(&self) -> Arc<dyn Rdd<Item = Self::Item>>;
 
     fn get_rdd_base(&self) -> Arc<dyn RddBase>;
 
@@ -199,7 +199,7 @@ pub trait Rdd: RddBase + 'static{
 
     fn compute(&self, split: Box<dyn Split>) -> Result<Box<dyn Iterator<Item = Self::Item>>>;
 
-    fn map<U: Data, F>(&self, f: F) -> serde_traitobject::Arc<Rdd<Item = U>>
+    fn map<U: Data, F>(&self, f: F) -> serde_traitobject::Arc<dyn Rdd<Item = U>>
     where
         F: SerFunc(Self::Item) -> U,
         Self: Sized,
@@ -348,7 +348,7 @@ pub trait Rdd: RddBase + 'static{
 
     /// Return the Cartesian product of this RDD and another one, that is, the RDD of all pairs of
     /// elements (a, b) where a is in `this` and b is in `other`.
-    fn cartesian<U: Data>(&self, other: serde_traitobject::Arc<Rdd<Item = U>>) -> CartesianRdd<Self::Item, U>
+    fn cartesian<U: Data>(&self, other: serde_traitobject::Arc<dyn Rdd<Item = U>>) -> CartesianRdd<Self::Item, U>
     where
         Self:  Sized,
     {
@@ -383,7 +383,7 @@ pub trait Rdd: RddBase + 'static{
     }
 
     /// Return a new RDD containing the distinct elements in this RDD.
-    fn distinct_with_num_partitions(&self, num_partitions: usize) -> serde_traitobject::Arc<Rdd<Item = Self::Item>>
+    fn distinct_with_num_partitions(&self, num_partitions: usize) -> serde_traitobject::Arc<dyn Rdd<Item = Self::Item>>
     where
         Self: Sized,
         Self::Item: Data + Eq + Hash,
@@ -397,7 +397,7 @@ pub trait Rdd: RddBase + 'static{
     }
 
     /// Return a new RDD containing the distinct elements in this RDD.
-    fn distinct(&self) -> serde_traitobject::Arc<Rdd<Item = Self::Item>>
+    fn distinct(&self) -> serde_traitobject::Arc<dyn Rdd<Item = Self::Item>>
     where
         Self: Sized,
         Self::Item: Data + Eq + Hash,
@@ -615,7 +615,7 @@ where
     F: Func(T) -> U + Clone,
 {
     #[serde(with = "serde_traitobject")]
-    prev: Arc<Rdd<Item = T>>,
+    prev: Arc<dyn Rdd<Item = T>>,
     vals: Arc<RddVals>,
     f: F,
     _marker_t: PhantomData<T>, // phantom data is necessary because of type parameter T
@@ -640,7 +640,7 @@ impl<T: Data, U: Data, F> MapperRdd<T, U, F>
 where
     F: SerFunc(T) -> U,
 {
-    fn new(prev: Arc<Rdd<Item = T>>, f: F) -> Self {
+    fn new(prev: Arc<dyn Rdd<Item = T>>, f: F) -> Self {
         let mut vals = RddVals::new(prev.get_context());
         vals.dependencies
             .push(Dependency::OneToOneDependency(Arc::new(
@@ -721,7 +721,7 @@ where
         Arc::new(self.clone()) as Arc<dyn RddBase>
     }
 
-    fn get_rdd(&self) -> Arc<Rdd<Item = Self::Item>> {
+    fn get_rdd(&self) -> Arc<dyn Rdd<Item = Self::Item>> {
         Arc::new(self.clone())
     }
 
@@ -736,7 +736,7 @@ where
     F: Func(T) -> Box<dyn Iterator<Item = U>> + Clone,
 {
     #[serde(with = "serde_traitobject")]
-    prev: Arc<Rdd<Item = T>>,
+    prev: Arc<dyn Rdd<Item = T>>,
     vals: Arc<RddVals>,
     f: F,
     _marker_t: PhantomData<T>, // phantom data is necessary because of type parameter T
@@ -760,7 +760,7 @@ impl<T: Data, U: Data, F> FlatMapperRdd<T, U, F>
 where
     F: SerFunc(T) -> Box<dyn Iterator<Item = U>>,
 {
-    fn new(prev: Arc<Rdd<Item = T>>, f: F) -> Self {
+    fn new(prev: Arc<dyn Rdd<Item = T>>, f: F) -> Self {
         let mut vals = RddVals::new(prev.get_context());
         vals.dependencies
             .push(Dependency::OneToOneDependency(Arc::new(
@@ -842,7 +842,7 @@ where
         Arc::new(self.clone()) as Arc<dyn RddBase>
     }
 
-    fn get_rdd(&self) -> Arc<Rdd<Item = Self::Item>> {
+    fn get_rdd(&self) -> Arc<dyn Rdd<Item = Self::Item>> {
         Arc::new(self.clone())
     }
 

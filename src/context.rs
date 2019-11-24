@@ -49,7 +49,7 @@ impl Schedulers {
     pub fn run_job<T: Data, U: Data, F>(
         &self,
         func: Arc<F>,
-        final_rdd: Arc<Rdd<Item =T>>,
+        final_rdd: Arc<dyn Rdd<Item =T>>,
         partitions: Vec<usize>,
         allow_local: bool,
     ) -> Result<Vec<U>>
@@ -246,7 +246,7 @@ impl Context {
         self: &Arc<Self>,
         seq: Vec<T>,
         num_slices: usize,
-    ) -> serde_traitobject::Arc<Rdd<Item = T>> {
+    ) -> serde_traitobject::Arc<dyn Rdd<Item = T>> {
         //let num_slices = seq.len() / num_slices;
         self.parallelize(seq, num_slices)
     }
@@ -255,7 +255,7 @@ impl Context {
         self: &Arc<Self>,
         seq: Vec<T>,
         num_slices: usize,
-    ) -> serde_traitobject::Arc<Rdd<Item = T>> {
+    ) -> serde_traitobject::Arc<dyn Rdd<Item = T>> {
         serde_traitobject::Arc::new(ParallelCollection::new(self.clone(), seq, num_slices))
     }
 
@@ -273,7 +273,7 @@ impl Context {
 
     pub fn run_job<T: Data, U: Data, F>(
         self: &Arc<Self>,
-        rdd: Arc<Rdd<Item = T>>,
+        rdd: Arc<dyn Rdd<Item = T>>,
         func: F,
     ) -> Result<Vec<U>>
     where
@@ -291,7 +291,7 @@ impl Context {
 
     pub fn run_job_with_partitions<T: Data, U: Data, F, P>(
         self: &Arc<Self>,
-        rdd: Arc<Rdd<Item = T>>,
+        rdd: Arc<dyn Rdd<Item = T>>,
         func: F,
         partitions: P,
     ) -> Result<Vec<U>>
@@ -306,7 +306,7 @@ impl Context {
 
     pub fn run_job_with_context<T: Data, U: Data, F>(
         self: &Arc<Self>,
-        rdd: Arc<Rdd<Item = T>>,
+        rdd: Arc<dyn Rdd<Item = T>>,
         func: F,
     ) -> Result<Vec<U>>
     where

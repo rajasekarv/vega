@@ -24,9 +24,9 @@ pub struct CartesianRdd<T: Data, U: Data>
 {
     vals: Arc<RddVals>,
     #[serde(with = "serde_traitobject")]
-    rdd1: Arc<Rdd<Item = T>>,
+    rdd1: Arc<dyn Rdd<Item = T>>,
     #[serde(with = "serde_traitobject")]
-    rdd2: Arc<Rdd<Item = U>>,
+    rdd2: Arc<dyn Rdd<Item = U>>,
     num_partitions_in_rdd2: usize,
     _marker_t: PhantomData<T>,
     _market_u: PhantomData<U>,
@@ -34,7 +34,7 @@ pub struct CartesianRdd<T: Data, U: Data>
 
 impl<T: Data, U: Data> CartesianRdd<T, U>
 {
-    pub(crate) fn new(rdd1: Arc<Rdd<Item = T>>, rdd2: serde_traitobject::Arc<Rdd<Item = U>>) -> CartesianRdd<T, U> {
+    pub(crate) fn new(rdd1: Arc<dyn Rdd<Item = T>>, rdd2: serde_traitobject::Arc<dyn Rdd<Item = U>>) -> CartesianRdd<T, U> {
         let vals = Arc::new(RddVals::new(rdd1.get_context()));
         let num_partitions_in_rdd2 = rdd2.number_of_splits();
         CartesianRdd {
@@ -109,7 +109,7 @@ impl<T: Data, U: Data> RddBase for CartesianRdd<T, U>
 impl<T: Data, U: Data> Rdd for CartesianRdd<T, U>
 {
     type Item = (T,U);
-    fn get_rdd(&self) -> Arc<Rdd<Item = Self::Item>>
+    fn get_rdd(&self) -> Arc<dyn Rdd<Item = Self::Item>>
     where
         Self: Sized,
     {

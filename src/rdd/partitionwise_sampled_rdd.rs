@@ -5,7 +5,7 @@ use crate::rdd::*;
 pub struct PartitionwiseSampledRdd<T: Data>
 {
     #[serde(with = "serde_traitobject")]
-    prev: Arc<Rdd<Item = T>>,
+    prev: Arc<dyn Rdd<Item = T>>,
     vals: Arc<RddVals>,
     #[serde(with = "serde_traitobject")]
     sampler: Arc<dyn RandomSampler<T>>,
@@ -16,7 +16,7 @@ pub struct PartitionwiseSampledRdd<T: Data>
 impl<T: Data> PartitionwiseSampledRdd<T>
 {
     pub(crate) fn new(
-        prev: Arc<Rdd<Item = T>>,
+        prev: Arc<dyn Rdd<Item = T>>,
         sampler: Arc<dyn RandomSampler<T>>,
         preserves_partitioning: bool,
     ) -> Self {
@@ -119,7 +119,7 @@ impl<T: Data> Rdd for PartitionwiseSampledRdd<T>
         Arc::new(self.clone()) as Arc<dyn RddBase>
     }
 
-    fn get_rdd(&self) -> Arc<Rdd<Item = Self::Item>> {
+    fn get_rdd(&self) -> Arc<dyn Rdd<Item = Self::Item>> {
         Arc::new(self.clone())
     }
 

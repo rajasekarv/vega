@@ -18,7 +18,7 @@ where
     pub run_id: usize,
     pub stage_id: usize,
     #[serde(with = "serde_traitobject")]
-    pub rdd: Arc<Rdd<Item = T>>,
+    pub rdd: Arc<dyn Rdd<Item = T>>,
     pub func: Arc<F>,
     pub partition: usize,
     pub locs: Vec<Ipv4Addr>,
@@ -80,7 +80,7 @@ where
         task_id: usize,
         run_id: usize,
         stage_id: usize,
-        rdd: Arc<Rdd<Item = T>>,
+        rdd: Arc<dyn Rdd<Item = T>>,
         func: Arc<F>,
         partition: usize,
         locs: Vec<Ipv4Addr>,

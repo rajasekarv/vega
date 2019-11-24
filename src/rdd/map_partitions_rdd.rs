@@ -8,7 +8,7 @@ where
     F: Func(Box<dyn Iterator<Item = T>>) -> Box<dyn Iterator<Item = U>> + Clone,
 {
     #[serde(with = "serde_traitobject")]
-    prev: Arc<Rdd<Item = T>>,
+    prev: Arc<dyn Rdd<Item = T>>,
     vals: Arc<RddVals>,
     f: F,
     _marker_t: PhantomData<T>,
@@ -32,7 +32,7 @@ impl<T: Data, U: Data, F> MapPartitionsRdd<T, U, F>
 where
     F: SerFunc(Box<dyn Iterator<Item = T>>) -> Box<dyn Iterator<Item = U>>,
 {
-    pub fn new(prev: Arc<Rdd<Item = T>>, f: F) -> Self {
+    pub fn new(prev: Arc<dyn Rdd<Item = T>>, f: F) -> Self {
         let mut vals = RddVals::new(prev.get_context());
         vals.dependencies
             .push(Dependency::OneToOneDependency(Arc::new(
@@ -114,7 +114,7 @@ where
     fn get_rdd_base(&self) -> Arc<dyn RddBase> {
         Arc::new(self.clone()) as Arc<dyn RddBase>
     }
-    fn get_rdd(&self) -> Arc<Rdd<Item = Self::Item>> {
+    fn get_rdd(&self) -> Arc<dyn Rdd<Item = Self::Item>> {
         Arc::new(self.clone())
     }
     fn compute(&self, split: Box<dyn Split>) -> Result<Box<dyn Iterator<Item = Self::Item>>> {

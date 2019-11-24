@@ -121,7 +121,7 @@ pub trait PairRdd<K: Data + Eq + Hash, V: Data>: Rdd<Item = (K, V)> + Send + Syn
         FlatMappedValuesRdd::new(self.get_rdd(), f)
     }
 
-    fn join<W: Data, RT: Into<Arc<Rdd<Item = (K,W)>>>>(
+    fn join<W: Data, RT: Into<Arc<dyn Rdd<Item = (K,W)>>>>(
         &self,
         other: RT,
         num_splits: usize,
@@ -140,7 +140,7 @@ pub trait PairRdd<K: Data + Eq + Hash, V: Data>: Rdd<Item = (K, V)> + Send + Syn
         .flat_map_values(Box::new(f))
     }
 
-    fn cogroup<W: Data, RT:Into<Arc<Rdd<Item = (K,W)>>>>(
+    fn cogroup<W: Data, RT:Into<Arc<dyn Rdd<Item = (K,W)>>>>(
         &self,
         other: RT,
         partitioner: Box<dyn Partitioner>,
@@ -184,7 +184,7 @@ where
     F: Func(V) -> U + Clone,
 {
     #[serde(with = "serde_traitobject")]
-    prev: Arc<Rdd<Item = (K,V)>>,
+    prev: Arc<dyn Rdd<Item = (K,V)>>,
     vals: Arc<RddVals>,
     f: F,
     _marker_t: PhantomData<K>, // phantom data is necessary because of type parameter T
@@ -212,7 +212,7 @@ impl<K: Data, V: Data, U: Data, F> MappedValuesRdd<K, V, U, F>
 where
     F: Func(V) -> U + Clone,
 {
-    fn new(prev: Arc<Rdd<Item = (K,V)>>, f: F) -> Self {
+    fn new(prev: Arc<dyn Rdd<Item = (K,V)>>, f: F) -> Self {
         let mut vals = RddVals::new(prev.get_context());
         vals.dependencies
             .push(Dependency::OneToOneDependency(Arc::new(
@@ -279,7 +279,7 @@ where
     fn get_rdd_base(&self) -> Arc<dyn RddBase> {
         Arc::new(self.clone()) as Arc<dyn RddBase>
     }
-    fn get_rdd(&self) -> Arc<Rdd<Item = Self::Item>> {
+    fn get_rdd(&self) -> Arc<dyn Rdd<Item = Self::Item>> {
         Arc::new(self.clone())
     }
     fn compute(&self, split: Box<dyn Split>) -> Result<Box<dyn Iterator<Item = Self::Item>>> {
@@ -296,7 +296,7 @@ where
     F: Func(V) -> Box<dyn Iterator<Item = U>> + Clone,
 {
     #[serde(with = "serde_traitobject")]
-    prev: Arc<Rdd<Item = (K,V)>>,
+    prev: Arc<dyn Rdd<Item = (K,V)>>,
     vals: Arc<RddVals>,
     f: F,
     _marker_t: PhantomData<K>, // phantom data is necessary because of type parameter T
@@ -324,7 +324,7 @@ impl<K: Data, V: Data, U: Data, F> FlatMappedValuesRdd<K, V, U, F>
 where
     F: Func(V) -> Box<dyn Iterator<Item = U>> + Clone,
 {
-    fn new(prev: Arc<Rdd<Item = (K,V)>>, f: F) -> Self {
+    fn new(prev: Arc<dyn Rdd<Item = (K,V)>>, f: F) -> Self {
         let mut vals = RddVals::new(prev.get_context());
         vals.dependencies
             .push(Dependency::OneToOneDependency(Arc::new(
@@ -392,7 +392,7 @@ where
     fn get_rdd_base(&self) -> Arc<dyn RddBase> {
         Arc::new(self.clone()) as Arc<dyn RddBase>
     }
-    fn get_rdd(&self) -> Arc<Rdd<Item = Self::Item>> {
+    fn get_rdd(&self) -> Arc<dyn Rdd<Item = Self::Item>> {
         Arc::new(self.clone())
     }
     fn compute(&self, split: Box<dyn Split>) -> Result<Box<dyn Iterator<Item = Self::Item>>> {

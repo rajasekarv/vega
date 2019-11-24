@@ -307,7 +307,7 @@ impl DistributedScheduler {
     pub fn run_job<T: Data, U: Data, F>(
         &self,
         func: Arc<F>,
-        final_rdd: Arc<Rdd<Item = T>>,
+        final_rdd: Arc<dyn Rdd<Item = T>>,
         partitions: Vec<usize>,
         allow_local: bool,
     ) -> Result<Vec<U>>
@@ -612,7 +612,7 @@ impl DistributedScheduler {
         num_output_parts: usize,
         final_stage: Stage,
         func: Arc<F>,
-        final_rdd: Arc<Rdd<Item = T>>,
+        final_rdd: Arc<dyn Rdd<Item = T>>,
         run_id: usize,
         thread_pool: Arc<ThreadPool>,
     ) where
@@ -670,7 +670,7 @@ impl DistributedScheduler {
         num_output_parts: usize,
         final_stage: Stage,
         func: Arc<F>,
-        final_rdd: Arc<Rdd<Item = T>>,
+        final_rdd: Arc<dyn Rdd<Item = T>>,
         run_id: usize,
         thread_pool: Arc<ThreadPool>,
     ) where
