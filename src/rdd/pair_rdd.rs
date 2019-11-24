@@ -1,6 +1,7 @@
 use std::hash::Hash;
 use std::marker::PhantomData;
 use std::sync::Arc;
+use serde_traitobject::Arc as SerArc;
 
 use crate::rdd::rdd_rt;
 use crate::rdd::*;
@@ -13,7 +14,7 @@ pub trait PairRdd<K: Data + Eq + Hash, V: Data>: Rdd<Item = (K, V)> + Send + Syn
         merge_value: Box<dyn serde_traitobject::Fn((C, V)) -> C + Send + Sync>,
         merge_combiners: Box<dyn serde_traitobject::Fn((C, C)) -> C + Send + Sync>,
         partitioner: Box<dyn Partitioner>,
-    ) -> ShuffledRdd<K, V, C>
+    ) -> SerArc<dyn Rdd<Item = (K,C)>>
     where
         Self: Sized + Serialize + Deserialize + 'static,
     {
@@ -22,10 +23,10 @@ pub trait PairRdd<K: Data + Eq + Hash, V: Data>: Rdd<Item = (K, V)> + Send + Syn
             merge_value,
             merge_combiners,
         ));
-        ShuffledRdd::new(self.get_rdd(), aggregator, partitioner)
+        SerArc::new(ShuffledRdd::new(self.get_rdd(), aggregator, partitioner))
     }
 
-    fn group_by_key(&self, num_splits: usize) -> ShuffledRdd<K, V, Vec<V>>
+    fn group_by_key(&self, num_splits: usize) -> SerArc<dyn Rdd<Item = (K,Vec<V>)>>
     where
         Self: Sized + Serialize + Deserialize + 'static,
     {
@@ -37,7 +38,7 @@ pub trait PairRdd<K: Data + Eq + Hash, V: Data>: Rdd<Item = (K, V)> + Send + Syn
     fn group_by_key_using_partitioner(
         &self,
         partitioner: Box<dyn Partitioner>,
-    ) -> ShuffledRdd<K, V, Vec<V>>
+    ) -> SerArc<dyn Rdd<Item = (K,Vec<V>)>>
     where
         Self: Sized + Serialize + Deserialize + 'static,
     {
@@ -55,7 +56,7 @@ pub trait PairRdd<K: Data + Eq + Hash, V: Data>: Rdd<Item = (K, V)> + Send + Syn
         self.combine_by_key(create_combiner, merge_value, merge_combiners, partitioner)
     }
 
-    fn reduce_by_key<F>(&self, func: F, num_splits: usize) -> ShuffledRdd<K, V, V>
+    fn reduce_by_key<F>(&self, func: F, num_splits: usize) -> SerArc<dyn Rdd<Item = (K,V)>>
     where
         F: SerFunc((V, V)) -> V,
         Self: Sized + Serialize + Deserialize + 'static,
@@ -70,7 +71,7 @@ pub trait PairRdd<K: Data + Eq + Hash, V: Data>: Rdd<Item = (K, V)> + Send + Syn
         &self,
         func: F,
         partitioner: Box<dyn Partitioner>,
-    ) -> ShuffledRdd<K, V, V>
+    ) -> SerArc<dyn Rdd<Item = (K,V)>>
     where
         F: SerFunc((V, V)) -> V,
         Self: Sized + Serialize + Deserialize + 'static,
@@ -101,31 +102,31 @@ pub trait PairRdd<K: Data + Eq + Hash, V: Data>: Rdd<Item = (K, V)> + Send + Syn
         self.combine_by_key(create_combiner, merge_value, merge_combiners, partitioner)
     }
 
-    fn map_values<U: Data, F: Func(V) -> U + Clone>(
+    fn map_values<U: Data, F: SerFunc(V) -> U + Clone>(
         &self,
         f: F,
-    ) -> MappedValuesRdd<K, V, U, F>
+    ) -> SerArc<dyn Rdd<Item = (K,U)>>
     where
         Self: Sized,
     {
-        MappedValuesRdd::new(self.get_rdd(), f)
+        SerArc::new(MappedValuesRdd::new(self.get_rdd(), f))
     }
 
-    fn flat_map_values<U: Data, F: Func(V) -> Box<dyn Iterator<Item = U>> + Clone>(
+    fn flat_map_values<U: Data, F: SerFunc(V) -> Box<dyn Iterator<Item = U>> + Clone>(
         &self,
         f: F,
-    ) -> FlatMappedValuesRdd<K, V, U, F>
+    ) -> SerArc<dyn Rdd<Item = (K,U)>>
     where
         Self: Sized,
     {
-        FlatMappedValuesRdd::new(self.get_rdd(), f)
+        SerArc::new(FlatMappedValuesRdd::new(self.get_rdd(), f))
     }
 
     fn join<W: Data>(
         &self,
         other: serde_traitobject::Arc<dyn Rdd<Item = (K,W)>>,
         num_splits: usize,
-    ) -> rdd_rt::JoinRT<V, W, K> {
+    ) -> SerArc<dyn Rdd<Item = (K, (V,W))>> {
         let f = Fn!(|v: (Vec<V>, Vec<W>)| {
             let (vs, ws) = v;
             let combine = vs
@@ -144,7 +145,7 @@ pub trait PairRdd<K: Data + Eq + Hash, V: Data>: Rdd<Item = (K, V)> + Send + Syn
         &self,
         other: serde_traitobject::Arc<dyn Rdd<Item = (K,W)>>,
         partitioner: Box<dyn Partitioner>,
-    ) -> rdd_rt::CoGroupedValues<V, W, K> {
+    ) -> SerArc<dyn Rdd<Item = (K, (Vec<V>, Vec<W>))>> {
         let rdds: Vec<serde_traitobject::Arc<dyn RddBase>> = vec![
             serde_traitobject::Arc::from(self.get_rdd_base()),
             serde_traitobject::Arc::from(other.get_rdd_base()),

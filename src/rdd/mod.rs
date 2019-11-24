@@ -6,6 +6,7 @@ use std::marker::PhantomData;
 use std::net::Ipv4Addr;
 use std::path::Path;
 use std::sync::Arc;
+use serde_traitobject::Arc as SerArc;
 
 use log::info;
 use rand::{RngCore, SeedableRng};
@@ -199,44 +200,40 @@ pub trait Rdd: RddBase + 'static{
 
     fn compute(&self, split: Box<dyn Split>) -> Result<Box<dyn Iterator<Item = Self::Item>>>;
 
-    fn map<U: Data, F>(&self, f: F) -> serde_traitobject::Arc<dyn Rdd<Item = U>>
+    fn map<U: Data, F>(&self, f: F) -> SerArc<dyn Rdd<Item = U>>
     where
         F: SerFunc(Self::Item) -> U,
         Self: Sized,
     {
-        serde_traitobject::Arc::new(MapperRdd::new(self.get_rdd(), f))
+        SerArc::new(MapperRdd::new(self.get_rdd(), f))
     }
 
-    fn flat_map<U: Data, F>(&self, f: F) -> FlatMapperRdd<Self::Item, U, F>
+    fn flat_map<U: Data, F>(&self, f: F) -> SerArc<dyn Rdd<Item = U>>
     where
         F: SerFunc(Self::Item) -> Box<dyn Iterator<Item = U>>,
         Self: Sized,
     {
-        FlatMapperRdd::new(self.get_rdd(), f)
+        SerArc::new(FlatMapperRdd::new(self.get_rdd(), f))
     }
 
     /// Return a new RDD by applying a function to each partition of this RDD.
-    fn map_partitions<U: Data, F>(&self, f: F) -> MapPartitionsRdd<Self::Item, U, F>
+    fn map_partitions<U: Data, F>(&self, f: F) -> SerArc<dyn Rdd<Item = U>>
     where
         F: SerFunc(Box<dyn Iterator<Item = Self::Item>>) -> Box<dyn Iterator<Item = U>>,
         Self: Sized,
     {
-        MapPartitionsRdd::new(self.get_rdd(), f)
+        SerArc::new(MapPartitionsRdd::new(self.get_rdd(), f))
     }
 
     /// Return an RDD created by coalescing all elements within each partition into an array.
     #[allow(clippy::type_complexity)]
     fn glom(
         &self,
-    ) -> MapPartitionsRdd<
-        Self::Item,
-        Vec<Self::Item>,
-        Box<dyn Func(Box<dyn Iterator<Item = Self::Item>>) -> Box<dyn Iterator<Item = Vec<Self::Item>>>>,
-    >
+    ) -> SerArc<dyn Rdd<Item = Vec<Self::Item>>>
     where
         Self: Sized,
     {
-        MapPartitionsRdd::new(
+        SerArc::new(MapPartitionsRdd::new(
             self.get_rdd(),
             Box::new(Fn!(
                 |iter: Box<dyn Iterator<Item = Self::Item>>| Box::new(std::iter::once(
@@ -244,7 +241,7 @@ pub trait Rdd: RddBase + 'static{
                 ))
                     as Box<Iterator<Item = Vec<Self::Item>>>
             )),
-        )
+        ))
     }
 
     fn save_as_text_file(&self, path: String) -> Result<Vec<()>>
@@ -348,11 +345,11 @@ pub trait Rdd: RddBase + 'static{
 
     /// Return the Cartesian product of this RDD and another one, that is, the RDD of all pairs of
     /// elements (a, b) where a is in `this` and b is in `other`.
-    fn cartesian<U: Data>(&self, other: serde_traitobject::Arc<dyn Rdd<Item = U>>) -> CartesianRdd<Self::Item, U>
+    fn cartesian<U: Data>(&self, other: serde_traitobject::Arc<dyn Rdd<Item = U>>) -> SerArc<dyn Rdd<Item = (Self::Item, U)>>
     where
         Self:  Sized,
     {
-        CartesianRdd::new(self.get_rdd(), other.into())
+        SerArc::new(CartesianRdd::new(self.get_rdd(), other.into()))
     }
 
     fn collect(&self) -> Result<Vec<Self::Item>>
@@ -383,7 +380,7 @@ pub trait Rdd: RddBase + 'static{
     }
 
     /// Return a new RDD containing the distinct elements in this RDD.
-    fn distinct_with_num_partitions(&self, num_partitions: usize) -> serde_traitobject::Arc<dyn Rdd<Item = Self::Item>>
+    fn distinct_with_num_partitions(&self, num_partitions: usize) -> SerArc<dyn Rdd<Item = Self::Item>>
     where
         Self: Sized,
         Self::Item: Data + Eq + Hash,
@@ -397,7 +394,7 @@ pub trait Rdd: RddBase + 'static{
     }
 
     /// Return a new RDD containing the distinct elements in this RDD.
-    fn distinct(&self) -> serde_traitobject::Arc<dyn Rdd<Item = Self::Item>>
+    fn distinct(&self) -> SerArc<dyn Rdd<Item = Self::Item>>
     where
         Self: Sized,
         Self::Item: Data + Eq + Hash,
@@ -496,7 +493,7 @@ pub trait Rdd: RddBase + 'static{
     ///
     /// Replacement requires extra allocations due to the nature of the used sampler (Poisson distribution).
     /// This implies a performance penalty but should be negligible unless fraction and the dataset are rather large.
-    fn sample(&self, with_replacement: bool, fraction: f64) -> PartitionwiseSampledRdd<Self::Item>
+    fn sample(&self, with_replacement: bool, fraction: f64) -> SerArc<dyn Rdd<Item = Self::Item>>
     where
         Self: Sized,
     {
@@ -507,7 +504,7 @@ pub trait Rdd: RddBase + 'static{
         } else {
             Arc::new(BernoulliSampler::new(fraction)) as Arc<dyn RandomSampler<Self::Item>>
         };
-        PartitionwiseSampledRdd::new(self.get_rdd(), sampler, true)
+        SerArc::new(PartitionwiseSampledRdd::new(self.get_rdd(), sampler, true))
     }
 
     /// Return a fixed-size sampled subset of this RDD in an array.
