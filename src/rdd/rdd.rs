@@ -544,6 +544,19 @@ pub trait Rdd: RddBase + 'static {
         let func = Fn!(move |iter: Box<dyn Iterator<Item = Self::Item>>| (&cf)(iter));
         self.get_context().run_job(self.get_rdd(), func)
     }
+
+    fn union(
+        &self,
+        other: Arc<dyn Rdd<Item = Self::Item>>,
+    ) -> Result<SerArc<dyn Rdd<Item = Self::Item>>>
+    where
+        Self: Clone,
+    {
+        Ok(SerArc::new(Context::union(&[
+            Arc::new(self.clone()) as Arc<dyn Rdd<Item = Self::Item>>,
+            other,
+        ])?))
+    }
 }
 
 #[derive(Serialize, Deserialize)]

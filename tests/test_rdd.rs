@@ -326,7 +326,7 @@ fn test_union() -> Result<()> {
     let sc = CONTEXT.clone();
     let rdd0 = sc.parallelize(vec![1i32, 2, 3, 4], 2);
     let rdd1 = sc.parallelize(vec![5i32, 6, 7, 8], 2);
-    let res = rdd0.union(rdd1)?;
+    let res = rdd0.union(rdd1.get_rdd())?;
     assert_eq!(res.collect()?.len(), 8);
     Ok(())
 }

@@ -312,9 +312,9 @@ impl Context {
         }
     }
 
-    // pub fn union<T: Data>(rdds: &[Arc<dyn Rdd<T>>]) -> Result<UnionVariants<T>> {
-    //     UnionVariants::new(rdds)
-    // }
+    pub fn union<T: Data>(rdds: &[Arc<dyn Rdd<Item = T>>]) -> Result<UnionVariants<T>> {
+        UnionVariants::new(rdds)
+    }
 }
 
 fn initialize_loggers(file_path: String) {
