@@ -68,6 +68,7 @@ use shuffle_manager::*;
 mod shuffle_map_task;
 use shuffle_map_task::*;
 
+#[macro_use]
 mod scheduler;
 use scheduler::*;
 

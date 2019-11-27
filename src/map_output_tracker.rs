@@ -235,8 +235,8 @@ impl MapOutputTracker {
             .iter()
             .filter(|x| !x.is_none())
             .map(|x| x.clone().unwrap())
-            .collect::<Vec<_>>()
-            .is_empty()
+            .next()
+            .is_none()
         {
             // if self.server_uris.read().get(&shuffle_id).is_empty(){
             if self.fetching.read().contains(&shuffle_id) {
@@ -282,15 +282,14 @@ impl MapOutputTracker {
 
             fetched
         } else {
-            return self
-                .server_uris
+            self.server_uris
                 .read()
                 .get(&shuffle_id)
                 .unwrap()
                 .iter()
                 .filter(|x| !x.is_none())
                 .map(|x| x.clone().unwrap())
-                .collect();
+                .collect()
         }
     }
 

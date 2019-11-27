@@ -77,44 +77,42 @@ impl Ord for dyn RddBase {
 }
 
 impl<I: Rdd + ?Sized> RddBase for serde_traitobject::Arc<I> {
-    fn get_rdd_id(&self) -> usize{
+    fn get_rdd_id(&self) -> usize {
         (**self).get_rdd_base().get_rdd_id()
     }
-    fn get_context(&self) -> Arc<Context>{
+    fn get_context(&self) -> Arc<Context> {
         (**self).get_rdd_base().get_context()
     }
-    fn get_dependencies(&self) -> Vec<Dependency>{
+    fn get_dependencies(&self) -> Vec<Dependency> {
         (**self).get_rdd_base().get_dependencies()
     }
-    fn splits(&self) -> Vec<Box<dyn Split>>{
+    fn splits(&self) -> Vec<Box<dyn Split>> {
         (**self).get_rdd_base().splits()
     }
     fn iterator_any(
         &self,
         split: Box<dyn Split>,
-    ) -> Result<Box<dyn Iterator<Item = Box<dyn AnyData>>>>{
+    ) -> Result<Box<dyn Iterator<Item = Box<dyn AnyData>>>> {
         (**self).get_rdd_base().iterator_any(split)
     }
-
 }
 
 impl<I: Rdd + ?Sized> Rdd for serde_traitobject::Arc<I> {
     type Item = I::Item;
-    fn get_rdd(&self) -> Arc<dyn Rdd<Item = Self::Item>>{
+    fn get_rdd(&self) -> Arc<dyn Rdd<Item = Self::Item>> {
         (**self).get_rdd()
     }
-    fn get_rdd_base(&self) -> Arc<dyn RddBase>{
+    fn get_rdd_base(&self) -> Arc<dyn RddBase> {
         (**self).get_rdd_base()
     }
-    fn compute(&self, split: Box<dyn Split>) -> Result<Box<dyn Iterator<Item = Self::Item>>>{
+    fn compute(&self, split: Box<dyn Split>) -> Result<Box<dyn Iterator<Item = Self::Item>>> {
         (**self).compute(split)
     }
-
 }
 
 // Rdd containing methods associated with processing
-pub trait Rdd: RddBase + 'static{
-    type Item:Data;
+pub trait Rdd: RddBase + 'static {
+    type Item: Data;
     fn get_rdd(&self) -> Arc<dyn Rdd<Item = Self::Item>>;
 
     fn get_rdd_base(&self) -> Arc<dyn RddBase>;
@@ -152,9 +150,7 @@ pub trait Rdd: RddBase + 'static{
 
     /// Return an RDD created by coalescing all elements within each partition into an array.
     #[allow(clippy::type_complexity)]
-    fn glom(
-        &self,
-    ) -> SerArc<dyn Rdd<Item = Vec<Self::Item>>>
+    fn glom(&self) -> SerArc<dyn Rdd<Item = Vec<Self::Item>>>
     where
         Self: Sized,
     {
@@ -270,9 +266,12 @@ pub trait Rdd: RddBase + 'static{
 
     /// Return the Cartesian product of this RDD and another one, that is, the RDD of all pairs of
     /// elements (a, b) where a is in `this` and b is in `other`.
-    fn cartesian<U: Data>(&self, other: serde_traitobject::Arc<dyn Rdd<Item = U>>) -> SerArc<dyn Rdd<Item = (Self::Item, U)>>
+    fn cartesian<U: Data>(
+        &self,
+        other: serde_traitobject::Arc<dyn Rdd<Item = U>>,
+    ) -> SerArc<dyn Rdd<Item = (Self::Item, U)>>
     where
-        Self:  Sized,
+        Self: Sized,
     {
         SerArc::new(CartesianRdd::new(self.get_rdd(), other.into()))
     }
@@ -281,7 +280,8 @@ pub trait Rdd: RddBase + 'static{
     where
         Self: Sized,
     {
-        let cl = Fn!(|iter: Box<dyn Iterator<Item = Self::Item>>| iter.collect::<Vec<Self::Item>>());
+        let cl =
+            Fn!(|iter: Box<dyn Iterator<Item = Self::Item>>| iter.collect::<Vec<Self::Item>>());
         let results = self.get_context().run_job(self.get_rdd(), cl)?;
         let size = results.iter().fold(0, |a, b: &Vec<Self::Item>| a + b.len());
         Ok(results
@@ -294,10 +294,11 @@ pub trait Rdd: RddBase + 'static{
 
     fn count(&self) -> Result<u64>
     where
-        Self:  Sized,
+        Self: Sized,
     {
         let mut context = self.get_context();
-        let counting_func = Fn!(|iter: Box<dyn Iterator<Item = Self::Item>>| { iter.count() as u64 });
+        let counting_func =
+            Fn!(|iter: Box<dyn Iterator<Item = Self::Item>>| { iter.count() as u64 });
         Ok(context
             .run_job(self.get_rdd(), counting_func)?
             .into_iter()
@@ -305,17 +306,26 @@ pub trait Rdd: RddBase + 'static{
     }
 
     /// Return a new RDD containing the distinct elements in this RDD.
-    fn distinct_with_num_partitions(&self, num_partitions: usize) -> SerArc<dyn Rdd<Item = Self::Item>>
+    fn distinct_with_num_partitions(
+        &self,
+        num_partitions: usize,
+    ) -> SerArc<dyn Rdd<Item = Self::Item>>
     where
         Self: Sized,
         Self::Item: Data + Eq + Hash,
     {
-        self.map(Box::new(Fn!(|x| (Some(x), None))) as Box<dyn Func(Self::Item) -> (Option<Self::Item>, Option<Self::Item>)>)
-            .reduce_by_key(Box::new(Fn!(|(x, y)| y)), num_partitions)
-            .map(Box::new(Fn!(|x: (Option<Self::Item>, Option<Self::Item>)| {
-                let (x, y) = x;
-                x.unwrap()
-            })))
+        self.map(Box::new(Fn!(|x| (Some(x), None)))
+            as Box<
+                dyn Func(Self::Item) -> (Option<Self::Item>, Option<Self::Item>),
+            >)
+        .reduce_by_key(Box::new(Fn!(|(x, y)| y)), num_partitions)
+        .map(Box::new(Fn!(|x: (
+            Option<Self::Item>,
+            Option<Self::Item>
+        )| {
+            let (x, y) = x;
+            x.unwrap()
+        })))
     }
 
     /// Return a new RDD containing the distinct elements in this RDD.
@@ -445,7 +455,12 @@ pub trait Rdd: RddBase + 'static{
     ///
     /// Replacement requires extra allocations due to the nature of the used sampler (Poisson distribution).
     /// This implies a performance penalty but should be negligible unless fraction and the dataset are rather large.
-    fn take_sample(&self, with_replacement: bool, num: u64, seed: Option<u64>) -> Result<Vec<Self::Item>>
+    fn take_sample(
+        &self,
+        with_replacement: bool,
+        num: u64,
+        seed: Option<u64>,
+    ) -> Result<Vec<Self::Item>>
     where
         Self: Sized,
     {
