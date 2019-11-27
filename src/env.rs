@@ -7,7 +7,8 @@ use std::net::{Ipv4Addr, SocketAddr};
 use std::sync::Arc;
 
 use clap::{App, Arg, SubCommand};
-use log::Level as LogLevel;
+use log;
+use log::LevelFilter as LogLevel;
 use parking_lot::{Mutex, RwLock};
 
 pub struct Env {
@@ -29,8 +30,8 @@ impl Env {
 }
 
 mod config_vars {
-    pub(super) const LOCAL_IP: &str = "LOCAL_IP";
-    pub(super) const PORT: &str = "PORT";
+    pub(super) const LOCAL_IP: &str = "NS_LOCAL_IP";
+    pub(super) const PORT: &str = "NS_PORT";
     pub(super) const DEPLOYMENT_MODE: &str = "DEPLOYMENT_MODE";
     pub(super) const LOG_LEVEL: &str = "LOG_LEVEL";
 }
@@ -83,7 +84,7 @@ impl Configuration {
                     .arg(
                         Arg::with_name(PORT)
                             .long("port")
-                            .env("NS_PORT")
+                            .env(PORT)
                             .takes_value(true)
                             .require_equals(true)
                             .required(true),
@@ -100,6 +101,7 @@ impl Configuration {
             Some("trace") => LogLevel::Trace,
             Some("info") | _ => LogLevel::Info,
         };
+        log::set_max_level(log_level);
 
         let deployment_mode = match arguments.value_of("deployment_mode") {
             Some("distributed") => DeploymentMode::Distributed,

@@ -1,4 +1,4 @@
-version: '3'
+version: '3.7'
 
 networks:
   native-spark:
@@ -11,6 +11,12 @@ services:
     tty: true
     networks:
       native-spark:
+    volumes:
+      - type: "bind"
+        source: "../target"
+        target: "/home/dev"
+    environment:
+      SPARK_MASTER: distributed
 
   ns_worker:
     image: native_spark:latest
