@@ -4,7 +4,7 @@ extern crate serde_closure;
 use lazy_static::*;
 
 lazy_static! {
-    static ref CONTEXT: Arc<Context> = Context::new("local").unwrap();
+    static ref CONTEXT: Arc<Context> = Context::new().unwrap();
 }
 
 #[test]

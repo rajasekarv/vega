@@ -1,3 +1,5 @@
+#![allow(clippy::module_inception)]
+
 use serde_traitobject::Arc as SerArc;
 use std::cmp::Ordering;
 use std::fs;

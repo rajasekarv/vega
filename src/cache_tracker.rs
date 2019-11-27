@@ -80,7 +80,7 @@ impl CacheTracker {
         };
         m.server();
         m.client(CacheTrackerMessage::SlaveCacheStarted {
-            host: *env::local_ip,
+            host: env::config.local_ip,
             size: m.cache.get_capacity(),
         });
         m
@@ -354,7 +354,7 @@ impl CacheTracker {
                 self.client(CacheTrackerMessage::AddedToCache {
                     rdd_id: rdd.get_rdd_id(),
                     partition: split.get_index(),
-                    host: *env::local_ip,
+                    host: env::config.local_ip,
                     size,
                 });
             }

@@ -36,13 +36,13 @@ In order to execute application code some preliminary setup is required. (So far
     # create the same hosts.conf file in every machine:
     $ cd ~ && vim hosts.conf ...
     ```
-* The environment variable `SPARK_LOCAL_IP` must be set for the user executing application code.
+* The environment variable `NS_LOCAL_IP` must be set for the user executing application code.
     * In `local` it suffices to set up for the current user:
-    > $ export SPARK_LOCAL_IP=0.0.0.0
+    > $ export NS_LOCAL_IP=0.0.0.0
     * In `distributed` the variable is required, aditionally, to be set up for the users remotely connecting. Depending on the O.S. and ssh defaults this may require some additional configuration. E.g.:
     ```doc
     $ ssh remote_user@172.0.0.10
-    $ sudo echo "SPARK_LOCAL_IP=172.0.0.10" >> .ssh/environment
+    $ sudo echo "NS_LOCAL_IP=172.0.0.10" >> .ssh/environment
     $ sudo echo "PermitUserEnvironment yes" >> /etc/ssh/sshd_config
     $ service ssh restart 
     ```

@@ -369,8 +369,13 @@ pub(crate) trait NativeScheduler {
             .or_insert_with(BTreeSet::new);
         if stage == jt.final_stage {
             info!("final stage {}", stage.id);
-            let mut id_in_job = 0;
-            for (id, part) in jt.output_parts.iter().enumerate().take(jt.num_output_parts) {
+            for (id_in_job, (id, part)) in jt
+                .output_parts
+                .iter()
+                .enumerate()
+                .take(jt.num_output_parts)
+                .enumerate()
+            {
                 let locs = self.get_preferred_locs(jt.final_rdd.get_rdd_base(), *part);
                 let result_task = ResultTask::new(
                     self.get_next_task_id(),
@@ -388,7 +393,6 @@ pub(crate) trait NativeScheduler {
                     id_in_job,
                     jt.thread_pool.clone(),
                 );
-                id_in_job += 1;
             }
         } else {
             let mut id_in_job = 0;

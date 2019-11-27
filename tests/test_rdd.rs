@@ -9,9 +9,10 @@ extern crate serde_closure;
 use lazy_static::*;
 
 lazy_static! {
-    static ref CONTEXT: Arc<Context> = Context::new("local").unwrap();
+    static ref CONTEXT: Arc<Context> = Context::new().unwrap();
     static ref WORK_DIR: std::path::PathBuf = std::env::temp_dir();
 }
+
 const TEST_DIR: &str = "ns_test_dir";
 
 fn set_up(file_name: &str) {

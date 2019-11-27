@@ -8,20 +8,13 @@ use native_spark::*;
 use parquet::column::reader::get_typed_column_reader;
 use parquet::data_type::{ByteArrayType, Int32Type, Int64Type};
 use parquet::file::reader::{FileReader, SerializedFileReader};
+
 use std::fs;
 use std::fs::File;
 use std::path::Path;
 
-fn get_mode() -> String {
-    let args = std::env::args().skip(1).collect::<Vec<_>>();
-    match args.get(0) {
-        Some(val) if val == "distributed" => val.to_owned(),
-        _ => "local".to_owned(),
-    }
-}
-
 fn main() -> Result<()> {
-    let sc = Context::new(&get_mode())?;
+    let sc = Context::new()?;
     let files = fs::read_dir("parquet_file_dir")
         .unwrap()
         .map(|x| x.unwrap().path().to_str().unwrap().to_owned())

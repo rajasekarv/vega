@@ -25,16 +25,16 @@ count=0
 for WORKER in $(docker-compose ps | grep -oE "docker_ns_worker_[0-9]+")
 do
     echo "Setting $WORKER";
-    docker exec -e CONF_FILE="$CONF_FILE" -e SPARK_LOCAL_IP="${WORKER_IPS[count]}" -w /home/ns_user/ $WORKER \
+    docker exec -e CONF_FILE="$CONF_FILE" -e NS_LOCAL_IP="${WORKER_IPS[count]}" -w /home/ns_user/ $WORKER \
     bash -c 'echo "$CONF_FILE" >> hosts.conf && \
-    echo "SPARK_LOCAL_IP=$SPARK_LOCAL_IP" >> .ssh/environment && \
+    echo "NS_LOCAL_IP=$NS_LOCAL_IP" >> .ssh/environment && \
     echo "PermitUserEnvironment yes" >> /etc/ssh/sshd_config && \
     service ssh start';
     (( count++ ));
 done
 
-docker exec -e CONF_FILE="$CONF_FILE" -e SPARK_LOCAL_IP="${MASTER_IP}" -w /root/ docker_ns_master_1 \
-    bash -c 'echo "$CONF_FILE" >> hosts.conf && echo "export SPARK_LOCAL_IP=$SPARK_LOCAL_IP" >> .bashrc'
+docker exec -e CONF_FILE="$CONF_FILE" -e NS_LOCAL_IP="${MASTER_IP}" -w /root/ docker_ns_master_1 \
+    bash -c 'echo "$CONF_FILE" >> hosts.conf && echo "export NS_LOCAL_IP=$NS_LOCAL_IP" >> .bashrc'
 for WORKER_IP in ${WORKER_IPS[@]}
 do
     docker exec docker_ns_master_1 bash -c "ssh-keyscan ${WORKER_IP} >> ~/.ssh/known_hosts"

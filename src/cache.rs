@@ -31,6 +31,7 @@ impl BoundedMemoryCache {
             map: Arc::new(Mutex::new(HashMap::new())),
         }
     }
+
     fn new_key_space_id(&self) -> usize {
         self.next_key_space_id.fetch_add(1, Ordering::SeqCst)
     }
