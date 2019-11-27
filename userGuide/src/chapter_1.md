@@ -52,7 +52,20 @@ examples just run them. In `local`:
 > cargo run --example make_rdd
 
 In `distributed`:
-> cargo run --example make_rdd distributed
+> cargo run --example make_rdd -d distributed
+
+## Setting execution mode
+
+In your application you can set the execution mode (`local` or `distributed`) in one of the following ways:
+
+1. Set it explicitly while creating the context, e.g.:
+```doc
+    use native_spark::DeploymentMode;
+
+    let context = Context::with_mode(DeploymentMode::Local)?;
+```
+2. Execute the application with the `deployment mode` argument set to one of the valid modes (e.g.: `./my_app -d distributed`)
+3. Set the DEPLOYMENT_MODE environment variable (e.g.: `DEPLOYMENT_MODE=local`
 
 ### Additional notes
 

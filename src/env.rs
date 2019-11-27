@@ -54,7 +54,7 @@ pub enum DeploymentMode {
 
 impl Configuration {
     fn new() -> Configuration {
-        const SLAVE_DEPLOY_CMD: &str = "deployment_mode";
+        const SLAVE_DEPLOY_CMD: &str = "deploy_slave";
 
         let arguments = App::new("NativeSpark")
             .arg(
@@ -68,6 +68,7 @@ impl Configuration {
             .arg(
                 Arg::with_name(DEPLOYMENT_MODE)
                     .long("deployment_mode")
+                    .short("d")
                     .takes_value(true)
                     .env(DEPLOYMENT_MODE)
                     .default_value("local"),
