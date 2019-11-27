@@ -54,6 +54,23 @@ examples just run them. In `local`:
 In `distributed`:
 > cargo run --example make_rdd -d distributed
 
+## Deploying with Docker
+
+There is a docker image and docker-compose script in order to ease up trying testing 
+and deploying distributed mode on your local host. In order to use them:
+
+1. Build the examples image under the repository `docker` directory:
+> bash docker/build_image.sh
+
+2. When done, you can deploy a testing cluster:
+> bash testing_cluster.sh
+
+This will execute all the necessary steeps to to deploy a working network of containers where you can execute the tests. When finished you can attach a shell to the master and run the examples:
+```doc
+$ docker exec -it docker_ns_master_1 bash
+$ ./make_rdd -d distributed
+```
+
 ## Setting execution mode
 
 In your application you can set the execution mode (`local` or `distributed`) in one of the following ways:
@@ -74,20 +91,3 @@ Since File readers are not done, you have to use manual file reading for now (li
 Ctrl-C and panic handling are not done yet, so if there is some problem during runtime, executors won't shut down automatically and you will have to manually kill the processes.
 
 One of the limitations of current implementation is that the input and return types of all closures and all input to make_rdd should be owned data.
-
-## Deploying with Docker
-
-There is a docker image and docker-compose script in order to ease up trying testing 
-and deploying distributed mode on your local host. In order to use them:
-
-1. Build the examples image under the repository `docker` directory:
-> bash docker/build_image.sh
-
-2. When done, you can deploy a testing cluster:
-> bash testing_cluster.sh
-
-This will execute all the necessary steeps to to deploy a working network of containers where you can execute the tests. When finished you can attach a shell to the master and run the examples:
-```doc
-$ docker exec -it docker_ns_master_1 bash
-$ ./make_rdd distributed
-```
