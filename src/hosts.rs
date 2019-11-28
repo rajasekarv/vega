@@ -1,6 +1,11 @@
 use super::*;
+
 use std::net::SocketAddr;
 use std::path::Path;
+
+use once_cell::sync::OnceCell;
+
+static HOSTS: OnceCell<Hosts> = OnceCell::new();
 
 /// Handles loading of the hosts configuration.
 #[derive(Debug, Deserialize)]
@@ -11,7 +16,11 @@ pub struct Hosts {
 }
 
 impl Hosts {
-    pub fn load() -> Result<Self> {
+    pub fn get() -> Result<&'static Hosts> {
+        HOSTS.get_or_try_init(Self::load)
+    }
+
+    fn load() -> Result<Self> {
         let home = std::env::home_dir().ok_or(Error::NoHome)?;
         Hosts::load_from(home.join("hosts.conf"))
     }

@@ -240,7 +240,7 @@ impl<K: Data + Eq + Hash, V: Data, C: Data> ShuffleDependencyTrait for ShuffleDe
             //            println!("file after {:?}", contents);
             //            println!("written to file {:?}", file_path);
         }
-        env::env.shuffle_manager.get_server_uri()
+        env::Env::get().shuffle_manager.get_server_uri()
     }
 }
 

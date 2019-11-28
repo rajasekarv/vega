@@ -21,13 +21,11 @@ impl ShuffleFetcher {
         mut func: impl FnMut((K, V)) -> (),
     ) {
         info!("inside fetch function");
-        let parallel_fetches = 10; //TDOD  make this as env variable
+        let parallel_fetches = 10; //TODO  make this as env variable
         let thread_pool = ThreadPool::new(parallel_fetches);
         let mut inputs_by_uri = HashMap::new();
-        let server_uris = env::env
+        let server_uris = env::Env::get()
             .map_output_tracker
-            //            .lock()
-            //            .expect("problem in getting lock for mapoutput tracker")
             .get_server_uris(shuffle_id);
         info!(
             "server uris for shuffle id {:?} - {:?}",

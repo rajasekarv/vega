@@ -14,21 +14,22 @@
     non_upper_case_globals,
     deprecated
 )]
+
 #[macro_use]
 extern crate downcast_rs;
 #[macro_use]
 extern crate serde_closure;
-#[macro_use]
-extern crate lazy_static;
-extern crate capnp;
+use capnp;
 use log::{error, info};
-use std::io::prelude::*;
-pub mod serialized_data_capnp {
-    include!(concat!(env!("OUT_DIR"), "/capnp/serialized_data_capnp.rs"));
-}
 use serde_derive::{Deserialize, Serialize};
 use serde_traitobject::{Deserialize, Serialize};
 use serialized_data_capnp::serialized_data;
+
+pub mod serialized_data_capnp {
+    include!(concat!(env!("OUT_DIR"), "/capnp/serialized_data_capnp.rs"));
+}
+
+use std::io::prelude::*;
 
 pub mod context;
 pub use context::*;

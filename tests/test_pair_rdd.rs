@@ -1,11 +1,11 @@
 use native_spark::*;
-use std::sync::Arc;
-extern crate serde_closure;
-use lazy_static::*;
 
-lazy_static! {
-    static ref CONTEXT: Arc<Context> = Context::new().unwrap();
-}
+use std::sync::Arc;
+
+extern crate serde_closure;
+use once_cell::sync::Lazy;
+
+static CONTEXT: Lazy<Arc<Context>> = Lazy::new(|| Context::new().unwrap());
 
 #[test]
 fn test_group_by() {

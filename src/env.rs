@@ -9,9 +9,18 @@ use std::sync::Arc;
 use clap::{App, Arg, SubCommand};
 use log;
 use log::LevelFilter as LogLevel;
+use once_cell::sync::{Lazy, OnceCell};
 use parking_lot::{Mutex, RwLock};
 
-pub struct Env {
+type ShuffleCache = Arc<RwLock<HashMap<(usize, usize, usize), Vec<u8>>>>;
+
+static CONF: OnceCell<Configuration> = OnceCell::new();
+static ENV: OnceCell<Env> = OnceCell::new();
+pub(crate) static shuffle_cache: Lazy<ShuffleCache> =
+    Lazy::new(|| Arc::new(RwLock::new(HashMap::new())));
+pub(crate) static the_cache: Lazy<BoundedMemoryCache> = Lazy::new(BoundedMemoryCache::new);
+
+pub(crate) struct Env {
     pub map_output_tracker: MapOutputTracker,
     pub shuffle_manager: ShuffleManager,
     pub shuffle_fetcher: ShuffleFetcher,
@@ -19,12 +28,23 @@ pub struct Env {
 }
 
 impl Env {
-    pub fn new(master_addr: SocketAddr) -> Self {
+    pub fn get() -> &'static Env {
+        ENV.get_or_init(Self::new)
+    }
+
+    fn new() -> Self {
+        let conf = Configuration::get();
+        let master_addr = Hosts::get().unwrap().master;
         Env {
-            map_output_tracker: MapOutputTracker::new(config.is_master, master_addr),
+            map_output_tracker: MapOutputTracker::new(conf.is_master, master_addr),
             shuffle_manager: ShuffleManager::new(),
             shuffle_fetcher: ShuffleFetcher,
-            cache_tracker: CacheTracker::new(config.is_master, master_addr, &the_cache),
+            cache_tracker: CacheTracker::new(
+                conf.is_master,
+                master_addr,
+                conf.local_ip,
+                &the_cache,
+            ),
         }
     }
 }
@@ -32,11 +52,17 @@ impl Env {
 mod config_vars {
     pub(super) const LOCAL_IP: &str = "NS_LOCAL_IP";
     pub(super) const PORT: &str = "NS_PORT";
-    pub(super) const DEPLOYMENT_MODE: &str = "DEPLOYMENT_MODE";
-    pub(super) const LOG_LEVEL: &str = "LOG_LEVEL";
+    pub(super) const DEPLOYMENT_MODE: &str = "NS_DEPLOYMENT_MODE";
+    pub(super) const LOG_LEVEL: &str = "NS_LOG_LEVEL";
 }
 
 use config_vars::*;
+
+#[derive(Clone, Copy)]
+pub enum DeploymentMode {
+    Distributed,
+    Local,
+}
 
 pub(crate) struct Configuration {
     pub is_master: bool,
@@ -46,14 +72,12 @@ pub(crate) struct Configuration {
     pub log_level: LogLevel,
 }
 
-#[derive(Clone, Copy)]
-pub enum DeploymentMode {
-    Distributed,
-    Local,
-}
-
 impl Configuration {
-    fn new() -> Configuration {
+    pub fn get() -> &'static Configuration {
+        CONF.get_or_init(Self::new)
+    }
+
+    fn new() -> Self {
         const SLAVE_DEPLOY_CMD: &str = "deploy_slave";
 
         let arguments = App::new("NativeSpark")
@@ -134,13 +158,4 @@ impl Configuration {
             log_level,
         }
     }
-}
-
-lazy_static! {
-    // Too lazy to choose a proper logger. Currently using a static log file to log the whole process. Just a crude version of logger.
-    pub(crate) static ref config: Configuration = Configuration::new();
-    pub static ref shuffle_cache: Arc<RwLock<HashMap<(usize, usize, usize), Vec<u8>>>> = Arc::new(RwLock::new(HashMap::new()));
-    pub static ref the_cache: BoundedMemoryCache = BoundedMemoryCache::new();
-    pub static ref hosts: Hosts = Hosts::load().unwrap();
-    pub static ref env: Env = Env::new(hosts.master);
 }

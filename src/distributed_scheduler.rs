@@ -96,7 +96,7 @@ impl DistributedScheduler {
                 Arc::new(Mutex::new(VecDeque::new()))
             },
             port,
-            map_output_tracker: env::env.map_output_tracker.clone(),
+            map_output_tracker: env::Env::get().map_output_tracker.clone(),
         }
     }
 
@@ -133,7 +133,7 @@ impl DistributedScheduler {
     {
         info!(
             "shuffle maanger in final rdd of run job {:?}",
-            env::env.shuffle_manager
+            env::Env::get().shuffle_manager
         );
 
         let mut jt = JobTracker::from_scheduler(self, func.clone(), final_rdd.clone(), partitions);

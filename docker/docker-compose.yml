@@ -16,7 +16,7 @@ services:
         source: "../target"
         target: "/home/dev"
     environment:
-      SPARK_MASTER: distributed
+      NS_DEPLOYMENT_MODE: distributed
 
   ns_worker:
     image: native_spark:latest

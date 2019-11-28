@@ -49,7 +49,7 @@ pub(crate) trait NativeScheduler {
         shuffle_dependency: Option<Arc<dyn ShuffleDependencyTrait>>,
     ) -> Stage {
         info!("inside new stage");
-        env::env
+        env::Env::get()
             .cache_tracker
             .register_rdd(rdd_base.get_rdd_id(), rdd_base.number_of_splits());
         if shuffle_dependency.is_some() {
@@ -146,7 +146,7 @@ pub(crate) trait NativeScheduler {
         );
         if !visited.contains(&rdd) {
             visited.insert(rdd.clone());
-            env::env
+            env::Env::get()
                 .cache_tracker
                 .register_rdd(rdd.get_rdd_id(), rdd.number_of_splits());
             for dep in rdd.get_dependencies() {
@@ -511,7 +511,7 @@ macro_rules! impl_common_funcs {
 
         fn update_cache_locs(&self) {
             let mut locs = self.cache_locs.lock();
-            *locs = env::env.cache_tracker.get_location_snapshot();
+            *locs = env::Env::get().cache_tracker.get_location_snapshot();
         }
 
         fn unregister_map_output(&self, shuffle_id: usize, map_id: usize, server_uri: String) {

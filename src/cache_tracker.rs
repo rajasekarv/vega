@@ -51,7 +51,7 @@ pub enum CacheTrackerMessageReply {
 }
 
 #[derive(Clone, Debug)]
-pub struct CacheTracker {
+pub(crate) struct CacheTracker {
     is_master: bool,
     locs: Arc<RwLock<HashMap<usize, Vec<LinkedList<Ipv4Addr>>>>>,
     slave_capacity: Arc<RwLock<HashMap<Ipv4Addr, usize>>>,
@@ -66,6 +66,7 @@ impl CacheTracker {
     pub fn new(
         is_master: bool,
         master_addr: SocketAddr,
+        local_ip: Ipv4Addr,
         the_cache: &'static BoundedMemoryCache,
     ) -> Self {
         let m = CacheTracker {
@@ -80,7 +81,7 @@ impl CacheTracker {
         };
         m.server();
         m.client(CacheTrackerMessage::SlaveCacheStarted {
-            host: env::config.local_ip,
+            host: local_ip,
             size: m.cache.get_capacity(),
         });
         m
@@ -267,6 +268,7 @@ impl CacheTracker {
             });
         }
     }
+
     pub fn get_cache_usage(
         slave_usage: Arc<RwLock<HashMap<Ipv4Addr, usize>>>,
         host: Ipv4Addr,
@@ -354,7 +356,7 @@ impl CacheTracker {
                 self.client(CacheTrackerMessage::AddedToCache {
                     rdd_id: rdd.get_rdd_id(),
                     partition: split.get_index(),
-                    host: env::config.local_ip,
+                    host: env::Configuration::get().local_ip,
                     size,
                 });
             }

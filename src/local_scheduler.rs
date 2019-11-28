@@ -73,7 +73,7 @@ impl LocalScheduler {
             taskid_to_slaveid: HashMap::new(),
             job_tasks: HashMap::new(),
             slaves_with_executors: HashSet::new(),
-            map_output_tracker: env::env.map_output_tracker.clone(),
+            map_output_tracker: env::Env::get().map_output_tracker.clone(),
         }
     }
 
@@ -89,7 +89,7 @@ impl LocalScheduler {
     {
         info!(
             "shuffle manager in final rdd of run job {:?}",
-            env::env.shuffle_manager
+            env::Env::get().shuffle_manager
         );
 
         let mut jt = JobTracker::from_scheduler(self, func.clone(), final_rdd.clone(), partitions);

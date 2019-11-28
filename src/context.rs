@@ -85,7 +85,7 @@ impl Drop for Context {
 
 impl Context {
     pub fn new() -> Result<Arc<Self>> {
-        Context::with_mode(env::config.deployment_mode)
+        Context::with_mode(env::Configuration::get().deployment_mode)
     }
 
     // Sends the binary to all nodes present in hosts.conf and starts them
@@ -97,7 +97,7 @@ impl Context {
             env::DeploymentMode::Distributed => {
                 let mut port: u16 = 10000;
                 let mut address_map: Vec<(String, u16)> = Vec::new();
-                if env::config.is_master {
+                if env::Configuration::get().is_master {
                     let uuid = Uuid::new_v4().to_string();
                     initialize_loggers(format!("/tmp/master-{}", uuid));
                     let binary_path =
@@ -112,7 +112,7 @@ impl Context {
                         .to_os_string()
                         .into_string()
                         .map_err(Error::OsStringToString)?;
-                    for address in &env::hosts.slaves {
+                    for address in &hosts::Hosts::get()?.slaves {
                         info!("deploying executor at address {:?}", address);
                         let address_cli = address
                             .split('@')
@@ -169,7 +169,11 @@ impl Context {
                     let uuid = Uuid::new_v4().to_string();
                     initialize_loggers(format!("/tmp/executor-{}", uuid));
                     info!("started client");
-                    let executor = Executor::new(env::config.port.unwrap());
+                    let executor = Executor::new(
+                        env::Configuration::get()
+                            .port
+                            .ok_or(Error::GetOrCreateConfig("executor port not set"))?,
+                    );
                     executor.worker();
                     info!("initiated executor worker exit");
                     executor.exit_signal();

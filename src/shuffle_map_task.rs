@@ -70,7 +70,7 @@ impl TaskBase for ShuffleMapTask {
     fn generation(&self) -> Option<i64> {
         //        let base = self.rdd.get_rdd_base();
         let context = self.rdd.get_context();
-        Some(env::env.map_output_tracker.get_generation())
+        Some(env::Env::get().map_output_tracker.get_generation())
     }
 }
 

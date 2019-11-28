@@ -1,18 +1,16 @@
 use native_spark::io::*;
 use native_spark::*;
+
 use std::fs::{create_dir_all, remove_dir_all, File};
 use std::io::prelude::*;
 use std::sync::Arc;
 
 #[macro_use]
 extern crate serde_closure;
-use lazy_static::*;
+use once_cell::sync::Lazy;
 
-lazy_static! {
-    static ref CONTEXT: Arc<Context> = Context::new().unwrap();
-    static ref WORK_DIR: std::path::PathBuf = std::env::temp_dir();
-}
-
+static CONTEXT: Lazy<Arc<Context>> = Lazy::new(|| Context::new().unwrap());
+static WORK_DIR: Lazy<std::path::PathBuf> = Lazy::new(std::env::temp_dir);
 const TEST_DIR: &str = "ns_test_dir";
 
 fn set_up(file_name: &str) {
