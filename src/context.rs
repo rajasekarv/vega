@@ -143,8 +143,14 @@ impl Context {
                             })?;
                         let path = format!("{}/{}", local_dir, binary_name);
                         info!("remote path {}", path);
+                        // Deploy a remote slave
                         Command::new("ssh")
-                            .args(&[address, &path, &"slave".to_string(), &port.to_string()])
+                            .args(&[
+                                address,
+                                &path,
+                                &"deploy_slave".to_string(),
+                                &format!("--port={}", port),
+                            ])
                             .spawn()
                             .map_err(|e| Error::CommandOutput {
                                 source: e,

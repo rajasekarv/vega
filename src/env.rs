@@ -109,6 +109,7 @@ impl Configuration {
                     .arg(
                         Arg::with_name(PORT)
                             .long("port")
+                            .short("p")
                             .env(PORT)
                             .takes_value(true)
                             .require_equals(true)
@@ -128,7 +129,7 @@ impl Configuration {
         };
         log::set_max_level(log_level);
 
-        let deployment_mode = match arguments.value_of("deployment_mode") {
+        let deployment_mode = match arguments.value_of(DEPLOYMENT_MODE) {
             Some("distributed") => DeploymentMode::Distributed,
             _ => DeploymentMode::Local,
         };
