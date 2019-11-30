@@ -148,7 +148,7 @@ impl Context {
                             .args(&[
                                 address,
                                 &path,
-                                &"deploy_slave".to_string(),
+                                &env::SLAVE_DEPLOY_CMD.to_string(),
                                 &format!("--port={}", port),
                             ])
                             .spawn()

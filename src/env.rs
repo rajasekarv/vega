@@ -64,6 +64,8 @@ pub enum DeploymentMode {
     Local,
 }
 
+pub(crate) const SLAVE_DEPLOY_CMD: &str = "deploy_slave";
+
 pub(crate) struct Configuration {
     pub is_master: bool,
     pub local_ip: Ipv4Addr,
@@ -78,8 +80,6 @@ impl Configuration {
     }
 
     fn new() -> Self {
-        const SLAVE_DEPLOY_CMD: &str = "deploy_slave";
-
         let arguments = App::new("NativeSpark")
             .arg(
                 Arg::with_name(LOCAL_IP)
