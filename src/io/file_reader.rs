@@ -1,6 +1,6 @@
 use std::fs;
-use std::io::prelude::*;
-use std::io::{BufReader, Result};
+use std::io::BufReader;
+use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -26,88 +26,76 @@ impl LocalFsReaderConfig {
             executor_partitions: None,
         }
     }
+
     /// Only will read files with a given extension.
     pub fn filter_extension<T: Into<String>>(&mut self, extension: T) {
         self.filter_ext = Some(extension.into().into());
     }
+
     /// Default behaviour is to expect the directory to exist in every node,
     /// if it doesn't the executor will panic.
     pub fn expect_directory(&mut self, should_exist: bool) {
         self.expect_dir = should_exist;
     }
+
     /// Number of partitions to use per executor, to perform the load tasks,
-    /// ideally one executor is used per host with as many partitions as CPUs available.
+    /// Ideally one executor is used per host with as many partitions as CPUs available.
     // TODO: profile this for actual sensible defaults
     pub fn num_partitions_per_executor(&mut self, num: u64) {
         self.executor_partitions = Some(num);
     }
 }
 
-impl<D> ReaderConfiguration<D> for LocalFsReaderConfig
-where
-    D: Data,
-    LocalFsReader: Chunkable<D> + Sized,
-{
+impl ReaderConfiguration for LocalFsReaderConfig {
     type Reader = LocalFsReader;
-    // TODO: give the option to load files from several hosts at the same time
-    // right now the only option is to load from a single machine in parallel but it would be nice
-    // to load from different machines at the same time from a likewise location
-    fn make_reader(self) -> Self::Reader {
-        LocalFsReader::new(self)
-    }
-}
-
-/// Reads all files specified in a given directory from the local directory
-/// on all executors on every worker node.
-pub struct LocalFsReader {
-    path: PathBuf,
-    is_single_file: bool,
-    filter_ext: Option<std::ffi::OsString>,
-    expect_dir: bool,
-    files: Vec<Vec<PathBuf>>,
-    executor_partitions: u64,
-}
-
-impl LocalFsReader {
-    pub fn new(config: LocalFsReaderConfig) -> LocalFsReader {
+    fn make_reader(self, context: Arc<Context>) -> Self::Reader {
         let LocalFsReaderConfig {
             dir_path,
             expect_dir,
             filter_ext,
             executor_partitions,
-        } = config;
+        } = self;
 
         let is_single_file = {
             let path: &Path = dir_path.as_ref();
             path.is_file()
         };
 
-        let num_parts = if let Some(num_partitions) = executor_partitions {
-            num_partitions
-        } else {
-            use num_cpus;
-            num_cpus::get() as u64
-        };
+        unimplemented!()
 
-        LocalFsReader {
-            path: dir_path,
-            is_single_file,
-            filter_ext,
-            expect_dir,
-            files: vec![],
-            executor_partitions: num_parts,
-        }
+        // LocalFsReader {
+        //     path: dir_path,
+        //     is_single_file,
+        //     filter_ext,
+        //     expect_dir,
+        // }
     }
+}
 
+/// Reads all files specified in a given directory from the local directory
+/// on all executors on every worker node.
+#[derive(Clone, Serialize, Deserialize)]
+pub struct LocalFsReader {
+    id: usize,
+    path: PathBuf,
+    is_single_file: bool,
+    filter_ext: Option<std::ffi::OsString>,
+    expect_dir: bool,
+    executor_partitions: u64,
+    #[serde(skip_serializing, skip_deserializing)]
+    context: Arc<Context>,
+}
+
+impl LocalFsReader {
     /// Consumed self and load the files in the current host.
     /// This function should be called once per host to come with the paralel workload.
     fn load_local_files(mut self) -> Result<Vec<Vec<PathBuf>>> {
         let mut total_size = 0_u64;
         if self.is_single_file {
-            let size = fs::metadata(&self.path)?.len();
+            let size = fs::metadata(&self.path).map_err(Error::ReadFile)?.len();
             total_size += size;
-            self.files.push(vec![self.path.clone()]);
-            return Ok(self.files);
+            let files = vec![vec![self.path.clone()]];
+            return Ok(files);
         }
 
         let mut files: Vec<(u64, PathBuf)> = vec![];
@@ -118,8 +106,11 @@ impl LocalFsReader {
         let mut ex = 0.0;
         let mut ex2 = 0.0;
 
-        for (i, entry) in fs::read_dir(&self.path)?.enumerate() {
-            let path = entry?.path();
+        for (i, entry) in fs::read_dir(&self.path)
+            .map_err(Error::ReadFile)?
+            .enumerate()
+        {
+            let path = entry.map_err(Error::ReadFile)?.path();
             if path.is_file() {
                 let is_proper_file = {
                     self.filter_ext.is_none()
@@ -128,7 +119,7 @@ impl LocalFsReader {
                 if !is_proper_file {
                     continue;
                 }
-                let size = fs::metadata(&path)?.len();
+                let size = fs::metadata(&path).map_err(Error::ReadFile)?.len();
                 if i == 0 {
                     // assign first file size as reference sample
                     k = size;
@@ -231,38 +222,82 @@ impl LocalFsReader {
     }
 }
 
-impl Chunkable<DistributedLocalReader> for LocalFsReader {
-    fn slice_with_set_parts(self, parts: usize) -> Vec<Arc<Vec<DistributedLocalReader>>> {
-        let mut files_by_part = self.load_local_files().expect("failed to load local files");
-        // for each chunk we create a new loader to be run in parallel
-        let mut loaders = Vec::with_capacity(files_by_part.len());
-        for chunk in files_by_part {
-            // a bit hacky, but the only necessary attribute in the next phase is `files`
-            let partial_loader = DistributedLocalReader { files: chunk };
-            loaders.push(Arc::new(vec![partial_loader]));
+impl RddBase for LocalFsReader {
+    fn get_rdd_id(&self) -> usize {
+        self.id
+    }
+
+    fn get_context(&self) -> Arc<Context> {
+        self.context.clone()
+    }
+
+    fn get_dependencies(&self) -> Vec<Dependency> {
+        vec![]
+    }
+
+    fn is_pinned(&self) -> bool {
+        true
+    }
+
+    fn splits(&self) -> Vec<Box<dyn Split>> {
+        let mut splits = Vec::with_capacity(self.context.address_map.len());
+        for (idx, host) in self.context.address_map.iter().enumerate() {
+            splits.push(Box::new(LocalFsReaderSplit {
+                idx,
+                host: *host,
+                files: vec![],
+            }) as Box<dyn Split>)
         }
-        loaders
+        splits
+    }
+
+    default fn iterator_any(
+        &self,
+        split: Box<dyn Split>,
+    ) -> Result<Box<dyn Iterator<Item = Box<dyn AnyData>>>> {
+        Ok(Box::new(
+            self.iterator(split)?
+                .map(|x| Box::new(x) as Box<dyn AnyData>),
+        ))
+    }
+}
+
+impl Rdd for LocalFsReader {
+    type Item = Vec<PathBuf>;
+    fn get_rdd(&self) -> Arc<dyn Rdd<Item = Self::Item>>
+    where
+        Self: Sized,
+    {
+        Arc::new(self.clone()) as Arc<dyn Rdd<Item = Self::Item>>
+    }
+
+    fn get_rdd_base(&self) -> Arc<dyn RddBase> {
+        unimplemented!()
+    }
+
+    fn compute(&self, split: Box<dyn Split>) -> Result<Box<dyn Iterator<Item = Self::Item>>> {
+        let split = split.downcast_ref::<LocalFsReaderSplit>().unwrap();
+        let mut files_by_part = self.load_local_files().expect("failed to load local files");
+        Ok(Box::new(files_by_part.into_iter()) as Box<dyn Iterator<Item = Self::Item>>)
     }
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct DistributedLocalReader {
+pub struct LocalFsReaderSplit {
     files: Vec<PathBuf>,
+    idx: usize,
+    host: SocketAddr,
 }
 
-impl IntoIterator for DistributedLocalReader {
-    type Item = Vec<u8>;
-    type IntoIter = LocalExecutorFsReader;
-    fn into_iter(self) -> Self::IntoIter {
-        LocalExecutorFsReader { files: self.files }
+impl LocalFsReaderSplit {}
+
+impl Split for LocalFsReaderSplit {
+    fn get_index(&self) -> usize {
+        self.idx
     }
 }
 
-pub struct LocalExecutorFsReader {
-    files: Vec<PathBuf>,
-}
-
-impl Iterator for LocalExecutorFsReader {
+impl Iterator for LocalFsReaderSplit {
     type Item = Vec<u8>;
     fn next(&mut self) -> Option<Self::Item> {
         if let Some(path) = self.files.pop() {
@@ -316,7 +351,7 @@ mod tests {
         assert_eq!(files.len(), 4);
 
         // Even size and less files than parts
-        loader.executor_partitions = 8;
+        loader.executors.len() = 8;
         let files = vec![
             (500u64, "A".into()),
             (500, "B".into()),

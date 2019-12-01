@@ -1,4 +1,3 @@
-use std::any::Any;
 use std::fs::File;
 use std::net::{IpAddr, SocketAddr, TcpStream};
 use std::ops::Range;
@@ -61,7 +60,7 @@ pub struct Context {
     next_rdd_id: Arc<AtomicUsize>,
     next_shuffle_id: Arc<AtomicUsize>,
     scheduler: Schedulers,
-    address_map: Vec<SocketAddr>,
+    pub(crate) address_map: Vec<SocketAddr>,
     distributed_master: bool,
 }
 
@@ -250,13 +249,12 @@ impl Context {
     /// Load files from the local host and turn them into a parallel collection.
     pub fn read_files<F, C, R, D: Data>(self: &Arc<Self>, config: C, func: F) -> impl Rdd<Item = D>
     where
-        F: SerFunc(R) -> D,
-        C: ReaderConfiguration<R>,
-        R: Data + IntoIterator<Item = Vec<u8>>,
+        F: SerFunc(Vec<u8>) -> D,
+        C: ReaderConfiguration<Reader = R>,
+        R: Rdd<Item = Vec<u8>>,
     {
-        let reader = config.make_reader();
-        let parallel_readers = ParallelCollection::from_chunkable(self.clone(), reader);
-        parallel_readers.map(func)
+        let reader = config.make_reader(self.clone());
+        reader.map(func)
     }
 
     pub fn run_job<T: Data, U: Data, F>(

@@ -2,16 +2,16 @@ use super::*;
 use crate::scheduler::Scheduler;
 
 use std::any::Any;
-use std::collections::btree_map::BTreeMap;
-use std::collections::btree_set::BTreeSet;
-use std::collections::vec_deque::VecDeque;
-use std::collections::{HashMap, HashSet};
+use std::collections::{
+    btree_map::BTreeMap, btree_set::BTreeSet, vec_deque::VecDeque, HashMap, HashSet,
+};
 use std::iter::FromIterator;
-use std::net::{Ipv4Addr, SocketAddr, TcpStream};
-use std::option::Option;
+use std::net::{IpAddr, Ipv4Addr, SocketAddr, TcpStream};
 use std::rc::Rc;
-use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::Arc;
+use std::sync::{
+    atomic::{AtomicUsize, Ordering},
+    Arc,
+};
 use std::thread;
 use std::time;
 use std::time::{Duration, Instant};
@@ -135,7 +135,7 @@ impl DistributedScheduler {
         // altered
         let lock = self.scheduler_lock.lock();
         info!(
-            "shuffle maanger in final rdd of run job {:?}",
+            "shuffle manager in final rdd of run job {:?}",
             env::Env::get().shuffle_manager
         );
 
@@ -335,11 +335,16 @@ impl NativeScheduler for DistributedScheduler {
             self.server_uris.lock().push_front(socket_addrs);
             socket_addrs
         } else {
-            // seek and pick the selected host, if is not available keep trying until
-            // max number of tries
+            // seek and pick the selected host
             let servers = &mut *self.server_uris.lock();
-            // servers.iter().find();
-            unimplemented!()
+            let location: IpAddr = task.preferred_locations()[0].into();
+            if let Some((pos, _)) = servers.iter().enumerate().find(|(i, e)| e.ip() == location) {
+                let target_host = servers.remove(pos).unwrap();
+                servers.push_front(target_host.clone());
+                target_host
+            } else {
+                unreachable!()
+            }
         }
     }
 

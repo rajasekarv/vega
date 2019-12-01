@@ -1,7 +1,9 @@
-use super::*;
 use std::cmp::Ordering;
 use std::fmt::{Display, Formatter, Result};
 use std::sync::Arc;
+
+use super::*;
+
 // this is strange. see into this in more detail
 //#[derive(Derivative)]
 //#[derivative(PartialEq)]

@@ -1,13 +1,13 @@
 use super::*;
-use capnp::serialize_packed;
-use parking_lot::{Mutex, RwLock};
+
 use std::collections::{HashMap, HashSet};
-//use std::io::BufReader;
-//use std::iter::FromIterator;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr, TcpListener, TcpStream};
 use std::sync::Arc;
 use std::thread;
 use std::time;
+
+use capnp::serialize_packed;
+use parking_lot::{Mutex, RwLock};
 
 pub enum MapOutputTrackerMessage {
     //contains shuffle_id

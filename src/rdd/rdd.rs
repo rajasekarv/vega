@@ -124,11 +124,11 @@ pub trait Rdd: RddBase + 'static {
 
     fn get_rdd_base(&self) -> Arc<dyn RddBase>;
 
+    fn compute(&self, split: Box<dyn Split>) -> Result<Box<dyn Iterator<Item = Self::Item>>>;
+
     fn iterator(&self, split: Box<dyn Split>) -> Result<Box<dyn Iterator<Item = Self::Item>>> {
         self.compute(split)
     }
-
-    fn compute(&self, split: Box<dyn Split>) -> Result<Box<dyn Iterator<Item = Self::Item>>>;
 
     fn map<U: Data, F>(&self, f: F) -> SerArc<dyn Rdd<Item = U>>
     where

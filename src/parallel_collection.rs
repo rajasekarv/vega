@@ -1,8 +1,7 @@
 use super::*;
-//use std::hash::Hash;
+
 use std::hash::Hash;
 use std::sync::Arc;
-//use std::any::Any;
 
 // This module implements parallel collection RDD for dividing the input collection for parallel processing
 

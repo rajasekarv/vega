@@ -4,6 +4,8 @@ use std::hash::Hash;
 use std::marker::PhantomData;
 use std::sync::Arc;
 
+use serde_traitobject::Arc as SerArc;
+
 use crate::rdd::*;
 
 // Trait containing pair rdd methods. No need of implicit conversion like in Spark version
@@ -70,7 +72,10 @@ pub trait PairRdd<K: Data + Eq + Hash, V: Data>: Rdd<Item = (K, V)> + Send + Syn
         self.combine_by_key(aggregator, partitioner)
     }
 
-    fn map_values<U: Data, F>(&self, f: F) -> SerArc<dyn Rdd<Item = (K, U)>>
+    fn map_values<U: Data, F: SerFunc(V) -> U + Clone>(
+        &self,
+        f: F,
+    ) -> SerArc<dyn Rdd<Item = (K, U)>>
     where
         F: SerFunc(V) -> U + Clone,
         Self: Sized,
@@ -78,7 +83,10 @@ pub trait PairRdd<K: Data + Eq + Hash, V: Data>: Rdd<Item = (K, V)> + Send + Syn
         SerArc::new(MappedValuesRdd::new(self.get_rdd(), f))
     }
 
-    fn flat_map_values<U: Data, F>(&self, f: F) -> SerArc<dyn Rdd<Item = (K, U)>>
+    fn flat_map_values<U: Data, F: SerFunc(V) -> Box<dyn Iterator<Item = U>> + Clone>(
+        &self,
+        f: F,
+    ) -> SerArc<dyn Rdd<Item = (K, U)>>
     where
         F: SerFunc(V) -> Box<dyn Iterator<Item = U>> + Clone,
         Self: Sized,
