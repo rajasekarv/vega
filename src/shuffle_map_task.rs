@@ -16,6 +16,7 @@ pub struct ShuffleMapTask {
     pub stage_id: usize,
     #[serde(with = "serde_traitobject")]
     pub rdd: Arc<dyn RddBase>,
+    pinned: bool,
     #[serde(with = "serde_traitobject")]
     pub dep: Arc<dyn ShuffleDependencyTrait>,
     pub partition: usize,
@@ -36,6 +37,7 @@ impl ShuffleMapTask {
             task_id,
             run_id,
             stage_id,
+            pinned: rdd.is_pinned(),
             rdd,
             dep,
             partition,
@@ -64,9 +66,15 @@ impl TaskBase for ShuffleMapTask {
     fn get_task_id(&self) -> usize {
         self.task_id
     }
+
+    fn is_pinned(&self) -> bool {
+        self.pinned
+    }
+
     fn preferred_locations(&self) -> Vec<Ipv4Addr> {
         self.locs.clone()
     }
+
     fn generation(&self) -> Option<i64> {
         //        let base = self.rdd.get_rdd_base();
         let context = self.rdd.get_context();

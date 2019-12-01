@@ -58,6 +58,9 @@ pub trait RddBase: Send + Sync + Serialize + Deserialize {
     ) -> Result<Box<dyn Iterator<Item = Box<dyn AnyData>>>> {
         self.iterator_any(split)
     }
+    fn is_pinned(&self) -> bool {
+        false
+    }
 }
 
 impl PartialOrd for dyn RddBase {

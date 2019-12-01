@@ -7,7 +7,7 @@ use std::cell::RefCell;
 use std::clone::Clone;
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet, VecDeque};
 use std::marker::PhantomData;
-use std::net::Ipv4Addr;
+use std::net::{Ipv4Addr, SocketAddr};
 use std::option::Option;
 use std::rc::Rc;
 use std::sync::{
@@ -262,12 +262,13 @@ impl LocalScheduler {
 }
 
 impl NativeScheduler for LocalScheduler {
-    /// Every single task in run in the local thread pool
+    /// Every single task is run in the local thread pool
     fn submit_task<T: Data, U: Data, F>(
         &self,
         task: TaskOption,
         id_in_job: usize,
         thread_pool: Rc<ThreadPool>,
+        server_address: SocketAddr,
     ) where
         F: SerFunc((TasKContext, Box<dyn Iterator<Item = T>>)) -> U,
     {
@@ -278,6 +279,11 @@ impl NativeScheduler for LocalScheduler {
         thread_pool.execute(move || {
             LocalScheduler::run_task::<T, U, F>(event_queues, task, id_in_job, my_attempt_id)
         });
+    }
+
+    fn next_executor_server(&self, _rdd: &dyn TaskBase) -> SocketAddr {
+        // Just point to the localhost
+        SocketAddr::new(Ipv4Addr::new(127, 0, 0, 1).into(), 0)
     }
 
     impl_common_funcs!();

@@ -23,6 +23,9 @@ pub trait TaskBase: Downcast + Send + Sync {
     fn get_run_id(&self) -> usize;
     fn get_stage_id(&self) -> usize;
     fn get_task_id(&self) -> usize;
+    fn is_pinned(&self) -> bool {
+        false
+    }
     fn preferred_locations(&self) -> Vec<Ipv4Addr> {
         Vec::new()
     }

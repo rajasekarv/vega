@@ -55,7 +55,7 @@ pub enum Error {
     PathToString(PathBuf),
 
     #[error("failed to parse slave address {0}")]
-    ParseSlaveAddress(String),
+    ParseHostAddress(String),
 
     #[error("Got split object from different concrete type other than {0}")]
     SplitDowncast(&'static str),

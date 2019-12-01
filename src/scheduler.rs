@@ -1,7 +1,7 @@
 use super::*;
 
 use std::collections::{BTreeMap, BTreeSet};
-use std::net::Ipv4Addr;
+use std::net::{Ipv4Addr, SocketAddr};
 use std::rc::Rc;
 use std::sync::Arc;
 
@@ -377,15 +377,17 @@ pub(crate) trait NativeScheduler {
                     locs,
                     id,
                 );
-                my_pending.insert(Box::new(result_task.clone()));
+                let task = Box::new(result_task.clone()) as Box<dyn TaskBase>;
+                let executor = self.next_executor_server(&*task);
+                my_pending.insert(task);
                 self.submit_task::<T, U, F>(
                     TaskOption::ResultTask(Box::new(result_task)),
                     id_in_job,
                     jt.thread_pool.clone(),
+                    executor,
                 );
             }
         } else {
-            let mut id_in_job = 0;
             for p in 0..stage.num_partitions {
                 info!("shuffle_stage {}", stage.id);
                 if stage.output_locs[p].is_empty() {
@@ -406,13 +408,15 @@ pub(crate) trait NativeScheduler {
                         p,
                         shuffle_map_task.dep.get_shuffle_id()
                     );
-                    my_pending.insert(Box::new(shuffle_map_task.clone()));
+                    let task = Box::new(shuffle_map_task.clone()) as Box<dyn TaskBase>;
+                    let executor = self.next_executor_server(&*task);
+                    my_pending.insert(task);
                     self.submit_task::<T, U, F>(
                         TaskOption::ShuffleMapTask(Box::new(shuffle_map_task)),
-                        id_in_job,
+                        p,
                         jt.thread_pool.clone(),
+                        executor,
                     );
-                    id_in_job += 1;
                 }
             }
         }
@@ -423,6 +427,7 @@ pub(crate) trait NativeScheduler {
         task: TaskOption,
         id_in_job: usize,
         thread_pool: Rc<ThreadPool>,
+        target_executor: SocketAddr,
     ) where
         F: SerFunc((TasKContext, Box<dyn Iterator<Item = T>>)) -> U;
 
@@ -444,30 +449,37 @@ pub(crate) trait NativeScheduler {
     fn get_next_job_id(&self) -> usize;
     fn get_next_stage_id(&self) -> usize;
     fn get_next_task_id(&self) -> usize;
+    fn next_executor_server(&self, rdd: &dyn TaskBase) -> SocketAddr;
 
     fn get_preferred_locs(&self, rdd: Arc<dyn RddBase>, partition: usize) -> Vec<Ipv4Addr> {
         //TODO have to implement this completely
-
         if let Some(cached) = self.get_cache_locs(rdd.clone()) {
             if let Some(cached) = cached.get(partition) {
                 return cached.clone();
             }
         }
         let rdd_prefs = rdd.preferred_locations(rdd.splits()[partition].clone());
-        if !rdd_prefs.is_empty() {
-            return rdd_prefs;
-        }
-        for dep in rdd.get_dependencies().iter() {
-            if let Dependency::NarrowDependency(nar_dep) = dep {
-                for in_part in nar_dep.get_parents(partition) {
-                    let locs = self.get_preferred_locs(nar_dep.get_rdd_base(), in_part);
-                    if !locs.is_empty() {
-                        return locs;
+        if !rdd.is_pinned() {
+            if !rdd_prefs.is_empty() {
+                return rdd_prefs;
+            }
+            for dep in rdd.get_dependencies().iter() {
+                if let Dependency::NarrowDependency(nar_dep) = dep {
+                    for in_part in nar_dep.get_parents(partition) {
+                        let locs = self.get_preferred_locs(nar_dep.get_rdd_base(), in_part);
+                        if !locs.is_empty() {
+                            return locs;
+                        }
                     }
                 }
             }
+            Vec::new()
+        } else {
+            // when pinned, is required that there is exactly one preferred location
+            // for a given partition
+            assert!(rdd_prefs.len() == 1);
+            rdd_prefs
         }
-        Vec::new()
     }
 
     fn get_shuffle_map_stage(&self, shuf: Arc<dyn ShuffleDependencyTrait>) -> Stage;

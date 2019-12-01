@@ -7,7 +7,7 @@ use std::collections::btree_set::BTreeSet;
 use std::collections::vec_deque::VecDeque;
 use std::collections::{HashMap, HashSet};
 use std::iter::FromIterator;
-use std::net::{Ipv4Addr, TcpStream};
+use std::net::{Ipv4Addr, SocketAddr, TcpStream};
 use std::option::Option;
 use std::rc::Rc;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -45,7 +45,7 @@ pub struct DistributedScheduler {
     taskid_to_slaveid: HashMap<String, String>,
     job_tasks: HashMap<usize, HashSet<String>>,
     slaves_with_executors: HashSet<String>,
-    server_uris: Arc<Mutex<VecDeque<(String, u16)>>>,
+    server_uris: Arc<Mutex<VecDeque<SocketAddr>>>,
     port: u16,
     map_output_tracker: MapOutputTracker,
     // TODO fix proper locking mechanism
@@ -57,7 +57,7 @@ impl DistributedScheduler {
         threads: usize,
         max_failures: usize,
         master: bool,
-        servers: Option<Vec<(String, u16)>>,
+        servers: Option<Vec<SocketAddr>>,
         port: u16,
     ) -> Self {
         info!(
@@ -89,11 +89,7 @@ impl DistributedScheduler {
             job_tasks: HashMap::new(),
             slaves_with_executors: HashSet::new(),
             server_uris: if let Some(servers) = servers {
-                let mut vec = VecDeque::new();
-                for (i, j) in servers {
-                    vec.push_front((i, j));
-                }
-                Arc::new(Mutex::new(VecDeque::from_iter(vec)))
+                Arc::new(Mutex::new(VecDeque::from_iter(servers)))
             } else {
                 Arc::new(Mutex::new(VecDeque::new()))
             },
@@ -115,7 +111,6 @@ impl DistributedScheduler {
             queue.push_back(CompletionEvent {
                 task,
                 reason,
-                //                    result: Some(Box::new(result)),
                 result,
                 accum_updates: HashMap::new(),
             });
@@ -246,36 +241,17 @@ impl NativeScheduler for DistributedScheduler {
         task: TaskOption,
         id_in_job: usize,
         thread_pool: Rc<ThreadPool>,
+        target_executor: SocketAddr,
     ) where
         F: SerFunc((TasKContext, Box<dyn Iterator<Item = T>>)) -> U,
     {
         info!("inside submit task");
         let my_attempt_id = self.attempt_id.fetch_add(1, Ordering::SeqCst);
         let event_queues = self.event_queues.clone();
-        //        let ser_task = SerializeableTask { task };
-        //        let ser_task = task;
-        //
-        //        let task_bytes = bincode::serialize(&ser_task).unwrap();
-        //let server_port = self.port;
-        //        server_port = server_port - (server_port % 1000);
-        //        server_port = server_port + ser_task.get_task_id();
-        //info!("server port number {}", server_port);
-        //        let log_output = format!("task id {}", ser_task.get_task_id());
-        //        env::log_file.lock().write(&log_output.as_bytes());
         if self.master {
-            //            self.server_uris.lock().push_front(server.clone());
-            //            let ten_millis = std::time::Duration::from_millis(1000);
-            //            thread::sleep(ten_millis);
-            let server_map = self.server_uris.lock().pop_back().unwrap();
-            self.server_uris.lock().push_front(server_map.clone());
-            let server_port = server_map.1;
-            //            client_port = client_port - (client_port % 1000);
-            //            client_port = client_port + ser_task.get_task_id();
-            let server_address = server_map.0;
-            let event_queues_clone = event_queues;
+            let event_queues_clone = event_queues.clone();
             thread_pool.execute(move || {
-                while let Err(_) = TcpStream::connect(format!("{}:{}", server_address, server_port))
-                {
+                while let Err(_) = TcpStream::connect(&target_executor) {
                     continue;
                 }
                 let ser_task = task;
@@ -283,14 +259,13 @@ impl NativeScheduler for DistributedScheduler {
                 let task_bytes = bincode::serialize(&ser_task).unwrap();
                 info!(
                     "task in executor {} {:?} master",
-                    server_port,
+                    target_executor.port(),
                     ser_task.get_task_id()
                 );
-                let mut stream =
-                    TcpStream::connect(format!("{}:{}", server_address, server_port)).unwrap();
+                let mut stream = TcpStream::connect(&target_executor).unwrap();
                 info!(
                     "task in executor {} {} master task len",
-                    server_port,
+                    target_executor.port(),
                     task_bytes.len()
                 );
                 let mut message = ::capnp::message::Builder::new_default();
@@ -310,7 +285,7 @@ impl NativeScheduler for DistributedScheduler {
                     .unwrap();
                 info!(
                     "task in executor {} {} master task result len",
-                    server_port,
+                    target_executor.port(),
                     task_data.get_msg().unwrap().len()
                 );
                 let result: TaskResult =
@@ -350,6 +325,21 @@ impl NativeScheduler for DistributedScheduler {
                     }
                 };
             })
+        }
+    }
+
+    fn next_executor_server(&self, task: &dyn TaskBase) -> SocketAddr {
+        if !task.is_pinned() {
+            // pick the first available server
+            let socket_addrs = self.server_uris.lock().pop_back().unwrap();
+            self.server_uris.lock().push_front(socket_addrs);
+            socket_addrs
+        } else {
+            // seek and pick the selected host, if is not available keep trying until
+            // max number of tries
+            let servers = &mut *self.server_uris.lock();
+            // servers.iter().find();
+            unimplemented!()
         }
     }
 

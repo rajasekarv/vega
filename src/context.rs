@@ -1,6 +1,6 @@
 use std::any::Any;
 use std::fs::File;
-use std::net::TcpStream;
+use std::net::{IpAddr, SocketAddr, TcpStream};
 use std::ops::Range;
 use std::path::PathBuf;
 use std::process::Command;
@@ -61,7 +61,7 @@ pub struct Context {
     next_rdd_id: Arc<AtomicUsize>,
     next_shuffle_id: Arc<AtomicUsize>,
     scheduler: Schedulers,
-    address_map: Vec<(String, u16)>,
+    address_map: Vec<SocketAddr>,
     distributed_master: bool,
 }
 
@@ -86,7 +86,7 @@ impl Context {
         match mode {
             env::DeploymentMode::Distributed => {
                 let mut port: u16 = 10000;
-                let mut address_map: Vec<(String, u16)> = Vec::new();
+                let mut address_map = Vec::new();
                 if env::Configuration::get().is_master {
                     let uuid = Uuid::new_v4().to_string();
                     initialize_loggers(format!("/tmp/master-{}", uuid));
@@ -104,12 +104,13 @@ impl Context {
                         .map_err(Error::OsStringToString)?;
                     for address in &hosts::Hosts::get()?.slaves {
                         info!("deploying executor at address {:?}", address);
-                        let address_cli = address
+                        let address_cli: IpAddr = address
                             .split('@')
                             .nth(1)
-                            .ok_or_else(|| Error::ParseSlaveAddress(address.into()))?
-                            .to_string();
-                        address_map.push((address_cli, port));
+                            .ok_or_else(|| Error::ParseHostAddress(address.into()))?
+                            .parse()
+                            .map_err(|x| Error::ParseHostAddress(format!("{}", x)))?;
+                        address_map.push(SocketAddr::new(address_cli, port));
                         let local_dir_root = "/tmp";
                         let uuid = Uuid::new_v4();
                         let local_dir_uuid = uuid.to_string();
@@ -192,9 +193,15 @@ impl Context {
     }
 
     fn drop_executors(&self) {
-        for (address, port) in self.address_map.clone() {
-            info!("dropping executor in {:?}:{:?}", address, port);
-            if let Ok(mut stream) = TcpStream::connect(format!("{}:{}", address, port + 10)) {
+        for socket_addr in self.address_map.clone() {
+            info!(
+                "dropping executor in {:?}:{:?}",
+                socket_addr.ip(),
+                socket_addr.port()
+            );
+            if let Ok(mut stream) =
+                TcpStream::connect(format!("{}:{}", socket_addr.ip(), socket_addr.port() + 10))
+            {
                 let signal = true;
                 let signal = bincode::serialize(&signal).unwrap();
                 let mut message = ::capnp::message::Builder::new_default();
@@ -204,14 +211,17 @@ impl Context {
             } else {
                 error!(
                     "Failed to connect to {}:{} in order to stop its executor",
-                    address, port
+                    socket_addr.ip(),
+                    socket_addr.port()
                 );
             }
         }
     }
+
     pub fn new_rdd_id(self: &Arc<Self>) -> usize {
         self.next_rdd_id.fetch_add(1, Ordering::SeqCst)
     }
+
     pub fn new_shuffle_id(self: &Arc<Self>) -> usize {
         self.next_shuffle_id.fetch_add(1, Ordering::SeqCst)
     }
