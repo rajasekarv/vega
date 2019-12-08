@@ -18,6 +18,7 @@ use serde_traitobject::{Deserialize, Serialize};
 pub mod cartesian_rdd;
 pub use cartesian_rdd::CartesianRdd;
 pub mod co_grouped_rdd;
+pub mod coalesced_rdd;
 pub use co_grouped_rdd::CoGroupedRdd;
 pub mod pair_rdd;
 pub use pair_rdd::PairRdd;

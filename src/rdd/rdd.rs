@@ -1,4 +1,8 @@
+use fasthash::MetroHasher;
+use rand::Rng;
+
 use crate::rdd::*;
+
 // Values which are needed for all RDDs
 #[derive(Serialize, Deserialize)]
 pub struct RddVals {
@@ -275,6 +279,87 @@ pub trait Rdd: RddBase + 'static {
     {
         SerArc::new(CartesianRdd::new(self.get_rdd(), other.into()))
     }
+
+    /// Return a new RDD that is reduced into `num_partitions` partitions.
+    ///
+    /// This results in a narrow dependency, e.g. if you go from 1000 partitions
+    /// to 100 partitions, there will not be a shuffle, instead each of the 100
+    /// new partitions will claim 10 of the current partitions. If a larger number
+    /// of partitions is requested, it will stay at the current number of partitions.
+    ///
+    /// However, if you're doing a drastic coalesce, e.g. to num_partitions = 1,
+    /// this may result in your computation taking place on fewer nodes than
+    /// you like (e.g. one node in the case of num_partitions = 1). To avoid this,
+    /// you can pass shuffle = true. This will add a shuffle step, but means the
+    /// current upstream partitions will be executed in parallel (per whatever
+    /// the current partitioning is).
+    ///
+    /// ## Notes
+    ///
+    /// With shuffle = true, you can actually coalesce to a larger number
+    /// of partitions. This is useful if you have a small number of partitions,
+    /// say 100, potentially with a few partitions being abnormally large. Calling
+    /// coalesce(1000, shuffle = true) will result in 1000 partitions with the
+    /// data distributed using a hash partitioner. The optional partition coalescer
+    /// passed in must be serializable.
+    fn coalesce(num_partitions: usize, shuffle: bool) -> SerArc<dyn Rdd<Item = Self::Item>>
+    where
+        Self: Sized,
+    {
+        if shuffle {
+            use std::hash::Hasher;
+            // Distributes elements evenly across output partitions, starting from a random partition.
+            let distributed_partition = Fn!(
+                move |index: usize, items: Box<dyn Iterator<Item = Self::Item>>| {
+                    let mut hasher = MetroHasher::default();
+                    index.hash(&mut hasher);
+                    let mut rand = utils::random::get_default_rng_from_seed(hasher.finish());
+                    let mut position = rand.gen_range(0, num_partitions);
+                    items.map(move |t| {
+                        // Note that the hash code of the key will just be the key itself. The HashPartitioner
+                        // will mod it with the number of total partitions.
+                        position += 1;
+                        (position, t)
+                    })
+                }
+            );
+            // Include a shuffle step so that our upstream tasks are still distributed
+            unimplemented!()
+        } else {
+            unimplemented!()
+        }
+    }
+
+    /*
+    def coalesce(numPartitions: Int, shuffle: Boolean = false,
+                 partitionCoalescer: Option[PartitionCoalescer] = Option.empty)
+                (implicit ord: Ordering[T] = null)
+        : RDD[T] = withScope {
+      require(numPartitions > 0, s"Number of partitions ($numPartitions) must be positive.")
+      if (shuffle) {
+        /** Distributes elements evenly across output partitions, starting from a random partition. */
+        val distributePartition = (index: Int, items: Iterator[T]) => {
+          var position = new Random(hashing.byteswap32(index)).nextInt(numPartitions)
+          items.map { t =>
+            // Note that the hash code of the key will just be the key itself. The HashPartitioner
+            // will mod it with the number of total partitions.
+            position = position + 1
+            (position, t)
+          }
+        } : Iterator[(Int, T)]
+
+        // include a shuffle step so that our upstream tasks are still distributed
+        new CoalescedRDD(
+          new ShuffledRDD[Int, T, T](
+            mapPartitionsWithIndexInternal(distributePartition, isOrderSensitive = true),
+            new HashPartitioner(numPartitions)),
+          numPartitions,
+          partitionCoalescer).values
+      } else {
+        new CoalescedRDD(this, numPartitions, partitionCoalescer)
+      }
+    }
+      */
 
     fn collect(&self) -> Result<Vec<Self::Item>>
     where
