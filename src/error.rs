@@ -60,6 +60,9 @@ pub enum Error {
     #[error("Got split object from different concrete type other than {0}")]
     SplitDowncast(&'static str),
 
+    #[error("scheduler poll timeout while waiting for event")]
+    TimeOut,
+
     #[error("operation not supported: {0}")]
     UnsupportedOperation(&'static str),
 }
