@@ -12,11 +12,8 @@ pub enum Error {
         command: String,
     },
 
-    #[error("couldn't determine the current binary's name")]
-    CurrentBinaryName,
-
-    #[error("couldn't determine the path to the current binary")]
-    CurrentBinaryPath,
+    #[error("configuration failure: {0}")]
+    GetOrCreateConfig(&'static str),
 
     #[error("failed to create the log file")]
     CreateLogFile(#[source] std::io::Error),
@@ -24,8 +21,17 @@ pub enum Error {
     #[error("failed to create the terminal logger")]
     CreateTerminalLogger,
 
+    #[error("couldn't determine the current binary's name")]
+    CurrentBinaryName,
+
+    #[error("couldn't determine the path to the current binary")]
+    CurrentBinaryPath,
+
     #[error("failed to parse the executor port")]
     ExecutorPort(#[source] std::num::ParseIntError),
+
+    #[error("partitioner not set")]
+    LackingPartitioner,
 
     #[error("failed to load hosts file from {}", path.display())]
     LoadHosts {
@@ -50,4 +56,10 @@ pub enum Error {
 
     #[error("failed to parse slave address {0}")]
     ParseSlaveAddress(String),
+
+    #[error("Got split object from different concrete type other than {0}")]
+    SplitDowncast(&'static str),
+
+    #[error("operation not supported: {0}")]
+    UnsupportedOperation(&'static str),
 }

@@ -53,12 +53,12 @@ impl ShuffleManager {
         let port = 5000 + rand::thread_rng().gen_range(0, 1000);
         let server_uri = format!(
             "http://{}:{}",
-            env::local_ip.clone(),
+            env::Configuration::get().local_ip.clone(),
             port,
             //            local_dir_uuid
         );
         info!("server_uri {:?}", server_uri);
-        let server_address = format!("{}:{}", env::local_ip.clone(), port);
+        let server_address = format!("{}:{}", env::Configuration::get().local_ip.clone(), port);
         info!("server_address {:?}", server_address);
         let relative_path = format!("/spark-local-{}", local_dir_uuid);
         let local_dir_clone = local_dir.clone();

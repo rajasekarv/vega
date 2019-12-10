@@ -8,12 +8,13 @@ use native_spark::*;
 use parquet::column::reader::get_typed_column_reader;
 use parquet::data_type::{ByteArrayType, Int32Type, Int64Type};
 use parquet::file::reader::{FileReader, SerializedFileReader};
+
 use std::fs;
 use std::fs::File;
 use std::path::Path;
 
 fn main() -> Result<()> {
-    let sc = Context::new("local")?;
+    let sc = Context::new()?;
     let files = fs::read_dir("parquet_file_dir")
         .unwrap()
         .map(|x| x.unwrap().path().to_str().unwrap().to_owned())
@@ -23,7 +24,7 @@ fn main() -> Result<()> {
     let read = files.flat_map(Fn!(|file| read(file)));
     let sum = read.reduce_by_key(Fn!(|((vl, cl), (vr, cr))| (vl + vr, cl + cr)), 1);
     let avg = sum.map(Fn!(|(k, (v, c))| (k, v as f64 / c)));
-    let res = avg.collect();
+    let res = avg.collect().unwrap();
     println!("{:?}", &res[0]);
     Ok(())
 }

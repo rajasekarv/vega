@@ -11,7 +11,7 @@ use std::sync::Arc;
 //use serde_traitobject::Any;
 
 // Revise if enum is good choice. Considering enum since down casting one trait object to another trait object is difficult.
-#[derive(Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub enum Dependency {
     #[serde(with = "serde_traitobject")]
     NarrowDependency(Arc<dyn NarrowDependencyTrait>),
@@ -157,13 +157,13 @@ impl<K: Data + Eq + Hash, V: Data, C: Data> ShuffleDependencyTrait for ShuffleDe
         );
         info!("split index {}", split.get_index());
 
-        let mut count = 0;
-        let mut iter = rdd_base.iterator_any(split.clone());
-        if self.is_cogroup {
-            iter = rdd_base.cogroup_iterator_any(split);
-        }
-        for i in iter {
-            count += 1;
+        let iter = if self.is_cogroup {
+            rdd_base.cogroup_iterator_any(split)
+        } else {
+            rdd_base.iterator_any(split.clone())
+        };
+
+        for (count, i) in iter.unwrap().enumerate() {
             //            if count % 30000 == 0 {
             //                info!(
             //                    "inside rdd base iterator in shuffle map task  count for partition {} {}",
@@ -240,7 +240,7 @@ impl<K: Data + Eq + Hash, V: Data, C: Data> ShuffleDependencyTrait for ShuffleDe
             //            println!("file after {:?}", contents);
             //            println!("written to file {:?}", file_path);
         }
-        env::env.shuffle_manager.get_server_uri()
+        env::Env::get().shuffle_manager.get_server_uri()
     }
 }
 

@@ -93,7 +93,7 @@ impl MapOutputTracker {
     fn server(&self) {
         if self.is_master {
             info!("mapoutput tracker server starting");
-            let master_addr = self.master_addr.clone();
+            let master_addr = self.master_addr;
             let server_uris = self.server_uris.clone();
             thread::spawn(move || {
                 let listener = TcpListener::bind(master_addr).unwrap();
@@ -166,7 +166,7 @@ impl MapOutputTracker {
 
     pub fn register_shuffle(&self, shuffle_id: usize, num_maps: usize) {
         info!("inside register shuffle");
-        if !self.server_uris.read().get(&shuffle_id).is_none() {
+        if self.server_uris.read().get(&shuffle_id).is_some() {
             //TODO error handling
             info!("map tracker register shuffle none");
             return;
@@ -208,8 +208,8 @@ impl MapOutputTracker {
         //        }
         let array = self.server_uris.read();
         let array = array.get(&shuffle_id);
-        if !array.is_none() {
-            if array.unwrap().get(map_id).unwrap() == &Some(server_uri) {
+        if let Some(arr) = array {
+            if arr.get(map_id).unwrap() == &Some(server_uri) {
                 self.server_uris
                     .write()
                     .get_mut(&shuffle_id)
@@ -227,121 +227,70 @@ impl MapOutputTracker {
             "server uris inside get_server_uris method {:?}",
             self.server_uris
         );
-        //        let locs = self.server_uris.read();
-        //        let log_output = format!(
-        //            "non none locs {:?} ",
-        //            non_none_len = self
-        //                .server_uris
-        //                .read()
-        //                .unwrap()
-        //                .get(&shuffle_id)
-        //                .unwrap()
-        //                .iter()
-        //                //                .filter(|x| !x.is_none())
-        //                .filter(|x| {
-        //                    match x {
-        //                        Some(s) => s != "",
-        //                        None => false,
-        //                    }
-        //                })
-        //                .collect::<Vec<_>>()
-        //        );
-        //        env::log_file.lock().write(&log_output.as_bytes());
-        //        println!(
-        //            "non none locs {:?} ",
-        //            non_none_len = self
-        //                .server_uris
-        //                .read()
-        //                .unwrap()
-        //                .get(&shuffle_id)
-        //                .unwrap()
-        //                .iter()
-        //                //                .filter(|x| !x.is_none())
-        //                .filter(|x| {
-        //                    match x {
-        //                        Some(s) => s != "",
-        //                        None => false,
-        //                    }
-        //                })
-        //                .collect::<Vec<_>>()
-        //        );
-        //        let non_none_len = self
-        //            .server_uris
-        //            .read()
-        //            .unwrap()
-        //            .get(&shuffle_id)
-        //            .unwrap()
-        //            .iter()
-        //            //            .filter(|x| !x.is_none())
-        //            .filter(|x| match x {
-        //                Some(s) => s != "",
-        //                None => false,
-        //            })
-        //            .collect::<Vec<_>>()
-        //            .len();
-        //        let log_output = format!("non none locs len {}", non_none_len);
-        //        env::log_file.lock().write(&log_output.as_bytes());
-        //        println!("non none locs len {}", non_none_len);
-        //        if non_none_len == 0 {
-        //        if !self.is_master {
-        //            if locs.get(&shuffle_id).is_none() {
-        //TODO logging
-        //            let mut fetching = self.fetching.lock();
-        if self.fetching.read().contains(&shuffle_id) {
-            while self.fetching.read().contains(&shuffle_id) {
-                //check whether this will hurt the performance or not
-                let wait = time::Duration::from_millis(1);
-                thread::sleep(wait);
-            }
-            info!(
-                "returning after fetching done {:?}",
-                self.server_uris
+        if self
+            .server_uris
+            .read()
+            .get(&shuffle_id)
+            .unwrap()
+            .iter()
+            .filter(|x| !x.is_none())
+            .map(|x| x.clone().unwrap())
+            .next()
+            .is_none()
+        {
+            // if self.server_uris.read().get(&shuffle_id).is_empty(){
+            if self.fetching.read().contains(&shuffle_id) {
+                while self.fetching.read().contains(&shuffle_id) {
+                    //check whether this will hurt the performance or not
+                    let wait = time::Duration::from_millis(1);
+                    thread::sleep(wait);
+                }
+                info!(
+                    "returning after fetching done {:?}",
+                    self.server_uris
+                        .read()
+                        .get(&shuffle_id)
+                        .unwrap()
+                        .iter()
+                        .filter(|x| !x.is_none())
+                        .map(|x| x.clone().unwrap())
+                        .collect::<Vec<_>>()
+                );
+                return self
+                    .server_uris
                     .read()
                     .get(&shuffle_id)
                     .unwrap()
                     .iter()
                     .filter(|x| !x.is_none())
                     .map(|x| x.clone().unwrap())
-                    .collect::<Vec<_>>()
+                    .collect();
+            } else {
+                info!("adding to fetching queue");
+                self.fetching.write().insert(shuffle_id);
+            }
+            // TODO logging
+            let fetched = self.client(shuffle_id);
+            info!("fetched locs from client {:?}", fetched);
+            self.server_uris.write().insert(
+                shuffle_id,
+                fetched.iter().map(|x| Some(x.clone())).collect(),
             );
-            return self
-                .server_uris
+            info!("wriiten to server_uris after fetching");
+            self.fetching.write().remove(&shuffle_id);
+            info!("returning from get server uri");
+
+            fetched
+        } else {
+            self.server_uris
                 .read()
                 .get(&shuffle_id)
                 .unwrap()
                 .iter()
                 .filter(|x| !x.is_none())
                 .map(|x| x.clone().unwrap())
-                .collect();
-        } else {
-            self.fetching.write().insert(shuffle_id);
+                .collect()
         }
-        // TODO logging
-        let fetched = self.client(shuffle_id);
-        info!("fetched locs from client {:?}", fetched);
-        self.server_uris.write().insert(
-            shuffle_id,
-            fetched.iter().map(|x| Some(x.clone())).collect(),
-        );
-        info!("wriiten to server_uris after fetching");
-        self.fetching.write().remove(&shuffle_id);
-        info!("returning from get server uri");
-
-        fetched
-        //        } else {
-        //TODO Check whether this is correct or not
-        //            let string = locs.get(&shuffle_id).unwrap().get(0).unwrap().clone();
-        //            return self
-        //                .server_uris
-        //                .read()
-        //                .get(&shuffle_id)
-        //                .unwrap()
-        //                .iter()
-        //                .filter(|x| !x.is_none())
-        //                .map(|x| x.clone().unwrap())
-        ////                                .map(|_| string.clone().unwrap())
-        //                .collect();
-        //        }
     }
 
     pub fn increment_generation(&self) {

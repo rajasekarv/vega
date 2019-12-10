@@ -2,7 +2,7 @@
 use native_spark::*;
 
 fn main() -> Result<()> {
-    let sc = Context::new("local")?;
+    let sc = Context::new()?;
     let vec = vec![
         ("x".to_string(), 1),
         ("x".to_string(), 2),
@@ -22,7 +22,7 @@ fn main() -> Result<()> {
     ];
     let r = sc.make_rdd(vec, 4);
     let g = r.group_by_key(4);
-    let res = g.collect();
+    let res = g.collect().unwrap();
     println!("res {:?}", res);
     Ok(())
 }

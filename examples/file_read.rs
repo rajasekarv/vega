@@ -3,11 +3,12 @@ use native_spark::*;
 #[macro_use]
 extern crate serde_closure;
 use chrono::prelude::*;
+
 use std::fs;
 use std::io::{BufRead, BufReader};
 
 fn main() -> Result<()> {
-    let sc = Context::new("local")?;
+    let sc = Context::new()?;
     let files = fs::read_dir("csv_folder")
         .unwrap()
         .map(|x| x.unwrap().path().to_str().unwrap().to_owned())
@@ -31,7 +32,7 @@ fn main() -> Result<()> {
     }));
     let sum = line.reduce_by_key(Fn!(|((vl, cl), (vr, cr))| (vl + vr, cl + cr)), 1);
     let avg = sum.map(Fn!(|(k, (v, c))| (k, v as f64 / c)));
-    let res = avg.collect();
+    let res = avg.collect().unwrap();
     println!("{:?}", &res[0]);
     Ok(())
 }

@@ -51,7 +51,7 @@ pub enum CacheTrackerMessageReply {
 }
 
 #[derive(Clone, Debug)]
-pub struct CacheTracker {
+pub(crate) struct CacheTracker {
     is_master: bool,
     locs: Arc<RwLock<HashMap<usize, Vec<LinkedList<Ipv4Addr>>>>>,
     slave_capacity: Arc<RwLock<HashMap<Ipv4Addr, usize>>>,
@@ -66,6 +66,7 @@ impl CacheTracker {
     pub fn new(
         is_master: bool,
         master_addr: SocketAddr,
+        local_ip: Ipv4Addr,
         the_cache: &'static BoundedMemoryCache,
     ) -> Self {
         let m = CacheTracker {
@@ -80,7 +81,7 @@ impl CacheTracker {
         };
         m.server();
         m.client(CacheTrackerMessage::SlaveCacheStarted {
-            host: *env::local_ip,
+            host: local_ip,
             size: m.cache.get_capacity(),
         });
         m
@@ -267,6 +268,7 @@ impl CacheTracker {
             });
         }
     }
+
     pub fn get_cache_usage(
         slave_usage: Arc<RwLock<HashMap<Ipv4Addr, usize>>>,
         host: Ipv4Addr,
@@ -323,7 +325,7 @@ impl CacheTracker {
 
     pub fn get_or_compute<T: Data>(
         &self,
-        rdd: Arc<dyn Rdd<T>>,
+        rdd: Arc<dyn Rdd<Item = T>>,
         split: Box<dyn Split>,
     ) -> Box<dyn Iterator<Item = T>> {
         if let Some(cached_val) = self.cache.get(rdd.get_rdd_id(), split.get_index()) {
@@ -343,7 +345,7 @@ impl CacheTracker {
 
             let mut res: Vec<T> = Vec::new();
             let mut lock = self.loading.write();
-            res = rdd.compute(split.clone()).collect();
+            res = rdd.compute(split.clone()).unwrap().collect();
             let res_bytes = bincode::serialize(&res).unwrap();
             let put_response = self
                 .cache
@@ -354,7 +356,7 @@ impl CacheTracker {
                 self.client(CacheTrackerMessage::AddedToCache {
                     rdd_id: rdd.get_rdd_id(),
                     partition: split.get_index(),
-                    host: *env::local_ip,
+                    host: env::Configuration::get().local_ip,
                     size,
                 });
             }

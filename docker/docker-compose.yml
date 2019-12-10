@@ -1,0 +1,28 @@
+version: '3.7'
+
+networks:
+  native-spark:
+
+services:
+  ns_master:
+    image: native_spark:latest
+    ports:
+      - "3000"
+    tty: true
+    networks:
+      native-spark:
+    volumes:
+      - type: "bind"
+        source: "../target"
+        target: "/home/dev"
+    environment:
+      NS_DEPLOYMENT_MODE: distributed
+
+  ns_worker:
+    image: native_spark:latest
+    ports:
+      - "10500"
+      - "22"
+    tty: true
+    networks:
+      native-spark:

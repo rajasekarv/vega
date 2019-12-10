@@ -1,22 +1,17 @@
 use super::*;
 use capnp::serialize_packed;
 use std::net::TcpListener;
-//use std::net::TcpStream;
 use std::thread;
 use std::time::Instant;
 use threadpool::ThreadPool;
 
 pub struct Executor {
     port: u16,
-    //    thread_pool: ThreadPool,
 }
 
 impl Executor {
     pub fn new(port: u16) -> Self {
-        Executor {
-            port,
-            //            thread_pool: ThreadPool::new(1),
-        }
+        Executor { port }
     }
 
     // Worker which spawns threads for received tasks, deserializes it and executes the task and send the result back to the master.

@@ -1,3 +1,5 @@
+.git
+
 # IDEs
 .idea/
 .vscode/
@@ -5,4 +7,3 @@
 
 # build
 /target/
-/userGuide/book
