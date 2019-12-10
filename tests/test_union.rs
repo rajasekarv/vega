@@ -1,11 +1,7 @@
-use native_spark::io::*;
 use native_spark::*;
 
-use std::fs::{create_dir_all, remove_dir_all, File};
-use std::io::prelude::*;
 use std::sync::Arc;
 
-#[macro_use]
 extern crate serde_closure;
 use once_cell::sync::Lazy;
 
