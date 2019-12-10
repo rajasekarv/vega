@@ -123,11 +123,9 @@ impl MapOutputTracker {
                                 while server_uris_clone
                                     .read()
                                     .get(&shuffle_id)
-                                    .unwrap()
-                                    .iter()
-                                    .filter(|x| !x.is_none())
-                                    .count()
-                                    == 0
+                                    .map(|some| some.iter().filter_map(|x| x.as_ref()).next())
+                                    .flatten()
+                                    .is_none()
                                 {
                                     //check whether this will hurt the performance or not
                                     let wait = time::Duration::from_millis(1);
@@ -227,15 +225,13 @@ impl MapOutputTracker {
             "server uris inside get_server_uris method {:?}",
             self.server_uris
         );
+
         if self
             .server_uris
             .read()
             .get(&shuffle_id)
-            .unwrap()
-            .iter()
-            .filter(|x| !x.is_none())
-            .map(|x| x.clone().unwrap())
-            .next()
+            .map(|some| some.iter().filter_map(|x| x.as_ref()).next())
+            .flatten()
             .is_none()
         {
             // if self.server_uris.read().get(&shuffle_id).is_empty(){
