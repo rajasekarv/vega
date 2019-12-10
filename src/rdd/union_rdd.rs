@@ -210,16 +210,16 @@ impl<T: Data> RddBase for UnionVariants<T> {
         }
     }
 
-    fn number_of_splits(&self) -> usize {
-        match self {
-            NonUniquePartitioner { rdds, .. } => {
-                rdds.iter().fold(0, |l, rdd| l + rdd.number_of_splits())
-            }
-            PartitionerAware { rdds, .. } => {
-                rdds.iter().fold(0, |l, rdd| l + rdd.number_of_splits())
-            }
-        }
-    }
+    // fn number_of_splits(&self) -> usize {
+    //     match self {
+    //         NonUniquePartitioner { rdds, .. } => {
+    //             rdds.iter().fold(0, |l, rdd| l + rdd.number_of_splits())
+    //         }
+    //         PartitionerAware { rdds, .. } => {
+    //             rdds.iter().fold(0, |l, rdd| l + rdd.number_of_splits())
+    //         }
+    //     }
+    // }
 
     fn splits(&self) -> Vec<Box<dyn Split>> {
         match self {
