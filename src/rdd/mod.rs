@@ -1,6 +1,5 @@
 #![allow(clippy::module_inception)]
 
-use serde_traitobject::Arc as SerArc;
 use std::cmp::Ordering;
 use std::fs;
 use std::hash::Hash;
@@ -13,7 +12,7 @@ use std::sync::Arc;
 use log::info;
 use rand::{RngCore, SeedableRng};
 use serde_derive::{Deserialize, Serialize};
-use serde_traitobject::{Deserialize, Serialize};
+use serde_traitobject::{Arc as SerArc, Deserialize, Serialize};
 
 pub mod cartesian_rdd;
 pub use cartesian_rdd::CartesianRdd;

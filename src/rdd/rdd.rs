@@ -260,10 +260,9 @@ pub trait Rdd: RddBase + 'static {
         SF: SerFunc(U, Self::Item) -> U,
         CF: SerFunc(U, U) -> U,
     {
-        let sf = seq_fn.clone();
         let zero = init.clone();
         let reduce_partition =
-            Fn!(move |iter: Box<dyn Iterator<Item = Self::Item>>| iter.fold(zero.clone(), &sf));
+            Fn!(move |iter: Box<dyn Iterator<Item = Self::Item>>| iter.fold(zero.clone(), &seq_fn));
         let results = self.get_context().run_job(self.get_rdd(), reduce_partition);
         Ok(results?.into_iter().fold(init, comb_fn))
     }
@@ -609,24 +608,22 @@ pub trait Rdd: RddBase + 'static {
     }
 
     /// Applies a function f to all elements of this RDD.
-    fn for_each<F>(&self, f: F) -> Result<Vec<()>>
+    fn for_each<F>(&self, func: F) -> Result<Vec<()>>
     where
         F: SerFunc(Self::Item),
         Self: Sized,
     {
-        let cf = f.clone();
-        let func = Fn!(move |iter: Box<dyn Iterator<Item = Self::Item>>| iter.for_each(&cf));
+        let func = Fn!(move |iter: Box<dyn Iterator<Item = Self::Item>>| iter.for_each(&func));
         self.get_context().run_job(self.get_rdd(), func)
     }
 
     /// Applies a function f to each partition of this RDD.
-    fn for_each_partition<F>(&self, f: F) -> Result<Vec<()>>
+    fn for_each_partition<F>(&self, func: F) -> Result<Vec<()>>
     where
         F: SerFunc(Box<dyn Iterator<Item = Self::Item>>),
         Self: Sized + 'static,
     {
-        let cf = f.clone();
-        let func = Fn!(move |iter: Box<dyn Iterator<Item = Self::Item>>| (&cf)(iter));
+        let func = Fn!(move |iter: Box<dyn Iterator<Item = Self::Item>>| (&func)(iter));
         self.get_context().run_job(self.get_rdd(), func)
     }
 }
@@ -697,6 +694,7 @@ where
     fn splits(&self) -> Vec<Box<dyn Split>> {
         self.prev.splits()
     }
+
     fn number_of_splits(&self) -> usize {
         self.prev.number_of_splits()
     }
@@ -707,6 +705,7 @@ where
     ) -> Result<Box<dyn Iterator<Item = Box<dyn AnyData>>>> {
         self.iterator_any(split)
     }
+
     default fn iterator_any(
         &self,
         split: Box<dyn Split>,

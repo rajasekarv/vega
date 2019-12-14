@@ -136,7 +136,7 @@ impl DistributedScheduler {
             env::Env::get().shuffle_manager
         );
 
-        let mut jt = JobTracker::from_scheduler(self, func.clone(), final_rdd.clone(), partitions);
+        let mut jt = JobTracker::from_scheduler(self, func, final_rdd.clone(), partitions);
         let mut results: Vec<Option<U>> = (0..jt.num_output_parts).map(|_| None).collect();
         let mut num_finished = 0;
         let mut fetch_failure_duration = Duration::new(0, 0);
@@ -263,8 +263,8 @@ impl NativeScheduler for DistributedScheduler {
             let server_port = server_map.1;
             //            client_port = client_port - (client_port % 1000);
             //            client_port = client_port + ser_task.get_task_id();
-            let server_address = server_map.0.clone();
-            let event_queues_clone = event_queues.clone();
+            let server_address = server_map.0;
+            let event_queues_clone = event_queues;
             thread_pool.execute(move || {
                 while let Err(_) = TcpStream::connect(format!("{}:{}", server_address, server_port))
                 {
