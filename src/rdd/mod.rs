@@ -19,6 +19,7 @@ pub use cartesian_rdd::CartesianRdd;
 pub mod co_grouped_rdd;
 pub mod coalesced_rdd;
 pub use co_grouped_rdd::CoGroupedRdd;
+pub use coalesced_rdd::CoalescedRdd;
 pub mod pair_rdd;
 pub use pair_rdd::PairRdd;
 pub mod partitionwise_sampled_rdd;

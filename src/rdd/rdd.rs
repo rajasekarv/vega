@@ -301,7 +301,7 @@ pub trait Rdd: RddBase + 'static {
     /// coalesce(1000, shuffle = true) will result in 1000 partitions with the
     /// data distributed using a hash partitioner. The optional partition coalescer
     /// passed in must be serializable.
-    fn coalesce(num_partitions: usize, shuffle: bool) -> SerArc<dyn Rdd<Item = Self::Item>>
+    fn coalesce(&self, num_partitions: usize, shuffle: bool) -> SerArc<dyn Rdd<Item = Self::Item>>
     where
         Self: Sized,
     {
@@ -323,42 +323,22 @@ pub trait Rdd: RddBase + 'static {
                 }
             );
             // Include a shuffle step so that our upstream tasks are still distributed
+            /*
+              // include a shuffle step so that our upstream tasks are still distributed
+              new CoalescedRDD(
+                new ShuffledRDD[Int, T, T](
+                  mapPartitionsWithIndexInternal(distributePartition, isOrderSensitive = true),
+                  new HashPartitioner(numPartitions)),
+                numPartitions,
+                partitionCoalescer).values
+
+            */
             unimplemented!()
         } else {
-            unimplemented!()
+            SerArc::new(CoalescedRdd::new(self.get_rdd(), num_partitions))
+                as SerArc<dyn Rdd<Item = Self::Item>>
         }
     }
-
-    /*
-    def coalesce(numPartitions: Int, shuffle: Boolean = false,
-                 partitionCoalescer: Option[PartitionCoalescer] = Option.empty)
-                (implicit ord: Ordering[T] = null)
-        : RDD[T] = withScope {
-      require(numPartitions > 0, s"Number of partitions ($numPartitions) must be positive.")
-      if (shuffle) {
-        /** Distributes elements evenly across output partitions, starting from a random partition. */
-        val distributePartition = (index: Int, items: Iterator[T]) => {
-          var position = new Random(hashing.byteswap32(index)).nextInt(numPartitions)
-          items.map { t =>
-            // Note that the hash code of the key will just be the key itself. The HashPartitioner
-            // will mod it with the number of total partitions.
-            position = position + 1
-            (position, t)
-          }
-        } : Iterator[(Int, T)]
-
-        // include a shuffle step so that our upstream tasks are still distributed
-        new CoalescedRDD(
-          new ShuffledRDD[Int, T, T](
-            mapPartitionsWithIndexInternal(distributePartition, isOrderSensitive = true),
-            new HashPartitioner(numPartitions)),
-          numPartitions,
-          partitionCoalescer).values
-      } else {
-        new CoalescedRDD(this, numPartitions, partitionCoalescer)
-      }
-    }
-      */
 
     fn collect(&self) -> Result<Vec<Self::Item>>
     where

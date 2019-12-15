@@ -1,63 +1,66 @@
-use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::iter::FromIterator;
 use std::net::Ipv4Addr;
 use std::rc::Rc;
-use std::sync::Mutex;
+use std::sync::atomic::{AtomicUsize, Ordering as SyncOrd};
 
+use parking_lot::Mutex;
 use rand::Rng;
 
 use crate::dependency::NarrowDependencyTrait;
 use crate::rdd::*;
 
-/*
- * Class that captures a coalesced RDD by essentially keeping track of parent partitions
- *
- * @param index of this coalesced partition
- * @param rdd which it belongs to
- * @param parentsIndices list of indices in the parent that have been coalesced into this partition
- * @param preferredLocation the preferred location for this partition
-private[spark] case class CoalescedRDDPartition(
-    index: Int,
-    @transient rdd: RDD[_],
-    parentsIndices: Array[Int],
-    @transient preferredLocation: Option[String] = None) extends Partition {
-  var parents: Seq[Partition] = parentsIndices.map(rdd.partitions(_))
-
-  @throws(classOf[IOException])
-  private def writeObject(oos: ObjectOutputStream): Unit = Utils.tryOrIOException {
-    // Update the reference to parent partition at the time of task serialization
-    parents = parentsIndices.map(rdd.partitions(_))
-    oos.defaultWriteObject()
-  }
-}
-*/
-
+/// Class that captures a coalesced RDD by essentially keeping track of parent partitions.
 #[derive(Serialize, Deserialize, Clone)]
 struct CoalescedRddSplit {
   index: usize,
-  preferred_location: Option<PrefLoc>,
+  #[serde(with = "serde_traitobject")]
+  rdd: Arc<dyn RddBase>,
   parent_indices: Vec<usize>,
+  preferred_location: PrefLoc,
 }
 
 impl CoalescedRddSplit {
-  fn new(index: usize) -> Self {
-    unimplemented!()
+  fn new(
+    index: usize,
+    preferred_location: PrefLoc,
+    rdd: Arc<dyn RddBase>,
+    parent_indices: Vec<usize>,
+  ) -> Self {
+    //self.parent_indices.iter().map(|idx| self.rdd.splits()[idx]);
+    CoalescedRddSplit {
+      index,
+      preferred_location,
+      rdd,
+      parent_indices,
+    }
   }
 
-  /// Computes the fraction of the parents' partitions containing preferred_location within
+  /// Computes the fraction of the parents partitions containing preferred_location within
   /// their preferred_locs.
   ///
   /// Returns locality of this coalesced partition between 0 and 1.
   fn local_fraction(&self) -> f64 {
-    /*
-    val loc = parents.count { p =>
-      val parentPreferredLocations = rdd.context.getPreferredLocs(rdd, p.index).map(_.host)
-      preferredLocation.exists(parentPreferredLocations.contains)
+    if self.parent_indices.is_empty() {
+      0.0
+    } else {
+      let mut loc = 0u32;
+      let pl: Ipv4Addr = self.preferred_location.into();
+      for p in self.rdd.splits() {
+        let parent_pref_locs = self.rdd.preferred_locations(p);
+        if parent_pref_locs.contains(&pl) {
+          loc += 1;
+        }
+      }
+      loc as f64 / self.parent_indices.len() as f64
     }
-    if (parents.isEmpty) 0.0 else loc.toDouble / parents.size.toDouble
-    */
-    unimplemented!()
+  }
+
+  fn downcasting(split: Box<dyn Split>) -> Box<CoalescedRddSplit> {
+    split
+      .downcast::<CoalescedRddSplit>()
+      .or(Err(Error::SplitDowncast("CoalescedRddSplit")))
+      .unwrap()
   }
 }
 
@@ -74,18 +77,26 @@ struct CoalescedSplitDep {
   parent_indices: Vec<usize>,
 }
 
+impl CoalescedSplitDep {
+  fn new(rdd: Arc<dyn RddBase>, parent_indices: Vec<usize>) -> CoalescedSplitDep {
+    CoalescedSplitDep {
+      rdd,
+      parent_indices,
+    }
+  }
+}
+
 impl NarrowDependencyTrait for CoalescedSplitDep {
   fn get_parents(&self, partition_id: usize) -> Vec<usize> {
-    /*
-        override def getDependencies: Seq[Dependency[_]] = {
-      Seq(new NarrowDependency(prev) {
-        def getParents(id: Int): Seq[Int] =
-          partitions(id).asInstanceOf[CoalescedRDDPartition].parentsIndices
-      })
-    }
-    */
-    // FIXME: get this from rdd.splits()
-    self.parent_indices.clone()
+    self
+      .rdd
+      .splits()
+      .into_iter()
+      .enumerate()
+      .find(|(i, _)| i == &partition_id)
+      .map(|(_, p)| CoalescedRddSplit::downcasting(p))
+      .unwrap()
+      .parent_indices
   }
 
   fn get_rdd_base(&self) -> Arc<dyn RddBase> {
@@ -114,24 +125,15 @@ impl<T: Data> CoalescedRdd<T> {
   /// ## Arguments
   ///
   /// max_partitions: number of desired partitions in the coalesced RDD
-  /// partition_coalescer: `PartitionCoalescer` implementation to use for coalescing
-  pub(crate) fn new(
-    prev: Arc<dyn Rdd<Item = T>>,
-    max_partitions: usize,
-    partition_coalescer: usize,
-  ) {
+  pub(crate) fn new(prev: Arc<dyn Rdd<Item = T>>, max_partitions: usize) -> Self {
+    let mut vals = Arc::new(RddVals::new(prev.get_context()));
+    CoalescedRdd {
+      vals,
+      parent: prev,
+      max_partitions,
+    }
   }
 }
-
-// impl<T: Data> Clone for CoalescedRdd<T> {
-//   fn clone(&self) -> CoalescedRdd<T> {
-//     CoalescedRdd {
-//       vals: self.vals.clone(),
-//       parent: self.parent.clone(),
-//       max_partitions: self.max_partitions,
-//     }
-//   }
-// }
 
 impl<T: Data> RddBase for CoalescedRdd<T> {
   fn splits(&self) -> Vec<Box<dyn Split>> {
@@ -141,17 +143,14 @@ impl<T: Data> RddBase for CoalescedRdd<T> {
       .into_iter()
       .enumerate()
       .map(|(i, pg)| {
-        let ids: Vec<_> = pg
-          .borrow()
-          .partitions
-          .iter()
-          .map(|p| p.get_index())
-          .collect();
-        Box::new(CoalescedRddSplit {
-          index: i,
-          preferred_location: pg.borrow().preferred_location,
-          parent_indices: ids, // self.prev,
-        }) as Box<dyn Split>
+        let ids: Vec<_> = pg.lock().partitions.iter().map(|p| p.get_index()).collect();
+        let pl = pg.lock().preferred_location;
+        Box::new(CoalescedRddSplit::new(
+          i,
+          pl.unwrap(),
+          self.parent.get_rdd_base(),
+          ids,
+        )) as Box<dyn Split>
       })
       .collect()
   }
@@ -165,38 +164,35 @@ impl<T: Data> RddBase for CoalescedRdd<T> {
   }
 
   fn get_dependencies(&self) -> Vec<Dependency> {
-    let mut deps = Vec::with_capacity(self.number_of_splits());
-    for _ in (0..self.number_of_splits()) {
-      deps.push(Dependency::NarrowDependency(Arc::new(CoalescedSplitDep {
-        rdd: self.get_rdd_base(),
-        parent_indices: Vec::new(),
-      })
-        as Arc<dyn NarrowDependencyTrait>));
+    let parts = self.splits();
+    let mut deps = Vec::with_capacity(parts.len());
+    for _ in (0..parts.len()) {
+      let parent_indices = Vec::new();
+      deps.push(Dependency::NarrowDependency(
+        Arc::new(CoalescedSplitDep::new(self.get_rdd_base(), parent_indices))
+          as Arc<dyn NarrowDependencyTrait>,
+      ));
     }
     deps
   }
 
-  /// Returns the preferred machine for the partition. If split is of type CoalescedRDDPartition,
+  /// Returns the preferred machine for the partition. If split is of type CoalescedRddSplit,
   /// then the preferred machine will be one which most parent splits prefer too.
-  /// @param partition the partition for which to retrieve the preferred machine, if exists
-  /// @return the machine most preferred by split
   fn preferred_locations(&self, split: Box<dyn Split>) -> Vec<Ipv4Addr> {
-    Vec::from_iter(
-      split
-        .downcast::<CoalescedRddSplit>()
-        .or(Err(Error::SplitDowncast("CoalescedRddSplit")))
-        .unwrap()
-        .preferred_location
-        .map(|l| l.into())
-        .into_iter(),
-    )
+    vec![CoalescedRddSplit::downcasting(split)
+      .preferred_location
+      .into()]
   }
 
-  fn iterator_any(
+  default fn iterator_any(
     &self,
     split: Box<dyn Split>,
   ) -> Result<Box<dyn Iterator<Item = Box<dyn AnyData>>>> {
-    unimplemented!()
+    Ok(Box::new(
+      self
+        .iterator(split)?
+        .map(|x| Box::new(x) as Box<dyn AnyData>),
+    ))
   }
 }
 
@@ -214,20 +210,19 @@ impl<T: Data> Rdd for CoalescedRdd<T> {
   }
 
   fn compute(&self, split: Box<dyn Split>) -> Result<Box<dyn Iterator<Item = Self::Item>>> {
-    let parts = self.splits().into_iter().map(|p| {
-      p.downcast::<CoalescedRddSplit>()
-        .or(Err(Error::SplitDowncast("CoalescedRddSplit")))
-        .unwrap()
-    });
-    /*
-      override def compute(partition: Partition, context: TaskContext): Iterator[T] = {
-        partition.asInstanceOf[CoalescedRDDPartition].parents.iterator.flatMap { parentPartition =>
-          firstParent[T].iterator(parentPartition, context)
-        }
-      }
+    let split = CoalescedRddSplit::downcasting(split);
+    let mut iter = Vec::new();
+    for (_, p) in self
+      .parent
+      .splits()
+      .into_iter()
+      .enumerate()
+      .filter(|(i, _)| split.parent_indices.contains(i))
+    {
+      let it = self.parent.iterator(p)?;
+      iter.push(it);
     }
-    */
-    unimplemented!()
+    Ok(Box::new(iter.into_iter().flatten()) as Box<dyn Iterator<Item = Self::Item>>)
   }
 }
 
@@ -244,13 +239,13 @@ pub trait PartitionCoalescer: Serialize + Deserialize + Send + Sync {
   ///
   /// ## Return
   ///
-  /// A vec of `PartitionGroup`s, where each element is itself a vector of
+  /// A vec of `SyncPGroup`s, where each element is itself a vector of
   /// `Partition`s and represents a partition after coalescing is performed.
   fn coalesce(
     &mut self,
     max_partitions: usize,
     parent: Arc<dyn RddBase>,
-  ) -> Vec<SerArc<RefCell<PartitionGroup>>>;
+  ) -> Vec<SerArc<SyncPGroup>>;
 }
 
 use serde_traitobject::Box as SerBox;
@@ -270,17 +265,18 @@ impl From<Ipv4Addr> for PrefLoc {
   }
 }
 
-/// A group of `Partition`s
 #[derive(Serialize, Deserialize)]
 pub struct PartitionGroup {
+  id: usize,
   /// preferred location for the partition group
   preferred_location: Option<PrefLoc>,
   partitions: Vec<SerBox<dyn Split>>,
 }
 
 impl PartitionGroup {
-  fn new(preferred_location: Option<Ipv4Addr>) -> Self {
+  fn new(preferred_location: Option<Ipv4Addr>, id: usize) -> Self {
     PartitionGroup {
+      id,
       preferred_location: preferred_location.map(|pl| pl.into()),
       partitions: vec![],
     }
@@ -293,7 +289,7 @@ impl PartitionGroup {
 
 impl PartialEq for PartitionGroup {
   fn eq(&self, other: &Self) -> bool {
-    unimplemented!()
+    self.id == other.id
   }
 }
 
@@ -307,7 +303,7 @@ impl PartialOrd for PartitionGroup {
 
 impl Ord for PartitionGroup {
   fn cmp(&self, other: &Self) -> Ordering {
-    unimplemented!()
+    self.num_partitions().cmp(&other.num_partitions())
   }
 }
 
@@ -386,13 +382,30 @@ impl PartitionLocations {
   }
 }
 
+/// A group of `Partition`s
+#[derive(Serialize, Deserialize)]
+pub struct SyncPGroup(Mutex<PartitionGroup>);
+
+impl std::ops::Deref for SyncPGroup {
+  type Target = Mutex<PartitionGroup>;
+  fn deref(&self) -> &Self::Target {
+    unimplemented!()
+  }
+}
+
+impl std::convert::From<PartitionGroup> for SyncPGroup {
+  fn from(origin: PartitionGroup) -> Self {
+    unimplemented!()
+  }
+}
+
 #[derive(Clone, Serialize, Deserialize)]
 struct DefaultPartitionCoalescer {
   balance_slack: f64,
   /// each element of group arr represents one coalesced partition
-  group_arr: Vec<SerArc<RefCell<PartitionGroup>>>,
+  group_arr: Vec<SerArc<SyncPGroup>>,
   /// hash used to check whether some machine is already in group_arr
-  group_hash: HashMap<Ipv4Addr, Vec<SerArc<RefCell<PartitionGroup>>>>,
+  group_hash: HashMap<Ipv4Addr, Vec<SerArc<SyncPGroup>>>,
   /// hash used for the first max_partitions (to avoid duplicates)
   initial_hash: HashSet<SplitIdx>,
   /// true if no preferred_locations exists for parent RDD
@@ -438,12 +451,12 @@ impl DefaultPartitionCoalescer {
 
   /// Gets the least element of the list associated with key in group_hash
   /// The returned PartitionGroup is the least loaded of all groups that represent the machine "key"
-  fn get_least_group_hash(&self, key: Ipv4Addr) -> Option<SerArc<RefCell<PartitionGroup>>> {
-    let mut current_min: Option<SerArc<RefCell<PartitionGroup>>> = None;
+  fn get_least_group_hash(&self, key: Ipv4Addr) -> Option<SerArc<SyncPGroup>> {
+    let mut current_min: Option<SerArc<SyncPGroup>> = None;
     if let Some(group) = self.group_hash.get(&key) {
       for g in group.as_slice() {
         if let Some(ref cmin) = current_min {
-          if *cmin.borrow() > *g.borrow() {
+          if *cmin.lock() > *g.lock() {
             current_min = Some((*g).clone());
           }
         }
@@ -463,13 +476,17 @@ impl DefaultPartitionCoalescer {
   #[allow(clippy::map_entry)]
   fn setup_groups(&mut self, target_len: usize, partition_locs: &mut PartitionLocations) {
     let mut rng = utils::random::get_default_rng();
+    let mut part_cnt = AtomicUsize::new(0);
 
     // deal with empty case, just create target_len partition groups with no preferred location
     if partition_locs.parts_with_locs.is_empty() {
       for i in 1..=target_len {
         self
           .group_arr
-          .push(SerArc::new(RefCell::new(PartitionGroup::new(None))))
+          .push(SerArc::new(SyncPGroup(Mutex::new(PartitionGroup::new(
+            None,
+            part_cnt.fetch_add(1, SyncOrd::SeqCst),
+          )))))
       }
     }
 
@@ -493,11 +510,13 @@ impl DefaultPartitionCoalescer {
       tries += 1;
 
       if !self.group_hash.contains_key(&nxt_replica) {
-        let mut pgroup = PartitionGroup::new(Some(*nxt_replica));
+        let mut pgroup =
+          PartitionGroup::new(Some(*nxt_replica), part_cnt.fetch_add(1, SyncOrd::SeqCst));
         self.add_part_to_pgroup(objekt::clone_box(&**nxt_part).into(), &mut pgroup);
-        self
-          .group_hash
-          .insert(*nxt_replica, vec![SerArc::new(RefCell::new(pgroup))]); // list in case we have multiple
+        self.group_hash.insert(
+          *nxt_replica,
+          vec![SerArc::new(SyncPGroup(Mutex::new(pgroup)))],
+        ); // list in case we have multiple
         num_created += 1;
       }
     }
@@ -507,11 +526,11 @@ impl DefaultPartitionCoalescer {
       // Copy the preferred location from a random input partition.
       // This helps in avoiding skew when the input partitions are clustered by preferred location.
       let (nxt_replica, nxt_part) = &partition_locs.parts_with_locs[rng.gen_range(0, 0) as usize];
-      let mut pgroup = SerArc::new(RefCell::new(PartitionGroup::new(Some(*nxt_replica))));
-      self.add_part_to_pgroup(
-        objekt::clone_box(&**nxt_part).into(),
-        &mut *pgroup.borrow_mut(),
-      );
+      let mut pgroup = SerArc::new(SyncPGroup(Mutex::new(PartitionGroup::new(
+        Some(*nxt_replica),
+        part_cnt.fetch_add(1, SyncOrd::SeqCst),
+      ))));
+      self.add_part_to_pgroup(objekt::clone_box(&**nxt_part).into(), &mut *pgroup.lock());
       self
         .group_hash
         .entry(*nxt_replica)
@@ -537,7 +556,7 @@ impl DefaultPartitionCoalescer {
     p: Box<dyn Split>,
     prev: &dyn RddBase,
     balance_slack: f64,
-  ) -> SerArc<RefCell<PartitionGroup>> {
+  ) -> SerArc<SyncPGroup> {
     let mut rnd = utils::random::get_default_rng();
     let slack = (balance_slack * prev.number_of_splits() as f64);
 
@@ -550,15 +569,25 @@ impl DefaultPartitionCoalescer {
     let pref_part = if pref.is_empty() {
       None
     } else {
-      pref.into_iter().min().flatten()
+      let mut min: Option<SerArc<SyncPGroup>> = None;
+      for pl in pref.into_iter().flatten() {
+        if let Some(ref pl_min) = min {
+          if *pl.lock() < *pl_min.lock() {
+            min = Some(pl)
+          }
+        } else {
+          min = Some(pl);
+        }
+      }
+      min
+      // pref.iter().enumerate().map(|i| &*(***i).lock()).min()
     };
 
     let r1 = rnd.gen_range(0, self.group_arr.len());
     let r2 = rnd.gen_range(0, self.group_arr.len());
 
     let min_power_of_two = {
-      if self.group_arr[r1].borrow().num_partitions() < self.group_arr[r2].borrow().num_partitions()
-      {
+      if self.group_arr[r1].lock().num_partitions() < self.group_arr[r2].lock().num_partitions() {
         self.group_arr[r1].clone()
       } else {
         self.group_arr[r2].clone()
@@ -567,8 +596,8 @@ impl DefaultPartitionCoalescer {
 
     if let Some(pref_part_actual) = pref_part {
       // more imbalance than the slack allows
-      if min_power_of_two.borrow().num_partitions() + slack as usize
-        <= pref_part_actual.borrow().num_partitions()
+      if min_power_of_two.lock().num_partitions() + slack as usize
+        <= pref_part_actual.lock().num_partitions()
       {
         min_power_of_two // prefer balance over locality
       } else {
@@ -592,7 +621,7 @@ impl DefaultPartitionCoalescer {
       if max_partitions > self.group_arr.len() {
         // just return prev.partitions
         for (i, p) in prev.splits().into_iter().enumerate() {
-          self.group_arr[i].borrow_mut().partitions.push(p.into());
+          self.group_arr[i].lock().partitions.push(p.into());
         }
       } else {
         // no locality available, then simply split partitions based on positions in array
@@ -612,13 +641,13 @@ impl DefaultPartitionCoalescer {
       for pg in self
         .group_arr
         .iter()
-        .filter(|pg| pg.borrow().num_partitions() == 0)
+        .filter(|pg| pg.lock().num_partitions() == 0)
       {
-        while part_iter.peek().is_some() && pg.borrow().num_partitions() == 0 {
+        while part_iter.peek().is_some() && pg.lock().num_partitions() == 0 {
           let (_, nxt_part) = part_iter.next().unwrap();
           if !self.initial_hash.contains(&nxt_part.get_index()) {
             self.initial_hash.insert(nxt_part.get_index());
-            pg.borrow_mut().partitions.push(nxt_part.into());
+            pg.lock().partitions.push(nxt_part.into());
           }
         }
       }
@@ -629,13 +658,13 @@ impl DefaultPartitionCoalescer {
       for pg in self
         .group_arr
         .iter()
-        .filter(|pg| pg.borrow().num_partitions() == 0)
+        .filter(|pg| pg.lock().num_partitions() == 0)
       {
-        while part_no_loc_iter.peek().is_some() && pg.borrow().num_partitions() == 0 {
+        while part_no_loc_iter.peek().is_some() && pg.lock().num_partitions() == 0 {
           let nxt_part = part_no_loc_iter.next().unwrap();
           if !self.initial_hash.contains(&nxt_part.get_index()) {
             self.initial_hash.insert(nxt_part.get_index());
-            pg.borrow_mut().partitions.push(nxt_part.into());
+            pg.lock().partitions.push(nxt_part.into());
           }
         }
       }
@@ -646,7 +675,7 @@ impl DefaultPartitionCoalescer {
           // throw every partition into group
           self
             .pick_bin(p.clone(), &*prev, balance_slack)
-            .borrow_mut()
+            .lock()
             .partitions
             .push(SerBox::from(p));
         }
@@ -654,11 +683,11 @@ impl DefaultPartitionCoalescer {
     }
   }
 
-  fn get_partitions(&self) -> Vec<SerArc<RefCell<PartitionGroup>>> {
+  fn get_partitions(&self) -> Vec<SerArc<SyncPGroup>> {
     self
       .group_arr
       .iter()
-      .filter(|pg| pg.borrow().num_partitions() > 0)
+      .filter(|pg| pg.lock().num_partitions() > 0)
       .cloned()
       .collect()
   }
@@ -667,11 +696,7 @@ impl DefaultPartitionCoalescer {
 impl PartitionCoalescer for DefaultPartitionCoalescer {
   /// Runs the packing algorithm and returns an array of PartitionGroups that if possible are
   /// load balanced and grouped by locality
-  fn coalesce(
-    &mut self,
-    max_partitions: usize,
-    prev: Arc<dyn RddBase>,
-  ) -> Vec<SerArc<RefCell<PartitionGroup>>> {
+  fn coalesce(&mut self, max_partitions: usize, prev: Arc<dyn RddBase>) -> Vec<SerArc<SyncPGroup>> {
     let mut partition_locs = PartitionLocations::new(prev.clone());
     // setup the groups (bins)
     let target_len = prev.number_of_splits().min(max_partitions);
@@ -686,6 +711,3 @@ impl PartitionCoalescer for DefaultPartitionCoalescer {
     self.get_partitions()
   }
 }
-
-unsafe impl Sync for DefaultPartitionCoalescer {}
-unsafe impl Send for DefaultPartitionCoalescer {}
