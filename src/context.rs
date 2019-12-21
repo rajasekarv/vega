@@ -311,8 +311,8 @@ impl Context {
         }
     }
 
-    pub fn union<T: Data>(rdds: &[Arc<dyn Rdd<Item = T>>]) -> Result<UnionVariants<T>> {
-        UnionVariants::new(rdds)
+    pub fn union<T: Data>(rdds: &[Arc<dyn Rdd<Item = T>>]) -> Result<UnionRdd<T>> {
+        UnionRdd::new(rdds)
     }
 }
 

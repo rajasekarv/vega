@@ -31,7 +31,7 @@ pub use map_partitions_rdd::MapPartitionsRdd;
 pub mod rdd;
 pub use rdd::*;
 mod union_rdd;
-pub use union_rdd::UnionVariants;
+pub use union_rdd::UnionRdd;
 
 use crate::aggregator::Aggregator;
 use crate::context::Context;
