@@ -163,9 +163,11 @@ impl DistributedScheduler {
         );
 
         while num_finished != jt.num_output_parts {
-            if let Some(mut evt) = self.wait_for_event(jt.run_id, self.poll_timeout) {
+            let event_option = self.wait_for_event(jt.run_id, self.poll_timeout);
+            let start_time = Instant::now();
+
+            if let Some(mut evt) = event_option {
                 info!("event starting");
-                let start_time = Instant::now();
                 let stage = self.stage_cache.lock()[&evt.task.get_stage_id()].clone();
                 info!(
                     "removing stage task from pending tasks {} {}",
@@ -190,8 +192,6 @@ impl DistributedScheduler {
                         //TODO error handling
                     }
                 }
-            } else {
-                return Err(Error::TimeOut);
             }
 
             if !jt.failed.borrow().is_empty()
