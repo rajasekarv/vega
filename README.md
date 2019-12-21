@@ -27,7 +27,7 @@ Most of these except file reader and writer are trivial to implement
 - [x] distinct
 - [x] count
 - [x] take_sample
-- [ ] union
+- [x] union
 - [x] glom
 - [x] cartesian
 - [ ] pipe
