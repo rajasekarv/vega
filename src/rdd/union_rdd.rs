@@ -93,7 +93,10 @@ impl<T: Data> Clone for UnionVariants<T> {
 impl<T: Data> UnionVariants<T> {
     pub(crate) fn new(rdds: &[Arc<dyn Rdd<Item = T>>]) -> Result<Self> {
         let context = rdds[0].get_context();
-        let vals = Arc::new(RddVals::new(context.clone()));
+        let mut vals = RddVals::new(context.clone());
+        let deps = rdds.iter().map(|x| Dependency::OneToOneDependency(Arc::new(OneToOneDependencyVals::new(x.get_rdd_base())) as Arc<dyn OneToOneDependencyTrait>)).collect();
+        vals.dependencies = deps;
+        let vals = Arc::new(vals);
         let final_rdds: Vec<_> = rdds.iter().map(|rdd| rdd.clone().into()).collect();
         if !UnionVariants::has_unique_partitioner(rdds) {
             Ok(NonUniquePartitioner {
@@ -331,9 +334,9 @@ mod test {
                     (3, "C".to_string()),
                     (4, "D".to_string()),
                 ];
-                let rdd0 = SerArc::new(sc.parallelize(rdd.clone(), 2)) as SerArc<dyn RddBase>;
-                let rdd1 = SerArc::new(sc.parallelize(rdd, 2)) as SerArc<dyn RddBase>;
-                CoGroupedRdd::<i32>::new(vec![rdd0, rdd1], Box::new(partitioner.clone()))
+                let rdd0 = SerArc::new(sc.parallelize(rdd.clone(), 2)) as SerArc<dyn Rdd<Item = (i32, String)>>;
+                let rdd1 = SerArc::new(sc.parallelize(rdd, 2)) as SerArc<dyn Rdd<Item = (i32, String)>>;
+                CoGroupedRdd::<i32>::new(vec![rdd0.get_rdd_base().into(), rdd1.get_rdd_base().into()], Box::new(partitioner.clone()))
             };
             let rdd0 = co_grouped();
             let rdd1 = co_grouped();
