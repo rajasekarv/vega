@@ -6,6 +6,7 @@ use std::sync::atomic::{AtomicUsize, Ordering as SyncOrd};
 
 use parking_lot::Mutex;
 use rand::Rng;
+use serde_traitobject::Box as SerBox;
 
 use crate::dependency::NarrowDependencyTrait;
 use crate::rdd::*;
@@ -17,17 +18,16 @@ struct CoalescedRddSplit {
   #[serde(with = "serde_traitobject")]
   rdd: Arc<dyn RddBase>,
   parent_indices: Vec<usize>,
-  preferred_location: PrefLoc,
+  preferred_location: Option<PrefLoc>,
 }
 
 impl CoalescedRddSplit {
   fn new(
     index: usize,
-    preferred_location: PrefLoc,
+    preferred_location: Option<PrefLoc>,
     rdd: Arc<dyn RddBase>,
     parent_indices: Vec<usize>,
   ) -> Self {
-    //self.parent_indices.iter().map(|idx| self.rdd.splits()[idx]);
     CoalescedRddSplit {
       index,
       preferred_location,
@@ -45,7 +45,7 @@ impl CoalescedRddSplit {
       0.0
     } else {
       let mut loc = 0u32;
-      let pl: Ipv4Addr = self.preferred_location.into();
+      let pl: Ipv4Addr = self.preferred_location.unwrap().into();
       for p in self.rdd.splits() {
         let parent_pref_locs = self.rdd.preferred_locations(p);
         if parent_pref_locs.contains(&pl) {
@@ -74,15 +74,11 @@ impl Split for CoalescedRddSplit {
 struct CoalescedSplitDep {
   #[serde(with = "serde_traitobject")]
   rdd: Arc<dyn RddBase>,
-  parent_indices: Vec<usize>,
 }
 
 impl CoalescedSplitDep {
-  fn new(rdd: Arc<dyn RddBase>, parent_indices: Vec<usize>) -> CoalescedSplitDep {
-    CoalescedSplitDep {
-      rdd,
-      parent_indices,
-    }
+  fn new(rdd: Arc<dyn RddBase>) -> CoalescedSplitDep {
+    CoalescedSplitDep { rdd }
   }
 }
 
@@ -147,7 +143,7 @@ impl<T: Data> RddBase for CoalescedRdd<T> {
         let pl = pg.lock().preferred_location;
         Box::new(CoalescedRddSplit::new(
           i,
-          pl.unwrap(),
+          pl,
           self.parent.get_rdd_base(),
           ids,
         )) as Box<dyn Split>
@@ -164,24 +160,20 @@ impl<T: Data> RddBase for CoalescedRdd<T> {
   }
 
   fn get_dependencies(&self) -> Vec<Dependency> {
-    let parts = self.splits();
-    let mut deps = Vec::with_capacity(parts.len());
-    for _ in (0..parts.len()) {
-      let parent_indices = Vec::new();
-      deps.push(Dependency::NarrowDependency(
-        Arc::new(CoalescedSplitDep::new(self.get_rdd_base(), parent_indices))
-          as Arc<dyn NarrowDependencyTrait>,
-      ));
-    }
-    deps
+    vec![Dependency::NarrowDependency(
+      Arc::new(CoalescedSplitDep::new(self.get_rdd_base())) as Arc<dyn NarrowDependencyTrait>,
+    )]
   }
 
   /// Returns the preferred machine for the partition. If split is of type CoalescedRddSplit,
   /// then the preferred machine will be one which most parent splits prefer too.
   fn preferred_locations(&self, split: Box<dyn Split>) -> Vec<Ipv4Addr> {
-    vec![CoalescedRddSplit::downcasting(split)
-      .preferred_location
-      .into()]
+    let split = CoalescedRddSplit::downcasting(split);
+    if let Some(loc) = split.preferred_location {
+      vec![loc.into()]
+    } else {
+      Vec::new()
+    }
   }
 
   default fn iterator_any(
@@ -247,8 +239,6 @@ pub trait PartitionCoalescer: Serialize + Deserialize + Send + Sync {
     parent: Arc<dyn RddBase>,
   ) -> Vec<SerArc<SyncPGroup>>;
 }
-
-use serde_traitobject::Box as SerBox;
 
 #[derive(Debug, Clone, Serialize, Deserialize, Copy)]
 struct PrefLoc(u32);
@@ -389,13 +379,13 @@ pub struct SyncPGroup(Mutex<PartitionGroup>);
 impl std::ops::Deref for SyncPGroup {
   type Target = Mutex<PartitionGroup>;
   fn deref(&self) -> &Self::Target {
-    unimplemented!()
+    &self.0
   }
 }
 
 impl std::convert::From<PartitionGroup> for SyncPGroup {
   fn from(origin: PartitionGroup) -> Self {
-    unimplemented!()
+    SyncPGroup(Mutex::new(origin))
   }
 }
 
@@ -488,6 +478,7 @@ impl DefaultPartitionCoalescer {
             part_cnt.fetch_add(1, SyncOrd::SeqCst),
           )))))
       }
+      return;
     }
 
     self.no_locality = false;
@@ -525,7 +516,8 @@ impl DefaultPartitionCoalescer {
     while num_created < target_len as u64 {
       // Copy the preferred location from a random input partition.
       // This helps in avoiding skew when the input partitions are clustered by preferred location.
-      let (nxt_replica, nxt_part) = &partition_locs.parts_with_locs[rng.gen_range(0, 0) as usize];
+      let (nxt_replica, nxt_part) = &partition_locs.parts_with_locs
+        [rng.gen_range(0, partition_locs.parts_with_locs.len()) as usize];
       let mut pgroup = SerArc::new(SyncPGroup(Mutex::new(PartitionGroup::new(
         Some(*nxt_replica),
         part_cnt.fetch_add(1, SyncOrd::SeqCst),

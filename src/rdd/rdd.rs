@@ -324,7 +324,6 @@ pub trait Rdd: RddBase + 'static {
             );
             // Include a shuffle step so that our upstream tasks are still distributed
             /*
-              // include a shuffle step so that our upstream tasks are still distributed
               new CoalescedRDD(
                 new ShuffledRDD[Int, T, T](
                   mapPartitionsWithIndexInternal(distributePartition, isOrderSensitive = true),
@@ -333,7 +332,7 @@ pub trait Rdd: RddBase + 'static {
                 partitionCoalescer).values
 
             */
-            unimplemented!()
+            todo!()
         } else {
             SerArc::new(CoalescedRdd::new(self.get_rdd(), num_partitions))
                 as SerArc<dyn Rdd<Item = Self::Item>>

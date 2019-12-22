@@ -327,3 +327,15 @@ fn test_cartesian() -> Result<()> {
     itertools::assert_equal(res, vec![(0, 'α'), (0, 'β'), (1, 'α'), (1, 'β')]);
     Ok(())
 }
+
+#[test]
+fn test_coalesced() -> Result<()> {
+    let sc = CONTEXT.clone();
+    let rdd = sc.parallelize(vec![1; 100], 100);
+    let res = rdd.coalesce(5, false).glom().collect()?;
+    assert_eq!(res.len(), 5);
+    for p in res {
+        assert_eq!(p.into_iter().sum::<u8>(), 20);
+    }
+    Ok(())
+}
