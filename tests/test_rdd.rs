@@ -331,11 +331,10 @@ fn test_cartesian() -> Result<()> {
 #[test]
 fn test_coalesced() -> Result<()> {
     let sc = CONTEXT.clone();
-    let rdd = sc.parallelize(vec![1; 100], 100);
+    let rdd = sc.parallelize(vec![1; 101], 101);
     let res = rdd.coalesce(5, false).glom().collect()?;
     assert_eq!(res.len(), 5);
-    for p in res {
-        assert_eq!(p.into_iter().sum::<u8>(), 20);
-    }
+    assert_eq!(res[0].iter().sum::<u8>(), 20);
+    assert_eq!(res[4].iter().sum::<u8>(), 21);
     Ok(())
 }

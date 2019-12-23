@@ -609,7 +609,7 @@ impl DefaultPartitionCoalescer {
     mut partition_locs: PartitionLocations,
   ) {
     if self.no_locality {
-      // no preferredLocations in parent RDD, no randomization needed
+      // no preferred_locations in parent RDD, no randomization needed
       if max_partitions > self.group_arr.len() {
         // just return prev.partitions
         for (i, p) in prev.splits().into_iter().enumerate() {
@@ -617,9 +617,14 @@ impl DefaultPartitionCoalescer {
         }
       } else {
         // no locality available, then simply split partitions based on positions in array
-        for i in 0..max_partitions {
-          let range_start = ((i * prev.number_of_splits()) / max_partitions) as u64;
-          let range_end = (((i + 1) * prev.number_of_splits()) / max_partitions) as u64;
+        let prev_splits = prev.splits();
+        let chunk_size = (prev_splits.len() as f64 / max_partitions as f64).floor() as usize;
+        let mut chunk = 0;
+        for (i, e) in prev_splits.into_iter().enumerate() {
+          if i % chunk_size == 0 && chunk + 1 < max_partitions && i != 0 {
+            chunk += 1;
+          }
+          self.group_arr[chunk].lock().partitions.push(e.into());
         }
       }
     } else {
