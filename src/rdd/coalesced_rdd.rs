@@ -139,11 +139,10 @@ impl<T: Data> RddBase for CoalescedRdd<T> {
       .into_iter()
       .enumerate()
       .map(|(i, pg)| {
-        let ids: Vec<_> = pg.lock().partitions.iter().map(|p| p.get_index()).collect();
-        let pl = pg.lock().preferred_location;
+        let ids: Vec<_> = pg.partitions.iter().map(|p| p.get_index()).collect();
         Box::new(CoalescedRddSplit::new(
           i,
-          pl,
+          pg.preferred_location,
           self.parent.get_rdd_base(),
           ids,
         )) as Box<dyn Split>
@@ -222,6 +221,13 @@ type SplitIdx = usize;
 
 /// A PartitionCoalescer defines how to coalesce the partitions of a given RDD.
 pub trait PartitionCoalescer: Serialize + Deserialize + Send + Sync {
+  // FIXME: Decide upon this really requiring any of those trait bounds.
+  // The implementation in Scala embeeds the coalescer into the rdd itself, so on initial
+  // transliteration this was added. But in reality the only moment this being called
+  // is upon task computation in the driver at the main thread in a completely synchronous and
+  // single-threaded environment under the splits subroutine.
+  // With the current implementation all those required traits could be dropped entirely.
+
   /// Coalesce the partitions of the given RDD.
   ///
   /// ## Arguments
@@ -231,13 +237,9 @@ pub trait PartitionCoalescer: Serialize + Deserialize + Send + Sync {
   ///
   /// ## Return
   ///
-  /// A vec of `SyncPGroup`s, where each element is itself a vector of
+  /// A vec of `PartitionGroup`s, where each element is itself a vector of
   /// `Partition`s and represents a partition after coalescing is performed.
-  fn coalesce(
-    &mut self,
-    max_partitions: usize,
-    parent: Arc<dyn RddBase>,
-  ) -> Vec<SerArc<SyncPGroup>>;
+  fn coalesce(self, max_partitions: usize, parent: Arc<dyn RddBase>) -> Vec<PartitionGroup>;
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Copy)]
@@ -374,18 +376,18 @@ impl PartitionLocations {
 
 /// A group of `Partition`s
 #[derive(Serialize, Deserialize)]
-pub struct SyncPGroup(Mutex<PartitionGroup>);
+struct PSyncGroup(Mutex<PartitionGroup>);
 
-impl std::ops::Deref for SyncPGroup {
-  type Target = Mutex<PartitionGroup>;
-  fn deref(&self) -> &Self::Target {
-    &self.0
+impl std::convert::From<PartitionGroup> for PSyncGroup {
+  fn from(origin: PartitionGroup) -> Self {
+    PSyncGroup(Mutex::new(origin))
   }
 }
 
-impl std::convert::From<PartitionGroup> for SyncPGroup {
-  fn from(origin: PartitionGroup) -> Self {
-    SyncPGroup(Mutex::new(origin))
+impl std::ops::Deref for PSyncGroup {
+  type Target = Mutex<PartitionGroup>;
+  fn deref(&self) -> &Self::Target {
+    &self.0
   }
 }
 
@@ -393,9 +395,9 @@ impl std::convert::From<PartitionGroup> for SyncPGroup {
 struct DefaultPartitionCoalescer {
   balance_slack: f64,
   /// each element of group arr represents one coalesced partition
-  group_arr: Vec<SerArc<SyncPGroup>>,
+  group_arr: Vec<SerArc<PSyncGroup>>,
   /// hash used to check whether some machine is already in group_arr
-  group_hash: HashMap<Ipv4Addr, Vec<SerArc<SyncPGroup>>>,
+  group_hash: HashMap<Ipv4Addr, Vec<SerArc<PSyncGroup>>>,
   /// hash used for the first max_partitions (to avoid duplicates)
   initial_hash: HashSet<SplitIdx>,
   /// true if no preferred_locations exists for parent RDD
@@ -441,8 +443,8 @@ impl DefaultPartitionCoalescer {
 
   /// Gets the least element of the list associated with key in group_hash
   /// The returned PartitionGroup is the least loaded of all groups that represent the machine "key"
-  fn get_least_group_hash(&self, key: Ipv4Addr) -> Option<SerArc<SyncPGroup>> {
-    let mut current_min: Option<SerArc<SyncPGroup>> = None;
+  fn get_least_group_hash(&self, key: Ipv4Addr) -> Option<SerArc<PSyncGroup>> {
+    let mut current_min: Option<SerArc<PSyncGroup>> = None;
     if let Some(group) = self.group_hash.get(&key) {
       for g in group.as_slice() {
         if let Some(ref cmin) = current_min {
@@ -473,7 +475,7 @@ impl DefaultPartitionCoalescer {
       for i in 1..=target_len {
         self
           .group_arr
-          .push(SerArc::new(SyncPGroup(Mutex::new(PartitionGroup::new(
+          .push(SerArc::new(PSyncGroup(Mutex::new(PartitionGroup::new(
             None,
             part_cnt.fetch_add(1, SyncOrd::SeqCst),
           )))))
@@ -506,7 +508,7 @@ impl DefaultPartitionCoalescer {
         self.add_part_to_pgroup(objekt::clone_box(&**nxt_part).into(), &mut pgroup);
         self.group_hash.insert(
           *nxt_replica,
-          vec![SerArc::new(SyncPGroup(Mutex::new(pgroup)))],
+          vec![SerArc::new(PSyncGroup(Mutex::new(pgroup)))],
         ); // list in case we have multiple
         num_created += 1;
       }
@@ -518,7 +520,7 @@ impl DefaultPartitionCoalescer {
       // This helps in avoiding skew when the input partitions are clustered by preferred location.
       let (nxt_replica, nxt_part) = &partition_locs.parts_with_locs
         [rng.gen_range(0, partition_locs.parts_with_locs.len()) as usize];
-      let mut pgroup = SerArc::new(SyncPGroup(Mutex::new(PartitionGroup::new(
+      let mut pgroup = SerArc::new(PSyncGroup(Mutex::new(PartitionGroup::new(
         Some(*nxt_replica),
         part_cnt.fetch_add(1, SyncOrd::SeqCst),
       ))));
@@ -548,7 +550,7 @@ impl DefaultPartitionCoalescer {
     p: Box<dyn Split>,
     prev: &dyn RddBase,
     balance_slack: f64,
-  ) -> SerArc<SyncPGroup> {
+  ) -> SerArc<PSyncGroup> {
     let mut rnd = utils::random::get_default_rng();
     let slack = (balance_slack * prev.number_of_splits() as f64);
 
@@ -561,7 +563,7 @@ impl DefaultPartitionCoalescer {
     let pref_part = if pref.is_empty() {
       None
     } else {
-      let mut min: Option<SerArc<SyncPGroup>> = None;
+      let mut min: Option<SerArc<PSyncGroup>> = None;
       for pl in pref.into_iter().flatten() {
         if let Some(ref pl_min) = min {
           if *pl.lock() < *pl_min.lock() {
@@ -680,20 +682,25 @@ impl DefaultPartitionCoalescer {
     }
   }
 
-  fn get_partitions(&self) -> Vec<SerArc<SyncPGroup>> {
+  fn get_partitions(mut self) -> Vec<PartitionGroup> {
     self
       .group_arr
-      .iter()
+      .into_iter()
       .filter(|pg| pg.lock().num_partitions() > 0)
-      .cloned()
+      .map(|pg: SerArc<PSyncGroup>| {
+        let pg: PSyncGroup = Arc::try_unwrap(pg.into())
+          .map_err(|_| "Not unique reference.")
+          .unwrap();
+        pg.0.into_inner()
+      })
       .collect()
   }
 }
 
 impl PartitionCoalescer for DefaultPartitionCoalescer {
-  /// Runs the packing algorithm and returns an array of PartitionGroups that if possible are
+  /// Runs the packing algorithm and returns an array of InnerPGroups that if possible are
   /// load balanced and grouped by locality
-  fn coalesce(&mut self, max_partitions: usize, prev: Arc<dyn RddBase>) -> Vec<SerArc<SyncPGroup>> {
+  fn coalesce(mut self, max_partitions: usize, prev: Arc<dyn RddBase>) -> Vec<PartitionGroup> {
     let mut partition_locs = PartitionLocations::new(prev.clone());
     // setup the groups (bins)
     let target_len = prev.number_of_splits().min(max_partitions);
