@@ -146,7 +146,7 @@ pub trait Rdd: RddBase + 'static {
     /// Return a new RDD by applying a function to each partition of this RDD.
     fn map_partitions<U: Data, F>(&self, f: F) -> SerArc<dyn Rdd<Item = U>>
     where
-        F: SerFunc(Box<dyn Iterator<Item = Self::Item>>) -> Box<dyn Iterator<Item = U>>,
+        F: SerFunc(usize, Box<dyn Iterator<Item = Self::Item>>) -> Box<dyn Iterator<Item = U>>,
         Self: Sized,
     {
         SerArc::new(MapPartitionsRdd::new(self.get_rdd(), f))
@@ -158,15 +158,13 @@ pub trait Rdd: RddBase + 'static {
     where
         Self: Sized,
     {
-        SerArc::new(MapPartitionsRdd::new(
-            self.get_rdd(),
-            Box::new(Fn!(
-                |iter: Box<dyn Iterator<Item = Self::Item>>| Box::new(std::iter::once(
-                    iter.collect::<Vec<_>>()
-                ))
-                    as Box<Iterator<Item = Vec<Self::Item>>>
-            )),
-        ))
+        let func = Fn!(
+            |_index: usize, iter: Box<dyn Iterator<Item = Self::Item>>| Box::new(std::iter::once(
+                iter.collect::<Vec<_>>()
+            ))
+                as Box<Iterator<Item = Vec<Self::Item>>>
+        );
+        SerArc::new(MapPartitionsRdd::new(self.get_rdd(), Box::new(func)))
     }
 
     fn save_as_text_file(&self, path: String) -> Result<Vec<()>>

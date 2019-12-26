@@ -5,7 +5,7 @@ use crate::rdd::*;
 #[derive(Serialize, Deserialize)]
 pub struct MapPartitionsRdd<T: Data, U: Data, F>
 where
-    F: Func(Box<dyn Iterator<Item = T>>) -> Box<dyn Iterator<Item = U>> + Clone,
+    F: Func(usize, Box<dyn Iterator<Item = T>>) -> Box<dyn Iterator<Item = U>> + Clone,
 {
     #[serde(with = "serde_traitobject")]
     prev: Arc<dyn Rdd<Item = T>>,
@@ -16,7 +16,7 @@ where
 
 impl<T: Data, U: Data, F> Clone for MapPartitionsRdd<T, U, F>
 where
-    F: Func(Box<dyn Iterator<Item = T>>) -> Box<dyn Iterator<Item = U>> + Clone,
+    F: Func(usize, Box<dyn Iterator<Item = T>>) -> Box<dyn Iterator<Item = U>> + Clone,
 {
     fn clone(&self) -> Self {
         MapPartitionsRdd {
@@ -30,7 +30,7 @@ where
 
 impl<T: Data, U: Data, F> MapPartitionsRdd<T, U, F>
 where
-    F: SerFunc(Box<dyn Iterator<Item = T>>) -> Box<dyn Iterator<Item = U>>,
+    F: SerFunc(usize, Box<dyn Iterator<Item = T>>) -> Box<dyn Iterator<Item = U>>,
 {
     pub fn new(prev: Arc<dyn Rdd<Item = T>>, f: F) -> Self {
         let mut vals = RddVals::new(prev.get_context());
@@ -50,7 +50,7 @@ where
 
 impl<T: Data, U: Data, F> RddBase for MapPartitionsRdd<T, U, F>
 where
-    F: SerFunc(Box<dyn Iterator<Item = T>>) -> Box<dyn Iterator<Item = U>>,
+    F: SerFunc(usize, Box<dyn Iterator<Item = T>>) -> Box<dyn Iterator<Item = U>>,
 {
     fn get_rdd_id(&self) -> usize {
         self.vals.id
@@ -93,7 +93,7 @@ where
 
 impl<T: Data, V: Data, U: Data, F> RddBase for MapPartitionsRdd<T, (V, U), F>
 where
-    F: SerFunc(Box<dyn Iterator<Item = T>>) -> Box<dyn Iterator<Item = (V, U)>>,
+    F: SerFunc(usize, Box<dyn Iterator<Item = T>>) -> Box<dyn Iterator<Item = (V, U)>>,
 {
     fn cogroup_iterator_any(
         &self,
@@ -108,7 +108,7 @@ where
 
 impl<T: Data, U: Data, F: 'static> Rdd for MapPartitionsRdd<T, U, F>
 where
-    F: SerFunc(Box<dyn Iterator<Item = T>>) -> Box<dyn Iterator<Item = U>>,
+    F: SerFunc(usize, Box<dyn Iterator<Item = T>>) -> Box<dyn Iterator<Item = U>>,
 {
     type Item = U;
     fn get_rdd_base(&self) -> Arc<dyn RddBase> {
@@ -118,6 +118,7 @@ where
         Arc::new(self.clone())
     }
     fn compute(&self, split: Box<dyn Split>) -> Result<Box<dyn Iterator<Item = Self::Item>>> {
-        Ok(Box::new(self.f.clone()(self.prev.iterator(split)?)))
+        let f_result = self.f.clone()(split.get_index(), self.prev.iterator(split)?);
+        Ok(Box::new(f_result))
     }
 }

@@ -67,7 +67,9 @@ fn test_map_partitions() {
     let rdd = sc.make_rdd(vec![1, 2, 3, 4], 2);
     let partition_sums = rdd
         .map_partitions(Fn!(
-            |iter: Box<dyn Iterator<Item = i64>>| Box::new(std::iter::once(iter.sum::<i64>()))
+            |_index: usize, iter: Box<dyn Iterator<Item = i64>>| Box::new(std::iter::once(
+                iter.sum::<i64>()
+            ))
                 as Box<dyn Iterator<Item = i64>>
         ))
         .collect()
