@@ -122,9 +122,13 @@ impl<T: Data> CoalescedRdd<T> {
   ///
   /// max_partitions: number of desired partitions in the coalesced RDD
   pub(crate) fn new(prev: Arc<dyn Rdd<Item = T>>, max_partitions: usize) -> Self {
-    let mut vals = Arc::new(RddVals::new(prev.get_context()));
+    let mut vals = RddVals::new(prev.get_context());
+    let deps = vec![Dependency::NarrowDependency(
+      Arc::new(CoalescedSplitDep::new(prev.get_rdd_base())) as Arc<dyn NarrowDependencyTrait>,
+    )];
+    vals.dependencies = deps;
     CoalescedRdd {
-      vals,
+      vals: Arc::new(vals),
       parent: prev,
       max_partitions,
     }
@@ -159,9 +163,7 @@ impl<T: Data> RddBase for CoalescedRdd<T> {
   }
 
   fn get_dependencies(&self) -> Vec<Dependency> {
-    vec![Dependency::NarrowDependency(
-      Arc::new(CoalescedSplitDep::new(self.get_rdd_base())) as Arc<dyn NarrowDependencyTrait>,
-    )]
+    self.vals.dependencies.clone()
   }
 
   /// Returns the preferred machine for the partition. If split is of type CoalescedRddSplit,

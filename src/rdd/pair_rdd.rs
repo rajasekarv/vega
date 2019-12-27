@@ -10,20 +10,17 @@ use crate::rdd::*;
 pub trait PairRdd<K: Data + Eq + Hash, V: Data>: Rdd<Item = (K, V)> + Send + Sync {
     fn combine_by_key<C: Data>(
         &self,
-        create_combiner: Box<dyn serde_traitobject::Fn(V) -> C + Send + Sync>,
-        merge_value: Box<dyn serde_traitobject::Fn((C, V)) -> C + Send + Sync>,
-        merge_combiners: Box<dyn serde_traitobject::Fn((C, C)) -> C + Send + Sync>,
+        aggregator: Aggregator<K, V, C>,
         partitioner: Box<dyn Partitioner>,
     ) -> SerArc<dyn Rdd<Item = (K, C)>>
     where
         Self: Sized + Serialize + Deserialize + 'static,
     {
-        let aggregator = Arc::new(Aggregator::<K, V, C>::new(
-            create_combiner,
-            merge_value,
-            merge_combiners,
-        ));
-        SerArc::new(ShuffledRdd::new(self.get_rdd(), aggregator, partitioner))
+        SerArc::new(ShuffledRdd::new(
+            self.get_rdd(),
+            Arc::new(aggregator),
+            partitioner,
+        ))
     }
 
     fn group_by_key(&self, num_splits: usize) -> SerArc<dyn Rdd<Item = (K, Vec<V>)>>
@@ -42,18 +39,7 @@ pub trait PairRdd<K: Data + Eq + Hash, V: Data>: Rdd<Item = (K, V)> + Send + Syn
     where
         Self: Sized + Serialize + Deserialize + 'static,
     {
-        let create_combiner = Box::new(Fn!(|v: V| vec![v]));
-        fn merge_value<V: Data>(mut buf: Vec<V>, v: V) -> Vec<V> {
-            buf.push(v);
-            buf
-        }
-        let merge_value = Box::new(Fn!(|(buf, v)| merge_value::<V>(buf, v)));
-        fn merge_combiners<V: Data>(mut b1: Vec<V>, mut b2: Vec<V>) -> Vec<V> {
-            b1.append(&mut b2);
-            b1
-        }
-        let merge_combiners = Box::new(Fn!(|(b1, b2)| merge_combiners::<V>(b1, b2)));
-        self.combine_by_key(create_combiner, merge_value, merge_combiners, partitioner)
+        self.combine_by_key(Aggregator::<K, V, _>::default(), partitioner)
     }
 
     fn reduce_by_key<F>(&self, func: F, num_splits: usize) -> SerArc<dyn Rdd<Item = (K, V)>>
@@ -77,29 +63,11 @@ pub trait PairRdd<K: Data + Eq + Hash, V: Data>: Rdd<Item = (K, V)> + Send + Syn
         Self: Sized + Serialize + Deserialize + 'static,
     {
         let create_combiner = Box::new(Fn!(|v: V| v));
-        fn merge_value<V: Data, F>(buf: V, v: V, func: F) -> V
-        where
-            F: SerFunc((V, V)) -> V,
-        {
-            let p = buf;
-            func((p, v))
-        }
-        let func_clone = func.clone();
-        let merge_value = Box::new(Fn!(move |(buf, v)| {
-            merge_value::<V, F>(buf, v, func_clone.clone())
-        }));
-        fn merge_combiners<V: Data, F>(b1: V, b2: V, func: F) -> V
-        where
-            F: SerFunc((V, V)) -> V,
-        {
-            let p = b1;
-            func((p, b2))
-        }
-        let func_clone = func.clone();
-        let merge_combiners = Box::new(Fn!(move |(b1, b2)| {
-            merge_combiners::<V, F>(b1, b2, func_clone.clone())
-        }));
-        self.combine_by_key(create_combiner, merge_value, merge_combiners, partitioner)
+        let f_clone = func.clone();
+        let merge_value = Box::new(Fn!(move |(buf, v)| { (f_clone)((buf, v)) }));
+        let merge_combiners = Box::new(Fn!(move |(b1, b2)| { (func)((b1, b2)) }));
+        let aggregator = Aggregator::new(create_combiner, merge_value, merge_combiners);
+        self.combine_by_key(aggregator, partitioner)
     }
 
     fn map_values<U: Data, F>(&self, f: F) -> SerArc<dyn Rdd<Item = (K, U)>>
@@ -172,7 +140,19 @@ pub trait PairRdd<K: Data + Eq + Hash, V: Data>: Rdd<Item = (K, V)> + Send + Syn
     }
 
     fn partition_by_key(&self, partitioner: Box<dyn Partitioner>) -> SerArc<dyn Rdd<Item = V>> {
-        todo!()
+        // Guarantee the number of partitions by introducing a shuffle phase
+        let shuffle_steep = ShuffledRdd::new(
+            self.get_rdd(),
+            Arc::new(Aggregator::<K, V, _>::default()),
+            partitioner,
+        );
+        // Flatten the results of the combined partitions
+        let flattener = Fn!(|grouped: (K, Vec<V>)| {
+            let (key, values) = grouped;
+            let iter: Box<dyn Iterator<Item = _>> = Box::new(values.into_iter());
+            iter
+        });
+        shuffle_steep.flat_map(flattener)
     }
 }
 

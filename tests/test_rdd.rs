@@ -331,10 +331,22 @@ fn test_cartesian() -> Result<()> {
 #[test]
 fn test_coalesced() -> Result<()> {
     let sc = CONTEXT.clone();
-    let rdd = sc.parallelize(vec![1; 101], 101);
-    let res = rdd.coalesce(5, false).glom().collect()?;
-    assert_eq!(res.len(), 5);
-    assert_eq!(res[0].iter().sum::<u8>(), 20);
-    assert_eq!(res[4].iter().sum::<u8>(), 21);
+
+    // do not shuffle
+    {
+        let rdd = sc.parallelize(vec![1; 101], 101);
+        let res = rdd.coalesce(5, false).glom().collect()?;
+        assert_eq!(res.len(), 5);
+        assert_eq!(res[0].iter().sum::<u8>(), 20);
+        assert_eq!(res[4].iter().sum::<u8>(), 21);
+    }
+
+    // shuffle and increase num partitions
+    {
+        let rdd = sc.parallelize(vec![1; 100], 20);
+        let res = rdd.repartition(100).glom().collect()?;
+        assert_eq!(res.len(), 100);
+    }
+
     Ok(())
 }

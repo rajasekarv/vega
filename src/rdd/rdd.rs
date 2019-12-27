@@ -419,6 +419,20 @@ pub trait Rdd: RddBase + 'static {
         }
     }
 
+    /// Return a new RDD that has exactly num_partitions partitions.
+    ///
+    /// Can increase or decrease the level of parallelism in this RDD. Internally, this uses
+    /// a shuffle to redistribute data.
+    ///
+    /// If you are decreasing the number of partitions in this RDD, consider using `coalesce`,
+    /// which can avoid performing a shuffle.
+    fn repartition(&self, num_partitions: usize) -> SerArc<dyn Rdd<Item = Self::Item>>
+    where
+        Self: Sized,
+    {
+        self.coalesce(num_partitions, true)
+    }
+
     /// Take the first num elements of the RDD. It works by first scanning one partition, and use the
     /// results from that partition to estimate the number of additional partitions needed to satisfy
     /// the limit.
