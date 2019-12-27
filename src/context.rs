@@ -125,7 +125,6 @@ impl Context {
                         let local_dir_uuid = uuid.to_string();
                         let local_dir =
                             format!("{}/spark-binary-{}", local_dir_root, local_dir_uuid);
-                        //                            println!("local binary dir {:?}", local_dir);
                         let mkdir_output = Command::new("ssh")
                             .args(&[address, "mkdir", &local_dir.clone()])
                             .output()

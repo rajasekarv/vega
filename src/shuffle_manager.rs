@@ -62,7 +62,7 @@ impl ShuffleManager {
         info!("server_address {:?}", server_address);
         let relative_path = format!("/spark-local-{}", local_dir_uuid);
         let local_dir_clone = local_dir.clone();
-        let server_address_clone = server_address.clone();
+        let server_address_clone = server_address;
         info!("relative path {}", relative_path);
         info!("local_dir path {}", local_dir);
         info!("shuffle dir path {}", shuffle_dir);

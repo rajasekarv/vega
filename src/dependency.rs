@@ -44,6 +44,7 @@ impl OneToOneDependencyVals {
         }
     }
 }
+
 pub trait OneToOneDependencyTrait: Serialize + Deserialize + Send + Sync {
     fn get_parents(&self, partition_id: i64) -> Vec<i64>;
     fn get_rdd_base(&self) -> Arc<dyn RddBase>;

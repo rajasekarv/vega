@@ -1,4 +1,8 @@
+use fasthash::MetroHasher;
+use rand::Rng;
+
 use crate::rdd::*;
+
 // Values which are needed for all RDDs
 #[derive(Serialize, Deserialize)]
 pub struct RddVals {
@@ -140,9 +144,22 @@ pub trait Rdd: RddBase + 'static {
     }
 
     /// Return a new RDD by applying a function to each partition of this RDD.
-    fn map_partitions<U: Data, F>(&self, f: F) -> SerArc<dyn Rdd<Item = U>>
+    fn map_partitions<U: Data, F>(&self, func: F) -> SerArc<dyn Rdd<Item = U>>
     where
         F: SerFunc(Box<dyn Iterator<Item = Self::Item>>) -> Box<dyn Iterator<Item = U>>,
+        Self: Sized,
+    {
+        let ignore_idx = Fn!(move |_index: usize,
+                                   items: Box<dyn Iterator<Item = Self::Item>>|
+              -> Box<dyn Iterator<Item = _>> { (func)(items) });
+        SerArc::new(MapPartitionsRdd::new(self.get_rdd(), ignore_idx))
+    }
+
+    /// Return a new RDD by applying a function to each partition of this RDD,
+    /// while tracking the index of the original partition.
+    fn map_partitions_with_index<U: Data, F>(&self, f: F) -> SerArc<dyn Rdd<Item = U>>
+    where
+        F: SerFunc(usize, Box<dyn Iterator<Item = Self::Item>>) -> Box<dyn Iterator<Item = U>>,
         Self: Sized,
     {
         SerArc::new(MapPartitionsRdd::new(self.get_rdd(), f))
@@ -154,15 +171,13 @@ pub trait Rdd: RddBase + 'static {
     where
         Self: Sized,
     {
-        SerArc::new(MapPartitionsRdd::new(
-            self.get_rdd(),
-            Box::new(Fn!(
-                |iter: Box<dyn Iterator<Item = Self::Item>>| Box::new(std::iter::once(
-                    iter.collect::<Vec<_>>()
-                ))
-                    as Box<Iterator<Item = Vec<Self::Item>>>
-            )),
-        ))
+        let func = Fn!(
+            |_index: usize, iter: Box<dyn Iterator<Item = Self::Item>>| Box::new(std::iter::once(
+                iter.collect::<Vec<_>>()
+            ))
+                as Box<Iterator<Item = Vec<Self::Item>>>
+        );
+        SerArc::new(MapPartitionsRdd::new(self.get_rdd(), Box::new(func)))
     }
 
     fn save_as_text_file(&self, path: String) -> Result<Vec<()>>
@@ -256,10 +271,9 @@ pub trait Rdd: RddBase + 'static {
         SF: SerFunc(U, Self::Item) -> U,
         CF: SerFunc(U, U) -> U,
     {
-        let sf = seq_fn.clone();
         let zero = init.clone();
         let reduce_partition =
-            Fn!(move |iter: Box<dyn Iterator<Item = Self::Item>>| iter.fold(zero.clone(), &sf));
+            Fn!(move |iter: Box<dyn Iterator<Item = Self::Item>>| iter.fold(zero.clone(), &seq_fn));
         let results = self.get_context().run_job(self.get_rdd(), reduce_partition);
         Ok(results?.into_iter().fold(init, comb_fn))
     }
@@ -274,6 +288,62 @@ pub trait Rdd: RddBase + 'static {
         Self: Sized,
     {
         SerArc::new(CartesianRdd::new(self.get_rdd(), other.into()))
+    }
+
+    /// Return a new RDD that is reduced into `num_partitions` partitions.
+    ///
+    /// This results in a narrow dependency, e.g. if you go from 1000 partitions
+    /// to 100 partitions, there will not be a shuffle, instead each of the 100
+    /// new partitions will claim 10 of the current partitions. If a larger number
+    /// of partitions is requested, it will stay at the current number of partitions.
+    ///
+    /// However, if you're doing a drastic coalesce, e.g. to num_partitions = 1,
+    /// this may result in your computation taking place on fewer nodes than
+    /// you like (e.g. one node in the case of num_partitions = 1). To avoid this,
+    /// you can pass shuffle = true. This will add a shuffle step, but means the
+    /// current upstream partitions will be executed in parallel (per whatever
+    /// the current partitioning is).
+    ///
+    /// ## Notes
+    ///
+    /// With shuffle = true, you can actually coalesce to a larger number
+    /// of partitions. This is useful if you have a small number of partitions,
+    /// say 100, potentially with a few partitions being abnormally large. Calling
+    /// coalesce(1000, shuffle = true) will result in 1000 partitions with the
+    /// data distributed using a hash partitioner. The optional partition coalescer
+    /// passed in must be serializable.
+    fn coalesce(&self, num_partitions: usize, shuffle: bool) -> SerArc<dyn Rdd<Item = Self::Item>>
+    where
+        Self: Sized,
+    {
+        if shuffle {
+            // Distributes elements evenly across output partitions, starting from a random partition.
+            use std::hash::Hasher;
+            let distributed_partition = Fn!(
+                move |index: usize, items: Box<dyn Iterator<Item = Self::Item>>| {
+                    let mut hasher = MetroHasher::default();
+                    index.hash(&mut hasher);
+                    let mut rand = utils::random::get_default_rng_from_seed(hasher.finish());
+                    let mut position = rand.gen_range(0, num_partitions);
+                    Box::new(items.map(move |t| {
+                        // Note that the hash code of the key will just be the key itself. The HashPartitioner
+                        // will mod it with the number of total partitions.
+                        position += 1;
+                        (position, t)
+                    })) as Box<dyn Iterator<Item = (usize, Self::Item)>>
+                }
+            );
+
+            let map_steep: SerArc<dyn Rdd<Item = (usize, Self::Item)>> =
+                SerArc::new(MapPartitionsRdd::new(self.get_rdd(), distributed_partition));
+            let partitioner = Box::new(HashPartitioner::<usize>::new(num_partitions));
+            SerArc::new(CoalescedRdd::new(
+                Arc::new(map_steep.partition_by_key(partitioner)),
+                num_partitions,
+            ))
+        } else {
+            SerArc::new(CoalescedRdd::new(self.get_rdd(), num_partitions))
+        }
     }
 
     fn collect(&self) -> Result<Vec<Self::Item>>
@@ -347,6 +417,20 @@ pub trait Rdd: RddBase + 'static {
         } else {
             Err(Error::UnsupportedOperation("empty collection"))
         }
+    }
+
+    /// Return a new RDD that has exactly num_partitions partitions.
+    ///
+    /// Can increase or decrease the level of parallelism in this RDD. Internally, this uses
+    /// a shuffle to redistribute data.
+    ///
+    /// If you are decreasing the number of partitions in this RDD, consider using `coalesce`,
+    /// which can avoid performing a shuffle.
+    fn repartition(&self, num_partitions: usize) -> SerArc<dyn Rdd<Item = Self::Item>>
+    where
+        Self: Sized,
+    {
+        self.coalesce(num_partitions, true)
     }
 
     /// Take the first num elements of the RDD. It works by first scanning one partition, and use the
@@ -524,24 +608,22 @@ pub trait Rdd: RddBase + 'static {
     }
 
     /// Applies a function f to all elements of this RDD.
-    fn for_each<F>(&self, f: F) -> Result<Vec<()>>
+    fn for_each<F>(&self, func: F) -> Result<Vec<()>>
     where
         F: SerFunc(Self::Item),
         Self: Sized,
     {
-        let cf = f.clone();
-        let func = Fn!(move |iter: Box<dyn Iterator<Item = Self::Item>>| iter.for_each(&cf));
+        let func = Fn!(move |iter: Box<dyn Iterator<Item = Self::Item>>| iter.for_each(&func));
         self.get_context().run_job(self.get_rdd(), func)
     }
 
     /// Applies a function f to each partition of this RDD.
-    fn for_each_partition<F>(&self, f: F) -> Result<Vec<()>>
+    fn for_each_partition<F>(&self, func: F) -> Result<Vec<()>>
     where
         F: SerFunc(Box<dyn Iterator<Item = Self::Item>>),
         Self: Sized + 'static,
     {
-        let cf = f.clone();
-        let func = Fn!(move |iter: Box<dyn Iterator<Item = Self::Item>>| (&cf)(iter));
+        let func = Fn!(move |iter: Box<dyn Iterator<Item = Self::Item>>| (&func)(iter));
         self.get_context().run_job(self.get_rdd(), func)
     }
 }
@@ -612,6 +694,7 @@ where
     fn splits(&self) -> Vec<Box<dyn Split>> {
         self.prev.splits()
     }
+
     fn number_of_splits(&self) -> usize {
         self.prev.number_of_splits()
     }
@@ -622,6 +705,7 @@ where
     ) -> Result<Box<dyn Iterator<Item = Box<dyn AnyData>>>> {
         self.iterator_any(split)
     }
+
     default fn iterator_any(
         &self,
         split: Box<dyn Split>,

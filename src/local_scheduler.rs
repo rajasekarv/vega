@@ -92,7 +92,7 @@ impl LocalScheduler {
             env::Env::get().shuffle_manager
         );
 
-        let mut jt = JobTracker::from_scheduler(self, func.clone(), final_rdd.clone(), partitions);
+        let mut jt = JobTracker::from_scheduler(self, func, final_rdd.clone(), partitions);
         let mut results: Vec<Option<U>> = (0..jt.num_output_parts).map(|_| None).collect();
         let mut num_finished = 0;
         let mut fetch_failure_duration = Duration::new(0, 0);

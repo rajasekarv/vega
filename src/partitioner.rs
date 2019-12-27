@@ -140,6 +140,6 @@ mod tests {
             .clone()
             .map_or(false, |p| (&p).equals(&p1.clone().unwrap())));
         assert!(!p1.clone().map_or(false, |p| p.equals(&p2_1.clone())));
-        assert!(!p1.clone().map_or(false, |p| p.equals(&p2_2.clone())));
+        assert!(!p1.map_or(false, |p| p.equals(&p2_2.clone())));
     }
 }
