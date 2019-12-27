@@ -144,7 +144,20 @@ pub trait Rdd: RddBase + 'static {
     }
 
     /// Return a new RDD by applying a function to each partition of this RDD.
-    fn map_partitions<U: Data, F>(&self, f: F) -> SerArc<dyn Rdd<Item = U>>
+    fn map_partitions<U: Data, F>(&self, func: F) -> SerArc<dyn Rdd<Item = U>>
+    where
+        F: SerFunc(Box<dyn Iterator<Item = Self::Item>>) -> Box<dyn Iterator<Item = U>>,
+        Self: Sized,
+    {
+        let ignore_idx = Fn!(move |_index: usize,
+                                   items: Box<dyn Iterator<Item = Self::Item>>|
+              -> Box<dyn Iterator<Item = _>> { (func)(items) });
+        SerArc::new(MapPartitionsRdd::new(self.get_rdd(), ignore_idx))
+    }
+
+    /// Return a new RDD by applying a function to each partition of this RDD,
+    /// while tracking the index of the original partition.
+    fn map_partitions_with_index<U: Data, F>(&self, f: F) -> SerArc<dyn Rdd<Item = U>>
     where
         F: SerFunc(usize, Box<dyn Iterator<Item = Self::Item>>) -> Box<dyn Iterator<Item = U>>,
         Self: Sized,
@@ -304,36 +317,32 @@ pub trait Rdd: RddBase + 'static {
         Self: Sized,
     {
         if shuffle {
-            use std::hash::Hasher;
             // Distributes elements evenly across output partitions, starting from a random partition.
+            use std::hash::Hasher;
             let distributed_partition = Fn!(
                 move |index: usize, items: Box<dyn Iterator<Item = Self::Item>>| {
                     let mut hasher = MetroHasher::default();
                     index.hash(&mut hasher);
                     let mut rand = utils::random::get_default_rng_from_seed(hasher.finish());
                     let mut position = rand.gen_range(0, num_partitions);
-                    items.map(move |t| {
+                    Box::new(items.map(move |t| {
                         // Note that the hash code of the key will just be the key itself. The HashPartitioner
                         // will mod it with the number of total partitions.
                         position += 1;
                         (position, t)
-                    })
+                    })) as Box<dyn Iterator<Item = (usize, Self::Item)>>
                 }
             );
-            // Include a shuffle step so that our upstream tasks are still distributed
-            /*
-              new CoalescedRDD(
-                new ShuffledRDD[Int, T, T](
-                  mapPartitionsWithIndexInternal(distributePartition, isOrderSensitive = true),
-                  new HashPartitioner(numPartitions)),
-                numPartitions,
-                partitionCoalescer).values
 
-            */
-            todo!()
+            let map_steep: SerArc<dyn Rdd<Item = (usize, Self::Item)>> =
+                SerArc::new(MapPartitionsRdd::new(self.get_rdd(), distributed_partition));
+            let partitioner = Box::new(HashPartitioner::<usize>::new(num_partitions));
+            SerArc::new(CoalescedRdd::new(
+                Arc::new(map_steep.partition_by_key(partitioner)),
+                num_partitions,
+            ))
         } else {
             SerArc::new(CoalescedRdd::new(self.get_rdd(), num_partitions))
-                as SerArc<dyn Rdd<Item = Self::Item>>
         }
     }
 
