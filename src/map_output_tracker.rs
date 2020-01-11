@@ -123,9 +123,11 @@ impl MapOutputTracker {
                                 while server_uris_clone
                                     .read()
                                     .get(&shuffle_id)
-                                    .map(|some| some.iter().filter_map(|x| x.as_ref()).next())
-                                    .flatten()
-                                    .is_none()
+                                    .unwrap()
+                                    .iter()
+                                    .filter(|x| !x.is_none())
+                                    .count()
+                                    == 0
                                 {
                                     //check whether this will hurt the performance or not
                                     let wait = time::Duration::from_millis(1);
@@ -143,7 +145,7 @@ impl MapOutputTracker {
                                         //                                        while let None = x {
                                         //                                            continue;
                                         //                                        }
-                                        x.unwrap()
+                                        x.unwrap().clone()
                                     })
                                     .collect::<Vec<_>>();
                                 info!("locs inside mapoutput tracker server after unwrapping for shuffle id {:?} {:?} ", shuffle_id, locs);
@@ -225,13 +227,15 @@ impl MapOutputTracker {
             "server uris inside get_server_uris method {:?}",
             self.server_uris
         );
-
         if self
             .server_uris
             .read()
             .get(&shuffle_id)
-            .map(|some| some.iter().filter_map(|x| x.as_ref()).next())
-            .flatten()
+            .unwrap()
+            .iter()
+            .filter(|x| !x.is_none())
+            .map(|x| x.clone().unwrap())
+            .next()
             .is_none()
         {
             // if self.server_uris.read().get(&shuffle_id).is_empty(){
