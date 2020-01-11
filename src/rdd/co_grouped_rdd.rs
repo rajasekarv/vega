@@ -101,9 +101,8 @@ impl<K: Data + Eq + Hash> CoGroupedRdd<K> {
                 .map_or(false, |p| p.equals(&part as &dyn Any))
             {
                 let rdd_base = rdd.clone().into();
-                deps.push(Dependency::OneToOneDependency(
-                    Arc::new(OneToOneDependencyVals::new(rdd_base))
-                        as Arc<dyn OneToOneDependencyTrait>,
+                deps.push(Dependency::NarrowDependency(
+                    Arc::new(OneToOneDependency::new(rdd_base)) as Arc<dyn NarrowDependencyTrait>,
                 ))
             } else {
                 let rdd_base = rdd.clone().into();

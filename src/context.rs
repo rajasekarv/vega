@@ -68,7 +68,7 @@ pub struct Context {
 impl Drop for Context {
     fn drop(&mut self) {
         //TODO clean up temp files
-        info!("inside context drop in master {}", self.distributed_master);
+        log::debug!("inside context drop in master {}", self.distributed_master);
         self.drop_executors();
     }
 }

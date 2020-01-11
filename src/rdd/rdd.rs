@@ -675,8 +675,8 @@ where
     fn new(prev: Arc<dyn Rdd<Item = T>>, f: F) -> Self {
         let mut vals = RddVals::new(prev.get_context());
         vals.dependencies
-            .push(Dependency::OneToOneDependency(Arc::new(
-                OneToOneDependencyVals::new(prev.get_rdd_base()),
+            .push(Dependency::NarrowDependency(Arc::new(
+                OneToOneDependency::new(prev.get_rdd_base()),
             )));
         let vals = Arc::new(vals);
         MapperRdd {
@@ -797,8 +797,8 @@ where
     fn new(prev: Arc<dyn Rdd<Item = T>>, f: F) -> Self {
         let mut vals = RddVals::new(prev.get_context());
         vals.dependencies
-            .push(Dependency::OneToOneDependency(Arc::new(
-                OneToOneDependencyVals::new(prev.get_rdd_base()),
+            .push(Dependency::NarrowDependency(Arc::new(
+                OneToOneDependency::new(prev.get_rdd_base()),
             )));
         let vals = Arc::new(vals);
         FlatMapperRdd {

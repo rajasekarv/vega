@@ -31,8 +31,6 @@ fn test_group_by() {
     let g = r.group_by_key(4);
     let mut res = g.collect().unwrap();
     res.sort();
-    println!("res {:?}", res);
-
     let expected = vec![
         ("x".to_string(), vec![1, 2, 3, 4, 5, 6, 7]),
         ("y".to_string(), vec![1, 2, 3, 4, 5, 6, 7, 8]),

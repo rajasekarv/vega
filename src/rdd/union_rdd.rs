@@ -102,18 +102,24 @@ impl<T: Data> UnionVariants<T> {
     fn new(rdds: &[Arc<dyn Rdd<Item = T>>]) -> Result<Self> {
         let context = rdds[0].get_context();
         let mut vals = RddVals::new(context.clone());
+
+        let mut pos = 0;
         let deps = rdds
             .iter()
-            .map(|x| {
-                Dependency::OneToOneDependency(Arc::new(OneToOneDependencyVals::new(
-                    x.get_rdd_base(),
-                ))
-                    as Arc<dyn OneToOneDependencyTrait>)
+            .map(|rdd| {
+                let rdd_base = rdd.get_rdd_base();
+                let num_parts = rdd_base.number_of_splits();
+                let dep = Dependency::NarrowDependency(Arc::new(RangeDependency::new(
+                    rdd_base, 0, pos, num_parts,
+                )));
+                pos += num_parts;
+                dep
             })
             .collect();
         vals.dependencies = deps;
         let vals = Arc::new(vals);
         let final_rdds: Vec<_> = rdds.iter().map(|rdd| rdd.clone().into()).collect();
+
         if !UnionVariants::has_unique_partitioner(rdds) {
             Ok(NonUniquePartitioner {
                 rdds: final_rdds,
@@ -331,7 +337,7 @@ mod test {
     use crate::partitioner::HashPartitioner;
 
     #[test]
-    #[ignore]
+    // #[ignore]
     fn test_union() -> Result<()> {
         let sc = Context::new()?;
         // has a unique partitioner:

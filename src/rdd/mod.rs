@@ -36,7 +36,7 @@ pub use union_rdd::UnionRdd;
 use crate::aggregator::Aggregator;
 use crate::context::Context;
 use crate::dependency::{
-    Dependency, OneToOneDependencyTrait, OneToOneDependencyVals, ShuffleDependency,
+    Dependency, NarrowDependencyTrait, OneToOneDependency, RangeDependency, ShuffleDependency,
     ShuffleDependencyTrait,
 };
 use crate::error::*;
