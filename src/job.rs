@@ -57,7 +57,7 @@ type PendingTasks = BTreeMap<Stage, BTreeSet<Box<dyn TaskBase>>>;
 /// Contains all the necessary types to run and track a job progress
 pub(crate) struct JobTracker<F, U: Data, T: Data>
 where
-    F: SerFunc((TasKContext, Box<dyn Iterator<Item = T>>)) -> U,
+    F: SerFunc((TaskContext, Box<dyn Iterator<Item = T>>)) -> U,
 {
     pub output_parts: Vec<usize>,
     pub num_output_parts: usize,
@@ -77,7 +77,7 @@ where
 
 impl<F, U: Data, T: Data> JobTracker<F, U, T>
 where
-    F: SerFunc((TasKContext, Box<dyn Iterator<Item = T>>)) -> U,
+    F: SerFunc((TaskContext, Box<dyn Iterator<Item = T>>)) -> U,
 {
     pub fn from_scheduler<S>(
         scheduler: &S,
@@ -132,7 +132,7 @@ where
 
 impl<F, U: Data, T: Data> Clone for JobTracker<F, U, T>
 where
-    F: SerFunc((TasKContext, Box<dyn Iterator<Item = T>>)) -> U,
+    F: SerFunc((TaskContext, Box<dyn Iterator<Item = T>>)) -> U,
 {
     fn clone(&self) -> Self {
         JobTracker {

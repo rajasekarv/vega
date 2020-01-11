@@ -7,7 +7,7 @@ use std::cell::RefCell;
 use std::clone::Clone;
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet, VecDeque};
 use std::marker::PhantomData;
-use std::net::{Ipv4Addr, SocketAddr};
+use std::net::{Ipv4Addr, SocketAddrV4};
 use std::option::Option;
 use std::rc::Rc;
 use std::sync::{
@@ -88,7 +88,7 @@ impl LocalScheduler {
         allow_local: bool,
     ) -> Result<Vec<U>>
     where
-        F: SerFunc((TasKContext, Box<dyn Iterator<Item = T>>)) -> U,
+        F: SerFunc((TaskContext, Box<dyn Iterator<Item = T>>)) -> U,
     {
         // acquiring lock so that only one job can run a same time
         // this lock is just a temporary patch for preventing multiple jobs to update cache locks
@@ -202,7 +202,7 @@ impl LocalScheduler {
         id_in_job: usize,
         attempt_id: usize,
     ) where
-        F: SerFunc((TasKContext, Box<dyn Iterator<Item = T>>)) -> U,
+        F: SerFunc((TaskContext, Box<dyn Iterator<Item = T>>)) -> U,
     {
         let des_task: TaskOption = bincode::deserialize(&task).unwrap();
         let result = des_task.run(attempt_id);
@@ -268,9 +268,9 @@ impl NativeScheduler for LocalScheduler {
         task: TaskOption,
         id_in_job: usize,
         thread_pool: Rc<ThreadPool>,
-        server_address: SocketAddr,
+        server_address: SocketAddrV4,
     ) where
-        F: SerFunc((TasKContext, Box<dyn Iterator<Item = T>>)) -> U,
+        F: SerFunc((TaskContext, Box<dyn Iterator<Item = T>>)) -> U,
     {
         info!("inside submit task");
         let my_attempt_id = self.attempt_id.fetch_add(1, Ordering::SeqCst);
@@ -281,9 +281,9 @@ impl NativeScheduler for LocalScheduler {
         });
     }
 
-    fn next_executor_server(&self, _rdd: &dyn TaskBase) -> SocketAddr {
+    fn next_executor_server(&self, _rdd: &dyn TaskBase) -> SocketAddrV4 {
         // Just point to the localhost
-        SocketAddr::new(Ipv4Addr::new(127, 0, 0, 1).into(), 0)
+        SocketAddrV4::new(Ipv4Addr::LOCALHOST, 0)
     }
 
     impl_common_funcs!();

@@ -187,7 +187,7 @@ pub trait Rdd: RddBase + 'static {
     where
         Self: Sized,
     {
-        fn save<R: Data>(ctx: TasKContext, iter: Box<dyn Iterator<Item = R>>, path: String) {
+        fn save<R: Data>(ctx: TaskContext, iter: Box<dyn Iterator<Item = R>>, path: String) {
             fs::create_dir_all(&path);
             let id = ctx.split_id;
             let file_path = Path::new(&path).join(format!("part-{}", id));

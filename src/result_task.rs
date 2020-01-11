@@ -6,7 +6,7 @@ use std::sync::Arc;
 #[derive(Serialize, Deserialize)]
 pub struct ResultTask<T: Data, U: Data, F>
 where
-    F: Fn((TasKContext, Box<dyn Iterator<Item = T>>)) -> U
+    F: Fn((TaskContext, Box<dyn Iterator<Item = T>>)) -> U
         + 'static
         + Send
         + Sync
@@ -29,7 +29,7 @@ where
 
 impl<T: Data, U: Data, F> Display for ResultTask<T, U, F>
 where
-    F: Fn((TasKContext, Box<dyn Iterator<Item = T>>)) -> U
+    F: Fn((TaskContext, Box<dyn Iterator<Item = T>>)) -> U
         + 'static
         + Send
         + Sync
@@ -44,7 +44,7 @@ where
 
 impl<T: Data, U: Data, F> ResultTask<T, U, F>
 where
-    F: Fn((TasKContext, Box<dyn Iterator<Item = T>>)) -> U
+    F: Fn((TaskContext, Box<dyn Iterator<Item = T>>)) -> U
         + 'static
         + Send
         + Sync
@@ -70,7 +70,7 @@ where
 
 impl<T: Data, U: Data, F> ResultTask<T, U, F>
 where
-    F: Fn((TasKContext, Box<dyn Iterator<Item = T>>)) -> U
+    F: Fn((TaskContext, Box<dyn Iterator<Item = T>>)) -> U
         + 'static
         + Send
         + Sync
@@ -105,7 +105,7 @@ where
 
 impl<T: Data, U: Data, F> TaskBase for ResultTask<T, U, F>
 where
-    F: Fn((TasKContext, Box<dyn Iterator<Item = T>>)) -> U
+    F: Fn((TaskContext, Box<dyn Iterator<Item = T>>)) -> U
         + 'static
         + Send
         + Sync
@@ -142,7 +142,7 @@ where
 
 impl<T: Data, U: Data, F> Task for ResultTask<T, U, F>
 where
-    F: Fn((TasKContext, Box<dyn Iterator<Item = T>>)) -> U
+    F: Fn((TaskContext, Box<dyn Iterator<Item = T>>)) -> U
         + 'static
         + Send
         + Sync
@@ -152,7 +152,7 @@ where
 {
     fn run(&self, id: usize) -> serde_traitobject::Box<dyn serde_traitobject::Any + Send + Sync> {
         let split = self.rdd.splits()[self.partition].clone();
-        let context = TasKContext::new(self.stage_id, self.partition, id);
+        let context = TaskContext::new(self.stage_id, self.partition, id);
         serde_traitobject::Box::new((self.func)((context, self.rdd.iterator(split).unwrap())))
             as serde_traitobject::Box<dyn serde_traitobject::Any + Send + Sync>
     }

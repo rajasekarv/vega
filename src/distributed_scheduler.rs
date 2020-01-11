@@ -6,7 +6,7 @@ use std::collections::{
     btree_map::BTreeMap, btree_set::BTreeSet, vec_deque::VecDeque, HashMap, HashSet,
 };
 use std::iter::FromIterator;
-use std::net::{IpAddr, Ipv4Addr, SocketAddr, TcpStream};
+use std::net::{Ipv4Addr, SocketAddrV4, TcpStream};
 use std::rc::Rc;
 use std::sync::{
     atomic::{AtomicUsize, Ordering},
@@ -45,7 +45,7 @@ pub struct DistributedScheduler {
     taskid_to_slaveid: HashMap<String, String>,
     job_tasks: HashMap<usize, HashSet<String>>,
     slaves_with_executors: HashSet<String>,
-    server_uris: Arc<Mutex<VecDeque<SocketAddr>>>,
+    server_uris: Arc<Mutex<VecDeque<SocketAddrV4>>>,
     port: u16,
     map_output_tracker: MapOutputTracker,
     // TODO fix proper locking mechanism
@@ -57,7 +57,7 @@ impl DistributedScheduler {
         threads: usize,
         max_failures: usize,
         master: bool,
-        servers: Option<Vec<SocketAddr>>,
+        servers: Option<Vec<SocketAddrV4>>,
         port: u16,
     ) -> Self {
         info!(
@@ -127,7 +127,7 @@ impl DistributedScheduler {
         allow_local: bool,
     ) -> Result<Vec<U>>
     where
-        F: SerFunc((TasKContext, Box<dyn Iterator<Item = T>>)) -> U,
+        F: SerFunc((TaskContext, Box<dyn Iterator<Item = T>>)) -> U,
     {
         // acquiring lock so that only one job can run a same time
         // this lock is just a temporary patch for preventing multiple jobs to update cache locks
@@ -241,14 +241,14 @@ impl NativeScheduler for DistributedScheduler {
         task: TaskOption,
         id_in_job: usize,
         thread_pool: Rc<ThreadPool>,
-        target_executor: SocketAddr,
+        target_executor: SocketAddrV4,
     ) where
-        F: SerFunc((TasKContext, Box<dyn Iterator<Item = T>>)) -> U,
+        F: SerFunc((TaskContext, Box<dyn Iterator<Item = T>>)) -> U,
     {
-        info!("inside submit task");
-        let my_attempt_id = self.attempt_id.fetch_add(1, Ordering::SeqCst);
-        let event_queues = self.event_queues.clone();
         if self.master {
+            info!("inside submit task");
+            let my_attempt_id = self.attempt_id.fetch_add(1, Ordering::SeqCst);
+            let event_queues = self.event_queues.clone();
             let event_queues_clone = event_queues.clone();
             thread_pool.execute(move || {
                 while let Err(_) = TcpStream::connect(&target_executor) {
@@ -328,7 +328,7 @@ impl NativeScheduler for DistributedScheduler {
         }
     }
 
-    fn next_executor_server(&self, task: &dyn TaskBase) -> SocketAddr {
+    fn next_executor_server(&self, task: &dyn TaskBase) -> SocketAddrV4 {
         if !task.is_pinned() {
             // pick the first available server
             let socket_addrs = self.server_uris.lock().pop_back().unwrap();
@@ -337,8 +337,12 @@ impl NativeScheduler for DistributedScheduler {
         } else {
             // seek and pick the selected host
             let servers = &mut *self.server_uris.lock();
-            let location: IpAddr = task.preferred_locations()[0].into();
-            if let Some((pos, _)) = servers.iter().enumerate().find(|(i, e)| e.ip() == location) {
+            let location: Ipv4Addr = task.preferred_locations()[0].into();
+            if let Some((pos, _)) = servers
+                .iter()
+                .enumerate()
+                .find(|(i, e)| *e.ip() == location)
+            {
                 let target_host = servers.remove(pos).unwrap();
                 servers.push_front(target_host.clone());
                 target_host

@@ -1,5 +1,5 @@
 use std::fs::File;
-use std::net::{IpAddr, SocketAddr, TcpStream};
+use std::net::{Ipv4Addr, SocketAddrV4, TcpStream};
 use std::ops::Range;
 use std::path::PathBuf;
 use std::process::Command;
@@ -43,7 +43,7 @@ impl Schedulers {
         allow_local: bool,
     ) -> Result<Vec<U>>
     where
-        F: SerFunc((TasKContext, Box<dyn Iterator<Item = T>>)) -> U,
+        F: SerFunc((TaskContext, Box<dyn Iterator<Item = T>>)) -> U,
     {
         use Schedulers::*;
         match self {
@@ -60,7 +60,7 @@ pub struct Context {
     next_rdd_id: Arc<AtomicUsize>,
     next_shuffle_id: Arc<AtomicUsize>,
     scheduler: Schedulers,
-    pub(crate) address_map: Vec<SocketAddr>,
+    pub(crate) address_map: Vec<SocketAddrV4>,
     distributed_master: bool,
 }
 
@@ -103,13 +103,13 @@ impl Context {
                         .map_err(Error::OsStringToString)?;
                     for address in &hosts::Hosts::get()?.slaves {
                         info!("deploying executor at address {:?}", address);
-                        let address_cli: IpAddr = address
+                        let address_cli: Ipv4Addr = address
                             .split('@')
                             .nth(1)
                             .ok_or_else(|| Error::ParseHostAddress(address.into()))?
                             .parse()
                             .map_err(|x| Error::ParseHostAddress(format!("{}", x)))?;
-                        address_map.push(SocketAddr::new(address_cli, port));
+                        address_map.push(SocketAddrV4::new(address_cli, port));
                         let local_dir_root = "/tmp";
                         let uuid = Uuid::new_v4();
                         let local_dir_uuid = uuid.to_string();
@@ -246,15 +246,13 @@ impl Context {
         serde_traitobject::Arc::new(ParallelCollection::new(self.clone(), seq, num_slices))
     }
 
-    /// Load files from the local host and turn them into a parallel collection.
-    pub fn read_files<F, C, R, D: Data>(self: &Arc<Self>, config: C, func: F) -> impl Rdd<Item = D>
+    /// Load distributed files and turn them into a parallel collection.
+    pub fn read_files<F, C, D: Data>(self: &Arc<Self>, config: C, func: F) -> impl Rdd<Item = D>
     where
         F: SerFunc(Vec<u8>) -> D,
-        C: ReaderConfiguration<Reader = R>,
-        R: Rdd<Item = Vec<u8>>,
+        C: ReaderConfiguration,
     {
-        let reader = config.make_reader(self.clone());
-        reader.map(func)
+        config.make_reader(self.clone()).map(func)
     }
 
     pub fn run_job<T: Data, U: Data, F>(
@@ -296,7 +294,7 @@ impl Context {
         func: F,
     ) -> Result<Vec<U>>
     where
-        F: SerFunc((TasKContext, Box<dyn Iterator<Item = T>>)) -> U,
+        F: SerFunc((TaskContext, Box<dyn Iterator<Item = T>>)) -> U,
     {
         info!("inside run job in context");
         let func = Arc::new(func);

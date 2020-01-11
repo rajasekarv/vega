@@ -3,15 +3,15 @@ use downcast_rs::Downcast;
 use std::cmp::Ordering;
 use std::net::Ipv4Addr;
 
-pub struct TasKContext {
+pub struct TaskContext {
     pub stage_id: usize,
     pub split_id: usize,
     pub attempt_id: usize,
 }
 
-impl TasKContext {
+impl TaskContext {
     pub fn new(stage_id: usize, split_id: usize, attempt_id: usize) -> Self {
-        TasKContext {
+        TaskContext {
             stage_id,
             split_id,
             attempt_id,

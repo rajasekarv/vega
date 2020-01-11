@@ -1,6 +1,6 @@
 use std::fs;
 use std::io::BufReader;
-use std::net::SocketAddr;
+use std::net::Ipv4Addr;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -47,28 +47,16 @@ impl LocalFsReaderConfig {
 }
 
 impl ReaderConfiguration for LocalFsReaderConfig {
-    type Reader = LocalFsReader;
-    fn make_reader(self, context: Arc<Context>) -> Self::Reader {
-        let LocalFsReaderConfig {
-            dir_path,
-            expect_dir,
-            filter_ext,
-            executor_partitions,
-        } = self;
-
-        let is_single_file = {
-            let path: &Path = dir_path.as_ref();
-            path.is_file()
-        };
-
-        unimplemented!()
-
-        // LocalFsReader {
-        //     path: dir_path,
-        //     is_single_file,
-        //     filter_ext,
-        //     expect_dir,
-        // }
+    fn make_reader(self, context: Arc<Context>) -> SerArc<dyn Rdd<Item = Vec<u8>>> {
+        let reader = LocalFsReader::new(self, context.clone());
+        let read_files = Fn!(|readers: Box<dyn Iterator<Item = LocalFsReaderSplit>>| {
+            let mut files = Vec::new();
+            for reader in readers {
+                files.append(&mut reader.into_iter().collect::<Vec<_>>());
+            }
+            Box::new(files.into_iter()) as Box<dyn Iterator<Item = Vec<u8>>>
+        });
+        reader.map_partitions(read_files)
     }
 }
 
@@ -81,15 +69,39 @@ pub struct LocalFsReader {
     is_single_file: bool,
     filter_ext: Option<std::ffi::OsString>,
     expect_dir: bool,
-    executor_partitions: u64,
+    executor_partitions: Option<u64>,
     #[serde(skip_serializing, skip_deserializing)]
     context: Arc<Context>,
 }
 
 impl LocalFsReader {
-    /// Consumed self and load the files in the current host.
+    pub fn new(config: LocalFsReaderConfig, context: Arc<Context>) -> Self {
+        let LocalFsReaderConfig {
+            dir_path,
+            expect_dir,
+            filter_ext,
+            executor_partitions,
+        } = config;
+
+        let is_single_file = {
+            let path: &Path = dir_path.as_ref();
+            path.is_file()
+        };
+
+        LocalFsReader {
+            id: context.new_rdd_id(),
+            path: dir_path,
+            is_single_file,
+            filter_ext,
+            expect_dir,
+            executor_partitions,
+            context,
+        }
+    }
+
     /// This function should be called once per host to come with the paralel workload.
-    fn load_local_files(mut self) -> Result<Vec<Vec<PathBuf>>> {
+    /// Is safe to recompute on failure though.
+    fn load_local_files(&self) -> Result<Vec<Vec<PathBuf>>> {
         let mut total_size = 0_u64;
         if self.is_single_file {
             let size = fs::metadata(&self.path).map_err(Error::ReadFile)?.len();
@@ -98,6 +110,7 @@ impl LocalFsReader {
             return Ok(files);
         }
 
+        let mut num_partitions = self.get_executor_partitions();
         let mut files: Vec<(u64, PathBuf)> = vec![];
         // We compute std deviation incrementally to estimate a good breakpoint
         // of size per partition.
@@ -137,15 +150,20 @@ impl LocalFsReader {
         let file_size_mean = (total_size / total_files) as u64;
         let std_dev = ((ex2 - (ex * ex) / total_files as f32) / total_files as f32).sqrt();
 
-        if total_files < self.executor_partitions as u64 {
+        if total_files < num_partitions {
             // Coerce the number of partitions to the number of files
-            self.executor_partitions = total_files;
+            num_partitions = total_files;
         }
 
-        let avg_partition_size = (total_size / self.executor_partitions as u64) as u64;
+        let avg_partition_size = (total_size / num_partitions) as u64;
 
-        let partitions =
-            self.assign_files_to_partitions(files, file_size_mean, avg_partition_size, std_dev);
+        let partitions = self.assign_files_to_partitions(
+            num_partitions,
+            files,
+            file_size_mean,
+            avg_partition_size,
+            std_dev,
+        );
 
         Ok(partitions)
     }
@@ -154,12 +172,12 @@ impl LocalFsReader {
     /// This should return a fairly balanced partition size.
     fn assign_files_to_partitions(
         &self,
+        num_partitions: u64,
         files: Vec<(u64, PathBuf)>,
         file_size_mean: u64,
         avg_partition_size: u64,
         std_dev: f32,
     ) -> Vec<Vec<PathBuf>> {
-        let num_partitions = self.executor_partitions as u64;
         // Accept ~ 0.25 std deviations top from the average partition size
         // when assigning a file to a partition.
         let high_part_size_bound = (avg_partition_size + (std_dev * 0.25) as u64) as u64;
@@ -204,7 +222,7 @@ impl LocalFsReader {
         }
         partitions.push(partition);
         let mut current_pos = partitions.len() - 1;
-        while (partitions.len() as u64) < self.executor_partitions {
+        while (partitions.len() as u64) < num_partitions {
             // If the number of specified partitions is relativelly equal to the number of files
             // or the file size of the last files is low skew can happen and there can be fewer
             // partitions than specified. This the number of partitions is actually the specified.
@@ -219,6 +237,14 @@ impl LocalFsReader {
             }
         }
         partitions
+    }
+
+    fn get_executor_partitions(&self) -> u64 {
+        if let Some(num) = self.executor_partitions {
+            num
+        } else {
+            num_cpus::get() as u64
+        }
     }
 }
 
@@ -239,12 +265,19 @@ impl RddBase for LocalFsReader {
         true
     }
 
+    fn preferred_locations(&self, split: Box<dyn Split>) -> Vec<Ipv4Addr> {
+        // for a given split there is only one preferred location because this is pinned,
+        // the preferred location is the host at which this split will be executed;
+        let split = split.downcast_ref::<LocalFsReaderSplit>().unwrap();
+        vec![split.host]
+    }
+
     fn splits(&self) -> Vec<Box<dyn Split>> {
         let mut splits = Vec::with_capacity(self.context.address_map.len());
         for (idx, host) in self.context.address_map.iter().enumerate() {
             splits.push(Box::new(LocalFsReaderSplit {
                 idx,
-                host: *host,
+                host: *host.ip(),
                 files: vec![],
             }) as Box<dyn Split>)
         }
@@ -263,7 +296,8 @@ impl RddBase for LocalFsReader {
 }
 
 impl Rdd for LocalFsReader {
-    type Item = Vec<PathBuf>;
+    type Item = LocalFsReaderSplit;
+
     fn get_rdd(&self) -> Arc<dyn Rdd<Item = Self::Item>>
     where
         Self: Sized,
@@ -272,13 +306,19 @@ impl Rdd for LocalFsReader {
     }
 
     fn get_rdd_base(&self) -> Arc<dyn RddBase> {
-        unimplemented!()
+        Arc::new(self.clone()) as Arc<dyn RddBase>
     }
 
     fn compute(&self, split: Box<dyn Split>) -> Result<Box<dyn Iterator<Item = Self::Item>>> {
         let split = split.downcast_ref::<LocalFsReaderSplit>().unwrap();
         let mut files_by_part = self.load_local_files().expect("failed to load local files");
-        Ok(Box::new(files_by_part.into_iter()) as Box<dyn Iterator<Item = Self::Item>>)
+        let idx = split.idx;
+        let host = split.host;
+        Ok(Box::new(
+            files_by_part
+                .into_iter()
+                .map(move |files| LocalFsReaderSplit { files, idx, host }),
+        ) as Box<dyn Iterator<Item = Self::Item>>)
     }
 }
 
@@ -286,10 +326,8 @@ impl Rdd for LocalFsReader {
 pub struct LocalFsReaderSplit {
     files: Vec<PathBuf>,
     idx: usize,
-    host: SocketAddr,
+    host: Ipv4Addr,
 }
-
-impl LocalFsReaderSplit {}
 
 impl Split for LocalFsReaderSplit {
     fn get_index(&self) -> usize {
@@ -318,13 +356,16 @@ mod tests {
 
     #[test]
     fn load_files() {
+        let context = Context::new().unwrap();
+
         let mut loader = LocalFsReader {
+            id: 0,
             path: "A".into(),
             is_single_file: false,
             filter_ext: None,
             expect_dir: true,
-            files: vec![],
-            executor_partitions: 4,
+            executor_partitions: Some(4),
+            context,
         };
 
         let file_size_mean = 1628;
@@ -343,6 +384,7 @@ mod tests {
         ];
 
         let files = loader.assign_files_to_partitions(
+            4,
             files,
             file_size_mean,
             avg_partition_size,
@@ -351,7 +393,7 @@ mod tests {
         assert_eq!(files.len(), 4);
 
         // Even size and less files than parts
-        loader.executors.len() = 8;
+        loader.executor_partitions = Some(8);
         let files = vec![
             (500u64, "A".into()),
             (500, "B".into()),
@@ -362,6 +404,7 @@ mod tests {
         ];
 
         let files = loader.assign_files_to_partitions(
+            8,
             files,
             file_size_mean,
             avg_partition_size,

@@ -44,6 +44,6 @@ use crate::partitioner::{HashPartitioner, Partitioner};
 use crate::serializable_traits::{AnyData, Data, Func, SerFunc};
 use crate::shuffle_fetcher::ShuffleFetcher;
 use crate::split::Split;
-use crate::task::TasKContext;
+use crate::task::TaskContext;
 use crate::utils;
 use crate::utils::random::{BernoulliSampler, PoissonSampler, RandomSampler};
