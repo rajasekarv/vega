@@ -6,6 +6,7 @@ use serde_traitobject::{Arc as SerArc, Box as SerBox};
 
 use crate::rdd::*;
 use UnionVariants::*;
+use super::*;
 
 #[derive(Clone, Serialize, Deserialize)]
 struct UnionSplit<T: 'static> {
@@ -328,43 +329,5 @@ impl<T: Data> Rdd for UnionRdd<T> {
                 Ok(Box::new(iter?.into_iter().flatten()))
             }
         }
-    }
-}
-
-#[cfg(test)]
-mod test {
-    use super::*;
-    use crate::partitioner::HashPartitioner;
-
-    #[test]
-    // #[ignore]
-    fn test_union() -> Result<()> {
-        let sc = Context::new()?;
-        // has a unique partitioner:
-        {
-            let partitioner = HashPartitioner::<i32>::new(2);
-            let co_grouped = || {
-                let rdd = vec![
-                    (1i32, "A".to_string()),
-                    (2, "B".to_string()),
-                    (3, "C".to_string()),
-                    (4, "D".to_string()),
-                ];
-                let rdd0 = SerArc::new(sc.parallelize(rdd.clone(), 2))
-                    as SerArc<dyn Rdd<Item = (i32, String)>>;
-                let rdd1 =
-                    SerArc::new(sc.parallelize(rdd, 2)) as SerArc<dyn Rdd<Item = (i32, String)>>;
-                CoGroupedRdd::<i32>::new(
-                    vec![rdd0.get_rdd_base().into(), rdd1.get_rdd_base().into()],
-                    Box::new(partitioner.clone()),
-                )
-            };
-            let rdd0 = co_grouped();
-            let rdd1 = co_grouped();
-            let res = rdd0.union(rdd1.get_rdd())?.collect()?;
-            assert_eq!(res.len(), 8);
-        }
-
-        Ok(())
     }
 }
