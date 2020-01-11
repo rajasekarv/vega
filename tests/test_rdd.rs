@@ -42,22 +42,13 @@ where
 
 #[test]
 fn test_make_rdd() -> Result<()> {
-    // for distributed mode, use Context::new("distributed")
     let sc = CONTEXT.clone();
-    let col = sc.clone().make_rdd((0..10).collect::<Vec<_>>(), 32);
-    //Fn! will make the closures serializable. It is necessary. use serde_closure version 0.1.3.
+    let col = sc.make_rdd((0..10).collect::<Vec<_>>(), 32);
     let vec_iter = col.map(Fn!(|i| (0..i).collect::<Vec<_>>()));
-    col.for_each(Fn!(|i| println!("{:?}", i)))?;
-    col.for_each_partition(Fn!(|i: Box<Iterator<Item = i64>>| println!(
-        "{:?}",
-        i.collect::<Vec<_>>()
-    )))?;
     let res = vec_iter.collect()?;
-
     let expected = (0..10)
         .map(|i| (0..i).collect::<Vec<_>>())
         .collect::<Vec<_>>();
-    println!("{:?}", res);
     assert_eq!(expected, res);
     Ok(())
 }
@@ -65,7 +56,7 @@ fn test_make_rdd() -> Result<()> {
 #[test]
 fn test_map_partitions() -> Result<()> {
     let sc = CONTEXT.clone();
-    let rdd = sc.clone().make_rdd(vec![1, 2, 3, 4], 2);
+    let rdd = sc.make_rdd(vec![1, 2, 3, 4], 2);
     let partition_sums = rdd
         .map_partitions(Fn!(
             |iter: Box<dyn Iterator<Item = i64>>| Box::new(std::iter::once(iter.sum::<i64>()))
@@ -207,7 +198,6 @@ fn test_read_files() -> Result<()> {
     test_runner(|| {
         let sc = CONTEXT.clone();
         let result = sc
-            .clone()
             .read_files(LocalFsReaderConfig::new(file_path), processor)
             .collect()
             .unwrap();
@@ -239,9 +229,7 @@ fn test_read_files() -> Result<()> {
 
     test_runner(|| {
         let sc = CONTEXT.clone();
-        let files = sc
-            .clone()
-            .read_files(LocalFsReaderConfig::new(WORK_DIR.join(TEST_DIR)), processor);
+        let files = sc.read_files(LocalFsReaderConfig::new(WORK_DIR.join(TEST_DIR)), processor);
         let result: Vec<_> = files.collect().unwrap().into_iter().flatten().collect();
         assert_eq!(result.len(), 20);
     });
@@ -324,10 +312,37 @@ fn test_partition_wise_sampling() -> Result<()> {
 #[test]
 fn test_union() -> Result<()> {
     let sc = CONTEXT.clone();
+
     let rdd0 = sc.parallelize(vec![1i32, 2, 3, 4], 2);
     let rdd1 = sc.parallelize(vec![5i32, 6, 7, 8], 2);
     let res = rdd0.union(rdd1.get_rdd())?;
     assert_eq!(res.collect()?.len(), 8);
+
+    let sc = CONTEXT.clone();
+    let join = || {
+        let col1 = vec![
+            (1, ("A".to_string(), "B".to_string())),
+            (2, ("C".to_string(), "D".to_string())),
+            (3, ("E".to_string(), "F".to_string())),
+            (4, ("G".to_string(), "H".to_string())),
+        ];
+        let col1 = sc.parallelize(col1, 4);
+        let col2 = vec![
+            (1, "A1".to_string()),
+            (1, "A2".to_string()),
+            (2, "B1".to_string()),
+            (2, "B2".to_string()),
+            (3, "C1".to_string()),
+            (3, "C2".to_string()),
+        ];
+        let col2 = sc.parallelize(col2, 4);
+        col2.join(col1.clone(), 4)
+    };
+    let join1 = join();
+    let join2 = join();
+    let res = join1.union(join2.get_rdd()).unwrap().collect().unwrap();
+    assert_eq!(res.len(), 12);
+
     Ok(())
 }
 
@@ -339,5 +354,28 @@ fn test_cartesian() -> Result<()> {
 
     let res = rdd1.cartesian(rdd2).collect()?;
     itertools::assert_equal(res, vec![(0, 'α'), (0, 'β'), (1, 'α'), (1, 'β')]);
+    Ok(())
+}
+
+#[test]
+fn test_coalesced() -> Result<()> {
+    let sc = CONTEXT.clone();
+
+    // do not shuffle
+    {
+        let rdd = sc.parallelize(vec![1; 101], 101);
+        let res = rdd.coalesce(5, false).glom().collect()?;
+        assert_eq!(res.len(), 5);
+        assert_eq!(res[0].iter().sum::<u8>(), 20);
+        assert_eq!(res[4].iter().sum::<u8>(), 21);
+    }
+
+    // shuffle and increase num partitions
+    {
+        let rdd = sc.parallelize(vec![1; 100], 20);
+        let res = rdd.repartition(100).glom().collect()?;
+        assert_eq!(res.len(), 100);
+    }
+
     Ok(())
 }

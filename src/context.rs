@@ -68,7 +68,7 @@ pub struct Context {
 impl Drop for Context {
     fn drop(&mut self) {
         //TODO clean up temp files
-        info!("inside context drop in master {}", self.distributed_master);
+        log::debug!("inside context drop in master {}", self.distributed_master);
         self.drop_executors();
     }
 }
@@ -115,7 +115,6 @@ impl Context {
                         let local_dir_uuid = uuid.to_string();
                         let local_dir =
                             format!("{}/spark-binary-{}", local_dir_root, local_dir_uuid);
-                        //                            println!("local binary dir {:?}", local_dir);
                         let mkdir_output = Command::new("ssh")
                             .args(&[address, "mkdir", &local_dir.clone()])
                             .output()
@@ -312,8 +311,8 @@ impl Context {
         }
     }
 
-    pub fn union<T: Data>(rdds: &[Arc<dyn Rdd<Item = T>>]) -> Result<UnionVariants<T>> {
-        UnionVariants::new(rdds)
+    pub fn union<T: Data>(rdds: &[Arc<dyn Rdd<Item = T>>]) -> Result<UnionRdd<T>> {
+        UnionRdd::new(rdds)
     }
 }
 

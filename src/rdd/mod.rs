@@ -12,13 +12,14 @@ use std::sync::Arc;
 use log::info;
 use rand::{RngCore, SeedableRng};
 use serde_derive::{Deserialize, Serialize};
-use serde_traitobject::Arc as SerArc;
-use serde_traitobject::{Deserialize, Serialize};
+use serde_traitobject::{Arc as SerArc, Deserialize, Serialize};
 
 pub mod cartesian_rdd;
 pub use cartesian_rdd::CartesianRdd;
 pub mod co_grouped_rdd;
+pub mod coalesced_rdd;
 pub use co_grouped_rdd::CoGroupedRdd;
+pub use coalesced_rdd::CoalescedRdd;
 pub mod pair_rdd;
 pub use pair_rdd::PairRdd;
 pub mod partitionwise_sampled_rdd;
@@ -30,12 +31,12 @@ pub use map_partitions_rdd::MapPartitionsRdd;
 pub mod rdd;
 pub use rdd::*;
 mod union_rdd;
-pub use union_rdd::UnionVariants;
+pub use union_rdd::UnionRdd;
 
 use crate::aggregator::Aggregator;
 use crate::context::Context;
 use crate::dependency::{
-    Dependency, OneToOneDependencyTrait, OneToOneDependencyVals, ShuffleDependency,
+    Dependency, NarrowDependencyTrait, OneToOneDependency, RangeDependency, ShuffleDependency,
     ShuffleDependencyTrait,
 };
 use crate::error::*;

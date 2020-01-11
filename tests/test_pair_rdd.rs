@@ -27,12 +27,10 @@ fn test_group_by() {
         ("y".to_string(), 7),
         ("y".to_string(), 8),
     ];
-    let r = sc.clone().make_rdd(vec, 4);
+    let r = sc.make_rdd(vec, 4);
     let g = r.group_by_key(4);
     let mut res = g.collect().unwrap();
     res.sort();
-    println!("res {:?}", res);
-
     let expected = vec![
         ("x".to_string(), vec![1, 2, 3, 4, 5, 6, 7]),
         ("y".to_string(), vec![1, 2, 3, 4, 5, 6, 7, 8]),
@@ -58,7 +56,7 @@ fn test_join() {
         (3, "C1".to_string()),
         (3, "C2".to_string()),
     ];
-    let col2 = sc.clone().parallelize(col2, 4);
+    let col2 = sc.parallelize(col2, 4);
     let inner_joined_rdd = col2.join(col1.clone(), 4);
     let mut res = inner_joined_rdd.collect().unwrap();
     println!("res {:?}", res);

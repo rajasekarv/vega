@@ -143,7 +143,7 @@ impl MapOutputTracker {
                                         //                                        while let None = x {
                                         //                                            continue;
                                         //                                        }
-                                        x.unwrap().clone()
+                                        x.unwrap()
                                     })
                                     .collect::<Vec<_>>();
                                 info!("locs inside mapoutput tracker server after unwrapping for shuffle id {:?} {:?} ", shuffle_id, locs);

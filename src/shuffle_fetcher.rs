@@ -31,7 +31,7 @@ impl ShuffleFetcher {
             "server uris for shuffle id {:?} - {:?}",
             shuffle_id, server_uris
         );
-        for (index, server_uri) in server_uris.clone().into_iter().enumerate() {
+        for (index, server_uri) in server_uris.into_iter().enumerate() {
             inputs_by_uri
                 .entry(server_uri)
                 .or_insert_with(Vec::new)

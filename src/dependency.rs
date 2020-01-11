@@ -1,22 +1,15 @@
-use super::*;
-//use downcast_rs::Downcast;
 use std::cmp::Ordering;
 use std::collections::HashMap;
-//use std::fs::File;
 use std::hash::Hash;
-//use std::io::prelude::*;
-//use std::io::{BufWriter, Write};
-//use std::marker::PhantomData;
 use std::sync::Arc;
-//use serde_traitobject::Any;
+
+use super::*;
 
 // Revise if enum is good choice. Considering enum since down casting one trait object to another trait object is difficult.
 #[derive(Clone, Serialize, Deserialize)]
 pub enum Dependency {
     #[serde(with = "serde_traitobject")]
     NarrowDependency(Arc<dyn NarrowDependencyTrait>),
-    #[serde(with = "serde_traitobject")]
-    OneToOneDependency(Arc<dyn OneToOneDependencyTrait>),
     #[serde(with = "serde_traitobject")]
     ShuffleDependency(Arc<dyn ShuffleDependencyTrait>),
 }
@@ -27,31 +20,63 @@ pub trait NarrowDependencyTrait: Serialize + Deserialize + Send + Sync {
 }
 
 #[derive(Serialize, Deserialize, Clone)]
-pub struct OneToOneDependencyVals {
-    //    #[serde(with = "serde_traitobject")]
-    //    rdd: Arc<RT>,
+pub(crate) struct OneToOneDependency {
     #[serde(with = "serde_traitobject")]
     rdd_base: Arc<dyn RddBase>,
-    is_shuffle: bool,
-    //    _marker: PhantomData<T>,
 }
 
-impl OneToOneDependencyVals {
+impl OneToOneDependency {
     pub fn new(rdd_base: Arc<dyn RddBase>) -> Self {
-        OneToOneDependencyVals {
+        OneToOneDependency { rdd_base }
+    }
+}
+
+impl NarrowDependencyTrait for OneToOneDependency {
+    fn get_parents(&self, partition_id: usize) -> Vec<usize> {
+        vec![partition_id]
+    }
+
+    fn get_rdd_base(&self) -> Arc<dyn RddBase> {
+        self.rdd_base.clone()
+    }
+}
+
+/// Represents a one-to-one dependency between ranges of partitions in the parent and child RDDs.
+#[derive(Serialize, Deserialize, Clone)]
+pub(crate) struct RangeDependency {
+    #[serde(with = "serde_traitobject")]
+    rdd_base: Arc<dyn RddBase>,
+    /// the start of the range in the child RDD
+    out_start: usize,
+    /// the start of the range in the parent RDD
+    in_start: usize,
+    /// the length of the range
+    length: usize,
+}
+
+impl RangeDependency {
+    pub fn new(
+        rdd_base: Arc<dyn RddBase>,
+        in_start: usize,
+        out_start: usize,
+        length: usize,
+    ) -> Self {
+        RangeDependency {
             rdd_base,
-            is_shuffle: false,
+            in_start,
+            out_start,
+            length,
         }
     }
 }
-pub trait OneToOneDependencyTrait: Serialize + Deserialize + Send + Sync {
-    fn get_parents(&self, partition_id: i64) -> Vec<i64>;
-    fn get_rdd_base(&self) -> Arc<dyn RddBase>;
-}
 
-impl OneToOneDependencyTrait for OneToOneDependencyVals {
-    fn get_parents(&self, partition_id: i64) -> Vec<i64> {
-        vec![partition_id]
+impl NarrowDependencyTrait for RangeDependency {
+    fn get_parents(&self, partition_id: usize) -> Vec<usize> {
+        if partition_id >= self.out_start && partition_id < self.out_start + self.length {
+            vec![partition_id - self.out_start + self.in_start]
+        } else {
+            Vec::new()
+        }
     }
 
     fn get_rdd_base(&self) -> Arc<dyn RddBase> {
@@ -61,9 +86,8 @@ impl OneToOneDependencyTrait for OneToOneDependencyVals {
 
 pub trait ShuffleDependencyTrait: Serialize + Deserialize + Send + Sync {
     fn get_shuffle_id(&self) -> usize;
-    //    fn get_partitioner(&self) -> &dyn PartitionerBox;
-    fn is_shuffle(&self) -> bool;
     fn get_rdd_base(&self) -> Arc<dyn RddBase>;
+    fn is_shuffle(&self) -> bool;
     fn do_shuffle_task(&self, rdd_base: Arc<dyn RddBase>, partition: usize) -> String;
 }
 
@@ -86,12 +110,10 @@ impl Ord for dyn ShuffleDependencyTrait {
         self.get_shuffle_id().cmp(&other.get_shuffle_id())
     }
 }
-//impl_downcast!(ShuffleDependencyTrait);
 
 #[derive(Serialize, Deserialize)]
-pub struct ShuffleDependency<K: Data, V: Data, C: Data> {
+pub(crate) struct ShuffleDependency<K: Data, V: Data, C: Data> {
     pub shuffle_id: usize,
-    //    #[serde(with = "serde_traitobject")]
     pub is_cogroup: bool,
     #[serde(with = "serde_traitobject")]
     pub rdd_base: Arc<dyn RddBase>,
@@ -101,13 +123,8 @@ pub struct ShuffleDependency<K: Data, V: Data, C: Data> {
     pub partitioner: Box<dyn Partitioner>,
     is_shuffle: bool,
 }
-impl<
-        K: Data,
-        V: Data,
-        C: Data,
-        //        RT: Rdd<(K, V)> + 'static,
-    > ShuffleDependency<K, V, C>
-{
+
+impl<K: Data, V: Data, C: Data> ShuffleDependency<K, V, C> {
     pub fn new(
         shuffle_id: usize,
         is_cogroup: bool,
@@ -130,12 +147,11 @@ impl<K: Data + Eq + Hash, V: Data, C: Data> ShuffleDependencyTrait for ShuffleDe
     fn get_shuffle_id(&self) -> usize {
         self.shuffle_id
     }
-    //    fn get_partitioner(&self) -> &dyn PartitionerBox {
-    //        &*self.partitioner
-    //    }
+
     fn is_shuffle(&self) -> bool {
         self.is_shuffle
     }
+
     fn get_rdd_base(&self) -> Arc<dyn RddBase> {
         self.rdd_base.clone()
     }
@@ -164,25 +180,6 @@ impl<K: Data + Eq + Hash, V: Data, C: Data> ShuffleDependencyTrait for ShuffleDe
         };
 
         for (count, i) in iter.unwrap().enumerate() {
-            //            if count % 30000 == 0 {
-            //                info!(
-            //                    "inside rdd base iterator in shuffle map task  count for partition {} {}",
-            //                    partition, count
-            //                );
-            //            }
-            //
-            //            if count == 0 {
-            //                info!(
-            //                    "iterator inside dependency map task before downcasting {:?} ",
-            //                    i,
-            //                );
-            //                info!(
-            //                    "type of K and V is {:?} {:?} ",
-            //                    std::intrinsics::type_name::<K>(),
-            //                    std::intrinsics::type_name::<V>()
-            //                );
-            //            }
-
             let b = i.into_any().downcast::<(K, V)>().unwrap();
             let (k, v) = *b;
             if count == 0 {
@@ -203,27 +200,11 @@ impl<K: Data + Eq + Hash, V: Data, C: Data> ShuffleDependencyTrait for ShuffleDe
                 let output = aggregator.merge_value.call(input);
                 *old_v = Some(output);
             }
-            //            if count < 5 {
-            //                info!(
-            //                    "bucket inside shuffle dependency after count {:?} {:?} ",
-            //                    count, buckets
-            //                );
-            //            }
         }
 
         for (i, bucket) in buckets.into_iter().enumerate() {
-            //            let mut file = File::create(file_path.clone()).unwrap();
-            //            let mut contents = String::new();
-            //            file.read_to_string(&mut contents)
-            //                .expect("not able to read");
-            //            println!("file before {:?}", contents);
-            //            let mut file = BufWriter::new(file);
             let set: Vec<(K, C)> = bucket.into_iter().map(|(k, v)| (k, v.unwrap())).collect();
-            //            println!("{:?}", set);
             let ser_bytes = bincode::serialize(&set).unwrap();
-            //            file.write_all(&ser_bytes[..])
-            //                .expect("not able to write to file");
-            // currently shuffle cache is unbounded. File write is disabled. This is just for testing and have to revert back to file write as in previous commits.
             info!(
                 "shuffle dependency map task set in shuffle id, partition,i  {:?} {:?} {:?} {:?} ",
                 set.get(0),
@@ -234,21 +215,7 @@ impl<K: Data + Eq + Hash, V: Data, C: Data> ShuffleDependencyTrait for ShuffleDe
             env::shuffle_cache
                 .write()
                 .insert((self.shuffle_id, partition, i), ser_bytes);
-            //            let mut contents = String::new();
-            //            file.read_to_string(&mut contents)
-            //                .expect("not able to read");
-            //            println!("file after {:?}", contents);
-            //            println!("written to file {:?}", file_path);
         }
         env::Env::get().shuffle_manager.get_server_uri()
     }
 }
-
-//impl<K: Data, V: Data, C: Data, RT: Rdd<(K, V)> + 'static, P: PartitionerBox + Clone>
-//    DependencyTrait for ShuffleDependency<K, V, C, RT, P>
-//{
-//}
-
-//TODO add RangeDependency
-//pub trait Dependency: objekt::Clone {}
-//objekt::clone_trait_object!(Dependency);

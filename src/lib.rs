@@ -5,7 +5,6 @@
     specialization,
     unboxed_closures,
     arbitrary_self_types,
-    option_flattening,
     unsize
 )]
 #![allow(

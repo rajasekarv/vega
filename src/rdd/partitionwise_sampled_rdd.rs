@@ -2,8 +2,7 @@ use crate::error::*;
 use crate::rdd::*;
 
 #[derive(Serialize, Deserialize)]
-pub struct PartitionwiseSampledRdd<T: Data>
-{
+pub struct PartitionwiseSampledRdd<T: Data> {
     #[serde(with = "serde_traitobject")]
     prev: Arc<dyn Rdd<Item = T>>,
     vals: Arc<RddVals>,
@@ -13,8 +12,7 @@ pub struct PartitionwiseSampledRdd<T: Data>
     _marker_t: PhantomData<T>,
 }
 
-impl<T: Data> PartitionwiseSampledRdd<T>
-{
+impl<T: Data> PartitionwiseSampledRdd<T> {
     pub(crate) fn new(
         prev: Arc<dyn Rdd<Item = T>>,
         sampler: Arc<dyn RandomSampler<T>>,
@@ -22,8 +20,8 @@ impl<T: Data> PartitionwiseSampledRdd<T>
     ) -> Self {
         let mut vals = RddVals::new(prev.get_context());
         vals.dependencies
-            .push(Dependency::OneToOneDependency(Arc::new(
-                OneToOneDependencyVals::new(prev.get_rdd_base()),
+            .push(Dependency::NarrowDependency(Arc::new(
+                OneToOneDependency::new(prev.get_rdd_base()),
             )));
         let vals = Arc::new(vals);
 
@@ -37,8 +35,7 @@ impl<T: Data> PartitionwiseSampledRdd<T>
     }
 }
 
-impl<T: Data> Clone for PartitionwiseSampledRdd<T>
-{
+impl<T: Data> Clone for PartitionwiseSampledRdd<T> {
     fn clone(&self) -> Self {
         PartitionwiseSampledRdd {
             prev: self.prev.clone(),
@@ -50,8 +47,7 @@ impl<T: Data> Clone for PartitionwiseSampledRdd<T>
     }
 }
 
-impl<T: Data> RddBase for PartitionwiseSampledRdd<T>
-{
+impl<T: Data> RddBase for PartitionwiseSampledRdd<T> {
     fn get_rdd_id(&self) -> usize {
         self.vals.id
     }
@@ -99,8 +95,7 @@ impl<T: Data> RddBase for PartitionwiseSampledRdd<T>
     }
 }
 
-impl<T: Data, V: Data> RddBase for PartitionwiseSampledRdd<(T, V)>
-{
+impl<T: Data, V: Data> RddBase for PartitionwiseSampledRdd<(T, V)> {
     fn cogroup_iterator_any(
         &self,
         split: Box<dyn Split>,
@@ -112,9 +107,8 @@ impl<T: Data, V: Data> RddBase for PartitionwiseSampledRdd<(T, V)>
     }
 }
 
-impl<T: Data> Rdd for PartitionwiseSampledRdd<T>
-{
-    type Item  = T;
+impl<T: Data> Rdd for PartitionwiseSampledRdd<T> {
+    type Item = T;
     fn get_rdd_base(&self) -> Arc<dyn RddBase> {
         Arc::new(self.clone()) as Arc<dyn RddBase>
     }

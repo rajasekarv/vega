@@ -52,11 +52,22 @@ impl Split for PartitionerAwareUnionSplit {
 }
 
 #[derive(Serialize, Deserialize)]
-pub enum UnionVariants<T: 'static> {
+pub struct UnionRdd<T: 'static>(UnionVariants<T>);
+
+impl<T> UnionRdd<T>
+where
+    T: Data,
+{
+    pub(crate) fn new(rdds: &[Arc<dyn Rdd<Item = T>>]) -> Result<Self> {
+        Ok(UnionRdd(UnionVariants::new(rdds)?))
+    }
+}
+
+#[derive(Serialize, Deserialize)]
+enum UnionVariants<T: 'static> {
     NonUniquePartitioner {
         rdds: Vec<SerArc<dyn Rdd<Item = T>>>,
         vals: Arc<RddVals>,
-        _marker: PhantomData<T>,
     },
     /// An RDD that can take multiple RDDs partitioned by the same partitioner and
     /// unify them into a single RDD while preserving the partitioner. So m RDDs with p partitions each
@@ -66,7 +77,6 @@ pub enum UnionVariants<T: 'static> {
         vals: Arc<RddVals>,
         #[serde(with = "serde_traitobject")]
         part: Box<dyn Partitioner>,
-        _marker: PhantomData<T>,
     },
 }
 
@@ -76,7 +86,6 @@ impl<T: Data> Clone for UnionVariants<T> {
             NonUniquePartitioner { rdds, vals, .. } => NonUniquePartitioner {
                 rdds: rdds.clone(),
                 vals: vals.clone(),
-                _marker: PhantomData,
             },
             PartitionerAware {
                 rdds, vals, part, ..
@@ -84,25 +93,37 @@ impl<T: Data> Clone for UnionVariants<T> {
                 rdds: rdds.clone(),
                 vals: vals.clone(),
                 part: part.clone(),
-                _marker: PhantomData,
             },
         }
     }
 }
 
 impl<T: Data> UnionVariants<T> {
-    pub(crate) fn new(rdds: &[Arc<dyn Rdd<Item = T>>]) -> Result<Self> {
+    fn new(rdds: &[Arc<dyn Rdd<Item = T>>]) -> Result<Self> {
         let context = rdds[0].get_context();
         let mut vals = RddVals::new(context.clone());
-        let deps = rdds.iter().map(|x| Dependency::OneToOneDependency(Arc::new(OneToOneDependencyVals::new(x.get_rdd_base())) as Arc<dyn OneToOneDependencyTrait>)).collect();
+
+        let mut pos = 0;
+        let deps = rdds
+            .iter()
+            .map(|rdd| {
+                let rdd_base = rdd.get_rdd_base();
+                let num_parts = rdd_base.number_of_splits();
+                let dep = Dependency::NarrowDependency(Arc::new(RangeDependency::new(
+                    rdd_base, 0, pos, num_parts,
+                )));
+                pos += num_parts;
+                dep
+            })
+            .collect();
         vals.dependencies = deps;
         let vals = Arc::new(vals);
         let final_rdds: Vec<_> = rdds.iter().map(|rdd| rdd.clone().into()).collect();
+
         if !UnionVariants::has_unique_partitioner(rdds) {
             Ok(NonUniquePartitioner {
                 rdds: final_rdds,
                 vals,
-                _marker: PhantomData,
             })
         } else {
             let part = rdds[0].partitioner().ok_or(Error::LackingPartitioner)?;
@@ -110,7 +131,6 @@ impl<T: Data> UnionVariants<T> {
                 rdds: final_rdds,
                 vals,
                 part,
-                _marker: PhantomData,
             })
         }
     }
@@ -142,37 +162,38 @@ impl<T: Data> UnionVariants<T> {
         &'a self,
         rdd: Arc<dyn RddBase>,
         split: &dyn Split,
+        context: Arc<Context>,
     ) -> impl Iterator<Item = std::net::Ipv4Addr> + 'a {
-        self.get_context()
+        context
             .get_preferred_locs(rdd, split.get_index())
             .into_iter()
     }
 }
 
-impl<T: Data> RddBase for UnionVariants<T> {
+impl<T: Data> RddBase for UnionRdd<T> {
     fn get_rdd_id(&self) -> usize {
-        match self {
+        match &self.0 {
             NonUniquePartitioner { vals, .. } => vals.id,
             PartitionerAware { vals, .. } => vals.id,
         }
     }
 
     fn get_context(&self) -> Arc<Context> {
-        match self {
+        match &self.0 {
             NonUniquePartitioner { vals, .. } => vals.context.clone(),
             PartitionerAware { vals, .. } => vals.context.clone(),
         }
     }
 
     fn get_dependencies(&self) -> Vec<Dependency> {
-        match self {
+        match &self.0 {
             NonUniquePartitioner { vals, .. } => vals.dependencies.clone(),
             PartitionerAware { vals, .. } => vals.dependencies.clone(),
         }
     }
 
     fn preferred_locations(&self, split: Box<dyn Split>) -> Vec<Ipv4Addr> {
-        match self {
+        match &self.0 {
             NonUniquePartitioner { .. } => Vec::new(),
             PartitionerAware { rdds, .. } => {
                 debug!(
@@ -189,8 +210,11 @@ impl<T: Data> RddBase for UnionVariants<T> {
                     rdds.iter()
                         .zip(split.parents(rdds.as_slice()))
                         .map(|(rdd, part)| {
-                            let parent_locations =
-                                self.current_pref_locs(rdd.get_rdd_base(), &*part);
+                            let parent_locations = self.0.current_pref_locs(
+                                rdd.get_rdd_base(),
+                                &*part,
+                                self.get_context(),
+                            );
                             debug!("location of {} partition {} = {}", 1, 2, 3);
                             parent_locations
                         });
@@ -213,19 +237,17 @@ impl<T: Data> RddBase for UnionVariants<T> {
         }
     }
 
-    // fn number_of_splits(&self) -> usize {
-    //     match self {
-    //         NonUniquePartitioner { rdds, .. } => {
-    //             rdds.iter().fold(0, |l, rdd| l + rdd.number_of_splits())
-    //         }
-    //         PartitionerAware { rdds, .. } => {
-    //             rdds.iter().fold(0, |l, rdd| l + rdd.number_of_splits())
-    //         }
-    //     }
-    // }
+    fn number_of_splits(&self) -> usize {
+        match &self.0 {
+            NonUniquePartitioner { rdds, .. } => {
+                rdds.iter().fold(0, |l, rdd| l + rdd.number_of_splits())
+            }
+            PartitionerAware { part, .. } => part.get_num_of_partitions(),
+        }
+    }
 
     fn splits(&self) -> Vec<Box<dyn Split>> {
-        match self {
+        match &self.0 {
             NonUniquePartitioner { rdds, .. } => rdds
                 .iter()
                 .enumerate()
@@ -266,27 +288,27 @@ impl<T: Data> RddBase for UnionVariants<T> {
     }
 
     fn partitioner(&self) -> Option<Box<dyn Partitioner>> {
-        match self {
+        match &self.0 {
             NonUniquePartitioner { .. } => None,
             PartitionerAware { part, .. } => Some(part.clone()),
         }
     }
 }
 
-impl<T: Data> Rdd for UnionVariants<T> {
+impl<T: Data> Rdd for UnionRdd<T> {
     type Item = T;
 
     fn get_rdd_base(&self) -> Arc<dyn RddBase> {
-        Arc::new(self.clone()) as Arc<dyn RddBase>
+        Arc::new(UnionRdd(self.0.clone())) as Arc<dyn RddBase>
     }
 
     fn get_rdd(&self) -> Arc<dyn Rdd<Item = T>> {
-        Arc::new(self.clone()) as Arc<dyn Rdd<Item = T>>
+        Arc::new(UnionRdd(self.0.clone())) as Arc<dyn Rdd<Item = T>>
     }
 
     fn compute(&self, split: Box<dyn Split>) -> Result<Box<dyn Iterator<Item = T>>> {
         let context = self.get_context();
-        match self {
+        match &self.0 {
             NonUniquePartitioner { rdds, .. } => {
                 let part = &*split
                     .downcast::<UnionSplit<T>>()
@@ -315,15 +337,9 @@ mod test {
     use crate::partitioner::HashPartitioner;
 
     #[test]
+    // #[ignore]
     fn test_union() -> Result<()> {
         let sc = Context::new()?;
-        // does not have unique partitioner:
-        {
-            let rdd0 = sc.parallelize(vec![1i32, 2, 3, 4], 2);
-            let rdd1 = sc.parallelize(vec![5i32, 6, 7, 8], 2);
-            let res = rdd0.union(rdd1.get_rdd())?;
-            assert_eq!(res.collect()?.len(), 8);
-        }
         // has a unique partitioner:
         {
             let partitioner = HashPartitioner::<i32>::new(2);
@@ -334,9 +350,14 @@ mod test {
                     (3, "C".to_string()),
                     (4, "D".to_string()),
                 ];
-                let rdd0 = SerArc::new(sc.parallelize(rdd.clone(), 2)) as SerArc<dyn Rdd<Item = (i32, String)>>;
-                let rdd1 = SerArc::new(sc.parallelize(rdd, 2)) as SerArc<dyn Rdd<Item = (i32, String)>>;
-                CoGroupedRdd::<i32>::new(vec![rdd0.get_rdd_base().into(), rdd1.get_rdd_base().into()], Box::new(partitioner.clone()))
+                let rdd0 = SerArc::new(sc.parallelize(rdd.clone(), 2))
+                    as SerArc<dyn Rdd<Item = (i32, String)>>;
+                let rdd1 =
+                    SerArc::new(sc.parallelize(rdd, 2)) as SerArc<dyn Rdd<Item = (i32, String)>>;
+                CoGroupedRdd::<i32>::new(
+                    vec![rdd0.get_rdd_base().into(), rdd1.get_rdd_base().into()],
+                    Box::new(partitioner.clone()),
+                )
             };
             let rdd0 = co_grouped();
             let rdd1 = co_grouped();

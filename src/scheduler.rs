@@ -116,20 +116,13 @@ pub(crate) trait NativeScheduler {
                                     nar_dep.get_rdd_base(),
                                 )
                             }
-                            Dependency::OneToOneDependency(one_dep) => {
-                                info!("one to one stage in missing stages ");
-                                self.visit_for_missing_parent_stages(
-                                    missing,
-                                    visited,
-                                    one_dep.get_rdd_base(),
-                                )
-                            } //TODO finish range dependency
                         }
                     }
                 }
             }
         }
     }
+
     fn visit_for_parent_stages(
         &self,
         parents: &mut BTreeSet<Stage>,
@@ -154,12 +147,9 @@ pub(crate) trait NativeScheduler {
                     Dependency::ShuffleDependency(shuf_dep) => {
                         parents.insert(self.get_shuffle_map_stage(shuf_dep.clone()));
                     }
-                    Dependency::OneToOneDependency(oto_dep) => {
-                        self.visit_for_parent_stages(parents, visited, oto_dep.get_rdd_base())
-                    }
                     Dependency::NarrowDependency(nar_dep) => {
                         self.visit_for_parent_stages(parents, visited, nar_dep.get_rdd_base())
-                    } //TODO finish range dependency
+                    }
                 }
             }
         }
@@ -196,10 +186,10 @@ pub(crate) trait NativeScheduler {
         // let failed_stage = self.id_to_stage.lock().get(&stage_id).unwrap().clone();
         let failed_stage = self.fetch_from_stage_cache(stage_id);
         jt.running.borrow_mut().remove(&failed_stage);
-        jt.failed.borrow_mut().insert(failed_stage.clone());
+        jt.failed.borrow_mut().insert(failed_stage);
         //TODO logging
         self.remove_output_loc_from_stage(shuffle_id, map_id, &server_uri);
-        self.unregister_map_output(shuffle_id, map_id, server_uri.clone());
+        self.unregister_map_output(shuffle_id, map_id, server_uri);
         //logging
         jt.failed
             .borrow_mut()
@@ -349,12 +339,12 @@ pub(crate) trait NativeScheduler {
             );
             if missing.is_empty() {
                 self.submit_missing_tasks(stage.clone(), jt.clone());
-                jt.running.borrow_mut().insert(stage.clone());
+                jt.running.borrow_mut().insert(stage);
             } else {
                 for parent in missing {
                     self.submit_stage(parent, jt.clone());
                 }
-                jt.waiting.borrow_mut().insert(stage.clone());
+                jt.waiting.borrow_mut().insert(stage);
             }
         }
     }
