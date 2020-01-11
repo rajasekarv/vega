@@ -74,11 +74,13 @@ impl Split for CoalescedRddSplit {
 struct CoalescedSplitDep {
   #[serde(with = "serde_traitobject")]
   rdd: Arc<dyn RddBase>,
+  #[serde(with = "serde_traitobject")]
+  prev: Arc<dyn RddBase>,
 }
 
 impl CoalescedSplitDep {
-  fn new(rdd: Arc<dyn RddBase>) -> CoalescedSplitDep {
-    CoalescedSplitDep { rdd }
+  fn new(rdd: Arc<dyn RddBase>, prev: Arc<dyn RddBase>) -> CoalescedSplitDep {
+    CoalescedSplitDep { rdd, prev }
   }
 }
 
@@ -96,7 +98,9 @@ impl NarrowDependencyTrait for CoalescedSplitDep {
   }
 
   fn get_rdd_base(&self) -> Arc<dyn RddBase> {
-    self.rdd.clone()
+    // this method is called on the scheduler on get_preferred_locs
+    // and is expected to return the previous dependency
+    self.prev.clone()
   }
 }
 
@@ -123,10 +127,6 @@ impl<T: Data> CoalescedRdd<T> {
   /// max_partitions: number of desired partitions in the coalesced RDD
   pub(crate) fn new(prev: Arc<dyn Rdd<Item = T>>, max_partitions: usize) -> Self {
     let mut vals = RddVals::new(prev.get_context());
-    let deps = vec![Dependency::NarrowDependency(
-      Arc::new(CoalescedSplitDep::new(prev.get_rdd_base())) as Arc<dyn NarrowDependencyTrait>,
-    )];
-    vals.dependencies = deps;
     CoalescedRdd {
       vals: Arc::new(vals),
       parent: prev,
@@ -163,7 +163,12 @@ impl<T: Data> RddBase for CoalescedRdd<T> {
   }
 
   fn get_dependencies(&self) -> Vec<Dependency> {
-    self.vals.dependencies.clone()
+    vec![Dependency::NarrowDependency(
+      Arc::new(CoalescedSplitDep::new(
+        self.get_rdd_base(),
+        self.parent.get_rdd_base(),
+      )) as Arc<dyn NarrowDependencyTrait>,
+    )]
   }
 
   /// Returns the preferred machine for the partition. If split is of type CoalescedRddSplit,
