@@ -61,7 +61,7 @@ pub struct CoGroupedRdd<K: Data> {
 }
 
 impl<K: Data + Eq + Hash> CoGroupedRdd<K> {
-    pub(crate) fn new(
+    pub fn new(
         rdds: Vec<serde_traitobject::Arc<dyn RddBase>>,
         part: Box<dyn Partitioner>,
     ) -> Self {
