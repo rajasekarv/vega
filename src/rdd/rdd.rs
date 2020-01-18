@@ -626,6 +626,19 @@ pub trait Rdd: RddBase + 'static {
         let func = Fn!(move |iter: Box<dyn Iterator<Item = Self::Item>>| (&func)(iter));
         self.get_context().run_job(self.get_rdd(), func)
     }
+
+    fn union(
+        &self,
+        other: Arc<dyn Rdd<Item = Self::Item>>,
+    ) -> Result<SerArc<dyn Rdd<Item = Self::Item>>>
+    where
+        Self: Clone,
+    {
+        Ok(SerArc::new(Context::union(&[
+            Arc::new(self.clone()) as Arc<dyn Rdd<Item = Self::Item>>,
+            other,
+        ])?))
+    }
 }
 
 #[derive(Serialize, Deserialize)]
@@ -662,8 +675,8 @@ where
     fn new(prev: Arc<dyn Rdd<Item = T>>, f: F) -> Self {
         let mut vals = RddVals::new(prev.get_context());
         vals.dependencies
-            .push(Dependency::OneToOneDependency(Arc::new(
-                OneToOneDependencyVals::new(prev.get_rdd_base()),
+            .push(Dependency::NarrowDependency(Arc::new(
+                OneToOneDependency::new(prev.get_rdd_base()),
             )));
         let vals = Arc::new(vals);
         MapperRdd {
@@ -784,8 +797,8 @@ where
     fn new(prev: Arc<dyn Rdd<Item = T>>, f: F) -> Self {
         let mut vals = RddVals::new(prev.get_context());
         vals.dependencies
-            .push(Dependency::OneToOneDependency(Arc::new(
-                OneToOneDependencyVals::new(prev.get_rdd_base()),
+            .push(Dependency::NarrowDependency(Arc::new(
+                OneToOneDependency::new(prev.get_rdd_base()),
             )));
         let vals = Arc::new(vals);
         FlatMapperRdd {

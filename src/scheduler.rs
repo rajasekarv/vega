@@ -116,20 +116,13 @@ pub(crate) trait NativeScheduler {
                                     nar_dep.get_rdd_base(),
                                 )
                             }
-                            Dependency::OneToOneDependency(one_dep) => {
-                                info!("one to one stage in missing stages ");
-                                self.visit_for_missing_parent_stages(
-                                    missing,
-                                    visited,
-                                    one_dep.get_rdd_base(),
-                                )
-                            } //TODO finish range dependency
                         }
                     }
                 }
             }
         }
     }
+
     fn visit_for_parent_stages(
         &self,
         parents: &mut BTreeSet<Stage>,
@@ -154,12 +147,9 @@ pub(crate) trait NativeScheduler {
                     Dependency::ShuffleDependency(shuf_dep) => {
                         parents.insert(self.get_shuffle_map_stage(shuf_dep.clone()));
                     }
-                    Dependency::OneToOneDependency(oto_dep) => {
-                        self.visit_for_parent_stages(parents, visited, oto_dep.get_rdd_base())
-                    }
                     Dependency::NarrowDependency(nar_dep) => {
                         self.visit_for_parent_stages(parents, visited, nar_dep.get_rdd_base())
-                    } //TODO finish range dependency
+                    }
                 }
             }
         }
