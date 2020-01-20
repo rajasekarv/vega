@@ -48,6 +48,8 @@ pub struct DistributedScheduler {
     server_uris: Arc<Mutex<VecDeque<(String, u16)>>>,
     port: u16,
     map_output_tracker: MapOutputTracker,
+    // TODO fix proper locking mechanism
+    scheduler_lock: Arc<Mutex<bool>>,
 }
 
 impl DistributedScheduler {
@@ -97,6 +99,7 @@ impl DistributedScheduler {
             },
             port,
             map_output_tracker: env::Env::get().map_output_tracker.clone(),
+            scheduler_lock: Arc::new(Mutex::new(true)),
         }
     }
 
@@ -131,6 +134,11 @@ impl DistributedScheduler {
     where
         F: SerFunc((TasKContext, Box<dyn Iterator<Item = T>>)) -> U,
     {
+        // acquiring lock so that only one job can run a same time
+        // this lock is just a temporary patch for preventing multiple jobs to update cache locks
+        // which affects construction of dag task graph. dag task graph construction need to be
+        // altered
+        let lock = self.scheduler_lock.lock();
         info!(
             "shuffle maanger in final rdd of run job {:?}",
             env::Env::get().shuffle_manager
