@@ -70,7 +70,7 @@ impl DistributedScheduler {
             max_failures,
             attempt_id: Arc::new(AtomicUsize::new(0)),
             resubmit_timeout: 2000,
-            poll_timeout: 500,
+            poll_timeout: 50,
             event_queues: Arc::new(Mutex::new(HashMap::new())),
             next_job_id: Arc::new(AtomicUsize::new(0)),
             next_run_id: Arc::new(AtomicUsize::new(0)),
