@@ -46,6 +46,8 @@ pub struct LocalScheduler {
     job_tasks: HashMap<usize, HashSet<String>>,
     slaves_with_executors: HashSet<String>,
     map_output_tracker: MapOutputTracker,
+    // TODO fix proper locking mechanism
+    scheduler_lock: Arc<Mutex<bool>>,
 }
 
 impl LocalScheduler {
@@ -74,6 +76,7 @@ impl LocalScheduler {
             job_tasks: HashMap::new(),
             slaves_with_executors: HashSet::new(),
             map_output_tracker: env::Env::get().map_output_tracker.clone(),
+            scheduler_lock: Arc::new(Mutex::new(true)),
         }
     }
 
@@ -87,6 +90,11 @@ impl LocalScheduler {
     where
         F: SerFunc((TasKContext, Box<dyn Iterator<Item = T>>)) -> U,
     {
+        // acquiring lock so that only one job can run a same time
+        // this lock is just a temporary patch for preventing multiple jobs to update cache locks
+        // which affects construction of dag task graph. dag task graph construction need to be
+        // altered
+        let lock = self.scheduler_lock.lock();
         info!(
             "shuffle manager in final rdd of run job {:?}",
             env::Env::get().shuffle_manager
