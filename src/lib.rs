@@ -29,87 +29,45 @@ pub mod serialized_data_capnp {
     include!(concat!(env!("OUT_DIR"), "/capnp/serialized_data_capnp.rs"));
 }
 
-use std::io::prelude::*;
-
 pub mod context;
-pub use context::*;
-
+pub use context::Context;
 mod executor;
-use executor::*;
-
 pub mod partitioner;
 pub use partitioner::*;
-
 pub mod rdd;
 pub use rdd::*;
-
 pub mod io;
-
+pub use io::*;
 mod dependency;
-use dependency::*;
-
-mod split;
-use split::*;
-
+pub use dependency::*;
+pub mod split;
+pub use split::*;
 mod parallel_collection;
-use parallel_collection::*;
-
-mod cache_tracker;
-use cache_tracker::*;
-
+pub use parallel_collection::*;
 mod cache;
-use cache::*;
-
+mod cache_tracker;
 mod shuffle_fetcher;
-use shuffle_fetcher::*;
-
 mod shuffle_manager;
-use shuffle_manager::*;
-
-mod shuffle_map_task;
-use shuffle_map_task::*;
-
+pub mod shuffle_map_task;
+pub use shuffle_map_task::*;
 #[macro_use]
 mod scheduler;
 use scheduler::*;
-
+pub mod aggregator;
 mod dag_scheduler;
-use dag_scheduler::*;
-
-mod task;
-use task::*;
-
-mod local_scheduler;
-use local_scheduler::*;
-
 mod distributed_scheduler;
-use distributed_scheduler::*;
-
+mod local_scheduler;
 mod stage;
-use stage::*;
-
-mod aggregator;
-use aggregator::*;
-
-mod map_output_tracker;
-use map_output_tracker::*;
-
-mod result_task;
-use result_task::*;
-
-mod job;
-use job::*;
-
-mod serializable_traits;
-use serializable_traits::{AnyData, Data, Func, SerFunc};
-
+mod task;
+pub use aggregator::*;
 mod env;
+mod job;
+mod map_output_tracker;
+mod result_task;
+pub mod serializable_traits;
 pub use env::DeploymentMode;
-
 pub mod error;
-pub use error::{Error, Result};
-
+pub use error::*;
 mod hosts;
-use hosts::Hosts;
-
-mod utils;
+pub mod utils;
+pub use utils::*;

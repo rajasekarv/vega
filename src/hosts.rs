@@ -1,9 +1,9 @@
-use super::*;
-
 use std::net::SocketAddr;
 use std::path::Path;
 
+use crate::error::{Error, Result};
 use once_cell::sync::OnceCell;
+use serde_derive::{Deserialize, Serialize};
 
 static HOSTS: OnceCell<Hosts> = OnceCell::new();
 
@@ -41,6 +41,7 @@ impl Hosts {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::io::Write;
 
     #[test]
     fn test_missing_hosts_file() {

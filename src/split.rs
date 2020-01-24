@@ -1,7 +1,7 @@
-use super::*;
 // not necessary I guess
 use downcast_rs::DowncastSync;
 use objekt;
+use serde_traitobject::{Deserialize, Serialize};
 
 pub struct SplitStruct {
     index: usize,

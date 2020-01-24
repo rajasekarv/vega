@@ -1,8 +1,6 @@
+use crate::serializable_traits::Data;
+use serde_derive::{Deserialize, Serialize};
 use std::marker::PhantomData;
-
-use super::*;
-
-// check once where C have to satisfy Data trait
 
 // Aggregator for shuffle tasks.
 #[derive(Serialize, Deserialize)]

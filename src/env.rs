@@ -1,5 +1,3 @@
-use super::*;
-
 use std::collections::HashMap;
 use std::fs::File;
 use std::fs::OpenOptions;
@@ -56,6 +54,13 @@ mod config_vars {
     pub(super) const LOG_LEVEL: &str = "NS_LOG_LEVEL";
 }
 
+use crate::cache::BoundedMemoryCache;
+use crate::cache_tracker::CacheTracker;
+use crate::error::Error;
+use crate::hosts::Hosts;
+use crate::map_output_tracker::MapOutputTracker;
+use crate::shuffle_fetcher::ShuffleFetcher;
+use crate::shuffle_manager::ShuffleManager;
 use config_vars::*;
 
 #[derive(Clone, Copy)]

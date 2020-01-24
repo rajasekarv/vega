@@ -1,12 +1,23 @@
+use crate::aggregator::Aggregator;
+use crate::context::Context;
+use crate::dependency::{
+    Dependency, NarrowDependencyTrait, OneToOneDependency, ShuffleDependency,
+    ShuffleDependencyTrait,
+};
+use crate::error::Result;
+use crate::partitioner::Partitioner;
+use crate::rdd::{Rdd, RddBase, RddVals};
+use crate::serializable_traits::{AnyData, Data};
+use crate::shuffle_fetcher::ShuffleFetcher;
+use crate::split::Split;
+use log::info;
+use serde_derive::{Deserialize, Serialize};
 use std::any::Any;
 use std::collections::HashMap;
 use std::hash::Hash;
 use std::hash::Hasher;
 use std::marker::PhantomData;
 use std::sync::Arc;
-
-use crate::error::*;
-use crate::rdd::*;
 
 #[derive(Clone, Serialize, Deserialize)]
 enum CoGroupSplitDep {
@@ -61,10 +72,7 @@ pub struct CoGroupedRdd<K: Data> {
 }
 
 impl<K: Data + Eq + Hash> CoGroupedRdd<K> {
-    pub fn new(
-        rdds: Vec<serde_traitobject::Arc<dyn RddBase>>,
-        part: Box<dyn Partitioner>,
-    ) -> Self {
+    pub fn new(rdds: Vec<serde_traitobject::Arc<dyn RddBase>>, part: Box<dyn Partitioner>) -> Self {
         let context = rdds[0].get_context();
         let mut vals = RddVals::new(context.clone());
         let create_combiner = Box::new(Fn!(|v: Box<dyn AnyData>| vec![v]));

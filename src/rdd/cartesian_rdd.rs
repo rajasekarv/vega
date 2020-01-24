@@ -1,6 +1,14 @@
 use itertools::{iproduct, Itertools};
 
-use crate::rdd::*;
+use crate::context::Context;
+use crate::dependency::Dependency;
+use crate::error::{Error, Result};
+use crate::rdd::{Rdd, RddBase, RddVals};
+use crate::serializable_traits::{AnyData, Data};
+use crate::split::Split;
+use serde_derive::{Deserialize, Serialize};
+use std::marker::PhantomData;
+use std::sync::Arc;
 
 #[derive(Clone, Serialize, Deserialize)]
 struct CartesianSplit {
@@ -20,8 +28,7 @@ impl Split for CartesianSplit {
 }
 
 #[derive(Serialize, Deserialize)]
-pub struct CartesianRdd<T: Data, U: Data>
-{
+pub struct CartesianRdd<T: Data, U: Data> {
     vals: Arc<RddVals>,
     #[serde(with = "serde_traitobject")]
     rdd1: Arc<dyn Rdd<Item = T>>,
@@ -32,9 +39,11 @@ pub struct CartesianRdd<T: Data, U: Data>
     _market_u: PhantomData<U>,
 }
 
-impl<T: Data, U: Data> CartesianRdd<T, U>
-{
-    pub(crate) fn new(rdd1: Arc<dyn Rdd<Item = T>>, rdd2: Arc<dyn Rdd<Item = U>>) -> CartesianRdd<T, U> {
+impl<T: Data, U: Data> CartesianRdd<T, U> {
+    pub(crate) fn new(
+        rdd1: Arc<dyn Rdd<Item = T>>,
+        rdd2: Arc<dyn Rdd<Item = U>>,
+    ) -> CartesianRdd<T, U> {
         let vals = Arc::new(RddVals::new(rdd1.get_context()));
         let num_partitions_in_rdd2 = rdd2.number_of_splits();
         CartesianRdd {
@@ -48,8 +57,7 @@ impl<T: Data, U: Data> CartesianRdd<T, U>
     }
 }
 
-impl<T: Data, U: Data> Clone for CartesianRdd<T, U>
-{
+impl<T: Data, U: Data> Clone for CartesianRdd<T, U> {
     fn clone(&self) -> Self {
         CartesianRdd {
             vals: self.vals.clone(),
@@ -62,8 +70,7 @@ impl<T: Data, U: Data> Clone for CartesianRdd<T, U>
     }
 }
 
-impl<T: Data, U: Data> RddBase for CartesianRdd<T, U>
-{
+impl<T: Data, U: Data> RddBase for CartesianRdd<T, U> {
     fn get_rdd_id(&self) -> usize {
         self.vals.id
     }
@@ -106,9 +113,8 @@ impl<T: Data, U: Data> RddBase for CartesianRdd<T, U>
     }
 }
 
-impl<T: Data, U: Data> Rdd for CartesianRdd<T, U>
-{
-    type Item = (T,U);
+impl<T: Data, U: Data> Rdd for CartesianRdd<T, U> {
+    type Item = (T, U);
     fn get_rdd(&self) -> Arc<dyn Rdd<Item = Self::Item>>
     where
         Self: Sized,

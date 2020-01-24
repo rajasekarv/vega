@@ -1,12 +1,12 @@
 use native_spark::io::*;
 use native_spark::*;
 
+use native_spark::partitioner::HashPartitioner;
+use native_spark::rdd::CoGroupedRdd;
+use serde_traitobject::Arc as SerArc;
 use std::fs::{create_dir_all, remove_dir_all, File};
 use std::io::prelude::*;
 use std::sync::Arc;
-use native_spark::rdd::CoGroupedRdd;
-use native_spark::partitioner::HashPartitioner;
-use serde_traitobject::Arc as SerArc;
 
 #[macro_use]
 extern crate serde_closure;
@@ -390,10 +390,9 @@ fn test_union_with_unique_partitioner() {
             (3, "C".to_string()),
             (4, "D".to_string()),
         ];
-        let rdd0 = SerArc::new(sc.parallelize(rdd.clone(), 2))
-            as SerArc<dyn Rdd<Item = (i32, String)>>;
-        let rdd1 =
-            SerArc::new(sc.parallelize(rdd, 2)) as SerArc<dyn Rdd<Item = (i32, String)>>;
+        let rdd0 =
+            SerArc::new(sc.parallelize(rdd.clone(), 2)) as SerArc<dyn Rdd<Item = (i32, String)>>;
+        let rdd1 = SerArc::new(sc.parallelize(rdd, 2)) as SerArc<dyn Rdd<Item = (i32, String)>>;
         CoGroupedRdd::<i32>::new(
             vec![rdd0.get_rdd_base().into(), rdd1.get_rdd_base().into()],
             Box::new(partitioner.clone()),
