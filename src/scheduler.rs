@@ -499,7 +499,7 @@ pub(crate) trait NativeScheduler {
     }
 }
 
-macro_rules! impl_common_funcs {
+macro_rules! impl_common_scheduler_funcs {
     () => {
         fn add_output_loc_to_stage(&self, stage_id: usize, partition: usize, host: String) {
             self.stage_cache

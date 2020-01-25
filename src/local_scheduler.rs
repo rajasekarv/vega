@@ -298,5 +298,5 @@ impl NativeScheduler for LocalScheduler {
         SocketAddrV4::new(Ipv4Addr::LOCALHOST, 0)
     }
 
-    impl_common_funcs!();
+    impl_common_scheduler_funcs!();
 }

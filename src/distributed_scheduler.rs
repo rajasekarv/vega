@@ -367,5 +367,5 @@ impl NativeScheduler for DistributedScheduler {
         }
     }
 
-    impl_common_funcs!();
+    impl_common_scheduler_funcs!();
 }

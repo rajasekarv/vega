@@ -196,7 +196,7 @@ impl Context {
                     next_rdd_id,
                     next_shuffle_id,
                     scheduler,
-                    address_map: Vec::new(),
+                    address_map: vec![SocketAddrV4::new(Ipv4Addr::LOCALHOST, 0)],
                     distributed_master: false,
                 }))
             }

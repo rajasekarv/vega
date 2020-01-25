@@ -1,6 +1,6 @@
 use std::fs;
 use std::io::{BufReader, Read};
-use std::net::Ipv4Addr;
+use std::net::{Ipv4Addr, SocketAddrV4};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -48,7 +48,6 @@ impl LocalFsReaderConfig {
 
     /// Number of partitions to use per executor, to perform the load tasks,
     /// Ideally one executor is used per host with as many partitions as CPUs available.
-    // TODO: profile this for actual sensible defaults
     pub fn num_partitions_per_executor(&mut self, num: u64) {
         self.executor_partitions = Some(num);
     }
@@ -80,6 +79,9 @@ pub struct LocalFsReader {
     executor_partitions: Option<u64>,
     #[serde(skip_serializing, skip_deserializing)]
     context: Arc<Context>,
+    // explicitly copy the address map as the ibe under context is not
+    // deserialized in tasks:
+    splits: Vec<SocketAddrV4>,
 }
 
 impl LocalFsReader {
@@ -103,6 +105,7 @@ impl LocalFsReader {
             filter_ext,
             expect_dir,
             executor_partitions,
+            splits: context.address_map.clone(),
             context,
         }
     }
@@ -281,8 +284,8 @@ impl RddBase for LocalFsReader {
     }
 
     fn splits(&self) -> Vec<Box<dyn Split>> {
-        let mut splits = Vec::with_capacity(self.context.address_map.len());
-        for (idx, host) in self.context.address_map.iter().enumerate() {
+        let mut splits = Vec::with_capacity(self.splits.len());
+        for (idx, host) in self.splits.iter().enumerate() {
             splits.push(Box::new(LocalFsReaderSplit {
                 idx,
                 host: *host.ip(),
@@ -325,7 +328,7 @@ impl Rdd for LocalFsReader {
         Ok(Box::new(
             files_by_part
                 .into_iter()
-                .map(move |files| LocalFsReaderSplit { files, idx, host }),
+                .map(move |files| LocalFsReaderSplit { files, host, idx }),
         ) as Box<dyn Iterator<Item = Self::Item>>)
     }
 }
@@ -374,6 +377,7 @@ mod tests {
             expect_dir: true,
             executor_partitions: Some(4),
             context,
+            splits: Vec::new(),
         };
 
         let file_size_mean = 1628;
