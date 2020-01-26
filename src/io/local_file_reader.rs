@@ -202,7 +202,7 @@ impl<T: Data> LocalFsReader<T> {
     }
 
     /// Assign files according to total avg partition size and file size.
-    /// This should return a fairly balanced partition size.
+    /// This should return a fairly balanced total partition size.
     fn assign_files_to_partitions(
         &self,
         num_partitions: u64,
@@ -243,17 +243,24 @@ impl<T: Data> LocalFsReader<T> {
                 partition.push(file);
                 curr_part_size = new_part_size;
             } else if size > avg_partition_size as u64 {
-                partitions.push(partition);
+                if !partition.is_empty() {
+                    partitions.push(partition);
+                }
                 partitions.push(vec![file]);
                 partition = vec![];
                 curr_part_size = 0;
             } else {
-                partitions.push(partition);
+                if !partition.is_empty() {
+                    partitions.push(partition);
+                }
                 partition = vec![file];
                 curr_part_size = size;
             }
         }
-        partitions.push(partition);
+        if !partition.is_empty() {
+            partitions.push(partition);
+        }
+
         let mut current_pos = partitions.len() - 1;
         while (partitions.len() as u64) < num_partitions {
             // If the number of specified partitions is relativelly equal to the number of files
@@ -461,7 +468,6 @@ mod tests {
     #[test]
     fn load_files() {
         let context = Context::new().unwrap();
-
         let mut loader: LocalFsReader<Vec<u8>> = LocalFsReader {
             id: 0,
             path: "A".into(),
@@ -474,10 +480,6 @@ mod tests {
             _marker_reader_data: PhantomData,
         };
 
-        let file_size_mean = 1628;
-        let avg_partition_size = 2850;
-        let high_part_size_bound = 3945f32;
-
         // Skewed file sizes
         let files = vec![
             (500u64, "A".into()),
@@ -488,13 +490,15 @@ mod tests {
             (1500, "F".into()),
             (500, "G".into()),
         ];
-
+        let file_size_mean = 1628;
+        let avg_partition_size = 2850;
+        let std_dev = 1182f32;
         let files = loader.assign_files_to_partitions(
             4,
             files,
             file_size_mean,
             avg_partition_size,
-            high_part_size_bound,
+            std_dev,
         );
         assert_eq!(files.len(), 4);
 
@@ -505,17 +509,30 @@ mod tests {
             (500, "B".into()),
             (500, "C".into()),
             (500, "D".into()),
+        ];
+        let file_size_mean = 500;
+        let avg_partition_size = 250;
+        let files =
+            loader.assign_files_to_partitions(8, files, file_size_mean, avg_partition_size, 0.0);
+        assert_eq!(files.len(), 4);
+
+        // Even size and more files than parts
+        loader.executor_partitions = Some(2);
+        let files = vec![
+            (500u64, "A".into()),
+            (500, "B".into()),
+            (500, "C".into()),
+            (500, "D".into()),
             (500, "E".into()),
             (500, "F".into()),
+            (500, "G".into()),
+            (500, "H".into()),
         ];
-
-        let files = loader.assign_files_to_partitions(
-            8,
-            files,
-            file_size_mean,
-            avg_partition_size,
-            high_part_size_bound,
-        );
-        assert_eq!(files.len(), 6);
+        let file_size_mean = 500;
+        let avg_partition_size = 2000;
+        let files =
+            loader.assign_files_to_partitions(2, files, file_size_mean, avg_partition_size, 0.0);
+        assert_eq!(files.len(), 2);
+        assert!(files[0].len() >= 3 && files[0].len() <= 5);
     }
 }
