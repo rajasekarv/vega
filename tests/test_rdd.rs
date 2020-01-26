@@ -3,7 +3,7 @@ use native_spark::partitioner::HashPartitioner;
 use native_spark::rdd::CoGroupedRdd;
 use native_spark::*;
 use serde_traitobject::Arc as SerArc;
-use std::fs::{create_dir_all, remove_dir_all, File};
+use std::fs::{create_dir_all, File};
 use std::io::prelude::*;
 use std::sync::Arc;
 
@@ -15,31 +15,19 @@ static CONTEXT: Lazy<Arc<Context>> = Lazy::new(|| Context::new().unwrap());
 static WORK_DIR: Lazy<std::path::PathBuf> = Lazy::new(std::env::temp_dir);
 const TEST_DIR: &str = "ns_test_dir";
 
+#[allow(unused_must_use)]
 fn set_up(file_name: &str) {
     let temp_dir = WORK_DIR.join(TEST_DIR);
     println!("Creating tests in dir: {}", (&temp_dir).to_str().unwrap());
-    create_dir_all(&temp_dir).unwrap();
+    create_dir_all(&temp_dir);
 
     let fixture =
         b"This is some textual test data.\nCan be converted to strings and there are two lines.";
 
-    let mut f = File::create(temp_dir.join(file_name)).unwrap();
-    f.write_all(fixture).unwrap();
-}
-
-fn tear_down() {
-    // Clean up files
-    let temp_dir = WORK_DIR.join(TEST_DIR);
-    remove_dir_all(temp_dir).unwrap();
-}
-
-fn test_runner<T>(test: T)
-where
-    T: FnOnce() -> () + std::panic::UnwindSafe,
-{
-    let result = std::panic::catch_unwind(|| test());
-    tear_down();
-    assert!(result.is_ok())
+    if !std::path::Path::new(file_name).exists() {
+        let mut f = File::create(temp_dir.join(file_name)).unwrap();
+        f.write_all(fixture).unwrap();
+    }
 }
 
 #[test]
@@ -173,34 +161,31 @@ fn test_first() {
 }
 
 #[test]
-fn test_read_files() -> Result<()> {
-    let deserializer = Fn!(|file: Vec<u8>| {
+fn test_read_files_bytes() -> Result<()> {
+    let deserializer = Fn!(|file: Vec<u8>| -> Vec<String> {
         // do stuff with the read files ...
         let parsed: Vec<_> = String::from_utf8(file)
             .unwrap()
             .lines()
             .map(|s| s.to_string())
             .collect();
-
         assert_eq!(parsed.len(), 2);
         assert_eq!(parsed[0], "This is some textual test data.");
-
-        // return parsed stuff
+        // return lines
         parsed
     });
 
     // Single file test
-    let file_name = "test_file_01";
+    let file_name = "test_file_1";
     let file_path = WORK_DIR.join(TEST_DIR).join(file_name);
     set_up(file_name);
-    test_runner(|| {
-        let context = CONTEXT.clone();
-        let result = context
-            .read_files(LocalFsReaderConfig::new(file_path), deserializer)
-            .collect()
-            .unwrap();
-        assert_eq!(result[0].len(), 2);
-    });
+
+    let context = CONTEXT.clone();
+    let result = context
+        .read_files(LocalFsReaderConfig::new(file_path), deserializer)
+        .collect()
+        .unwrap();
+    assert_eq!(result[0].len(), 2);
 
     // Multiple files test
     (0..10).for_each(|idx| {
@@ -216,9 +201,31 @@ fn test_read_files() -> Result<()> {
     );
     let result: Vec<_> = files.collect().unwrap().into_iter().flatten().collect();
     assert_eq!(result.len(), 20);
-    // For an unknown reason if ran on test_runner is being run more than once;
-    // And the second iteration fails because files no longer exist.
-    tear_down();
+
+    Ok(())
+}
+
+#[test]
+fn test_read_files() -> Result<()> {
+    let deserializer = Fn!(|file: std::path::PathBuf| {
+        let mut file = File::open(file).unwrap();
+        let mut content = String::new();
+        file.read_to_string(&mut content).unwrap();
+        let parsed: Vec<_> = content.lines().map(|s| s.to_string()).collect();
+        assert_eq!(parsed.len(), 2);
+        assert_eq!(parsed[0], "This is some textual test data.");
+        parsed
+    });
+
+    let file_name = "test_file_1";
+    let file_path = WORK_DIR.join(TEST_DIR).join(file_name);
+    set_up(file_name);
+    let context = CONTEXT.clone();
+    let result = context
+        .read_files(LocalFsReaderConfig::new(file_path), deserializer)
+        .collect()
+        .unwrap();
+    assert_eq!(result[0].len(), 2);
 
     Ok(())
 }

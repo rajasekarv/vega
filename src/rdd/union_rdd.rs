@@ -16,7 +16,6 @@ use crate::rdd::{Rdd, RddBase, RddVals};
 use crate::serializable_traits::{AnyData, Data};
 use crate::split::Split;
 
-
 #[derive(Clone, Serialize, Deserialize)]
 struct UnionSplit<T: 'static> {
     /// index of the partition

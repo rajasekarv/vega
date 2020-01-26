@@ -6,8 +6,10 @@ use crate::serializable_traits::{AnyData, Data, Func, SerFunc};
 use crate::split::Split;
 use log::info;
 use serde_derive::{Deserialize, Serialize};
+use serde_traitobject::Arc as SerArc;
 use std::marker::PhantomData;
-use std::sync::Arc;
+use std::net::Ipv4Addr;
+use std::sync::{atomic::AtomicBool, atomic::Ordering::SeqCst, Arc};
 
 /// An RDD that applies the provided function to every partition of the parent RDD.
 #[derive(Serialize, Deserialize)]
@@ -19,6 +21,7 @@ where
     prev: Arc<dyn Rdd<Item = T>>,
     vals: Arc<RddVals>,
     f: F,
+    pinned: AtomicBool,
     _marker_t: PhantomData<T>,
 }
 
@@ -31,6 +34,7 @@ where
             prev: self.prev.clone(),
             vals: self.vals.clone(),
             f: self.f.clone(),
+            pinned: AtomicBool::new(self.pinned.load(SeqCst)),
             _marker_t: PhantomData,
         }
     }
@@ -51,8 +55,14 @@ where
             prev,
             vals,
             f,
+            pinned: AtomicBool::new(false),
             _marker_t: PhantomData,
         }
+    }
+
+    pub(crate) fn pin(self) -> Self {
+        self.pinned.store(true, SeqCst);
+        self
     }
 }
 
@@ -70,6 +80,10 @@ where
 
     fn get_dependencies(&self) -> Vec<Dependency> {
         self.vals.dependencies.clone()
+    }
+
+    fn preferred_locations(&self, split: Box<dyn Split>) -> Vec<Ipv4Addr> {
+        self.prev.preferred_locations(split)
     }
 
     fn splits(&self) -> Vec<Box<dyn Split>> {
@@ -96,6 +110,10 @@ where
             self.iterator(split)?
                 .map(|x| Box::new(x) as Box<dyn AnyData>),
         ))
+    }
+
+    fn is_pinned(&self) -> bool {
+        self.pinned.load(SeqCst)
     }
 }
 

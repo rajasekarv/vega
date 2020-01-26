@@ -1,5 +1,6 @@
 use std::fs;
 use std::io::{BufReader, Read};
+use std::marker::PhantomData;
 use std::net::{Ipv4Addr, SocketAddrV4};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -8,7 +9,7 @@ use crate::context::Context;
 use crate::dependency::Dependency;
 use crate::error::{Error, Result};
 use crate::io::ReaderConfiguration;
-use crate::rdd::{Rdd, RddBase};
+use crate::rdd::{MapPartitionsRdd, Rdd, RddBase};
 use crate::serializable_traits::AnyData;
 use crate::serializable_traits::Data;
 use crate::split::Split;
@@ -58,22 +59,38 @@ impl LocalFsReaderConfig {
 
 impl ReaderConfiguration<Vec<u8>> for LocalFsReaderConfig {
     fn make_reader(self, context: Arc<Context>) -> SerArc<dyn Rdd<Item = Vec<u8>>> {
-        let reader = LocalFsReader::new(self, context.clone());
-        let read_files = Fn!(|readers: Box<dyn Iterator<Item = LocalFsReaderSplit>>| {
-            let mut files = Vec::new();
-            for reader in readers {
-                files.append(&mut reader.into_iter().collect::<Vec<_>>());
+        let reader = LocalFsReader::<BytesReader>::new(self, context.clone());
+        let read_files = Fn!(
+            |part: usize, readers: Box<dyn Iterator<Item = BytesReader>>| {
+                Box::new(readers.into_iter().map(|file| file.into_iter()).flatten())
+                    as Box<dyn Iterator<Item = _>>
             }
-            Box::new(files.into_iter()) as Box<dyn Iterator<Item = Vec<u8>>>
-        });
-        reader.map_partitions(read_files)
+        );
+        SerArc::new(
+            MapPartitionsRdd::new(Arc::new(reader) as Arc<dyn Rdd<Item = _>>, read_files).pin(),
+        )
+    }
+}
+
+impl ReaderConfiguration<PathBuf> for LocalFsReaderConfig {
+    fn make_reader(self, context: Arc<Context>) -> SerArc<dyn Rdd<Item = PathBuf>> {
+        let reader = LocalFsReader::<FileReader>::new(self, context.clone());
+        let read_files = Fn!(
+            |part: usize, readers: Box<dyn Iterator<Item = FileReader>>| {
+                Box::new(readers.map(|reader| reader.into_iter()).flatten())
+                    as Box<dyn Iterator<Item = _>>
+            }
+        );
+        SerArc::new(
+            MapPartitionsRdd::new(Arc::new(reader) as Arc<dyn Rdd<Item = _>>, read_files).pin(),
+        )
     }
 }
 
 /// Reads all files specified in a given directory from the local directory
 /// on all executors on every worker node.
 #[derive(Clone, Serialize, Deserialize)]
-pub struct LocalFsReader {
+pub struct LocalFsReader<T> {
     id: usize,
     path: PathBuf,
     is_single_file: bool,
@@ -85,10 +102,11 @@ pub struct LocalFsReader {
     // explicitly copy the address map as the map under context is not
     // deserialized in tasks and this is required:
     splits: Vec<SocketAddrV4>,
+    _marker_reader_data: PhantomData<T>,
 }
 
-impl LocalFsReader {
-    pub fn new(config: LocalFsReaderConfig, context: Arc<Context>) -> Self {
+impl<T: Data> LocalFsReader<T> {
+    fn new(config: LocalFsReaderConfig, context: Arc<Context>) -> Self {
         let LocalFsReaderConfig {
             dir_path,
             expect_dir,
@@ -110,6 +128,7 @@ impl LocalFsReader {
             executor_partitions,
             splits: context.address_map.clone(),
             context,
+            _marker_reader_data: PhantomData,
         }
     }
 
@@ -262,94 +281,145 @@ impl LocalFsReader {
     }
 }
 
-impl RddBase for LocalFsReader {
-    fn get_rdd_id(&self) -> usize {
-        self.id
-    }
+macro_rules! impl_common_lfs_rddb_funcs {
+    () => {
+        fn get_rdd_id(&self) -> usize {
+            self.id
+        }
 
-    fn get_context(&self) -> Arc<Context> {
-        self.context.clone()
-    }
+        fn get_context(&self) -> Arc<Context> {
+            self.context.clone()
+        }
 
-    fn get_dependencies(&self) -> Vec<Dependency> {
-        vec![]
-    }
+        fn get_dependencies(&self) -> Vec<Dependency> {
+            vec![]
+        }
 
-    fn is_pinned(&self) -> bool {
-        true
-    }
+        fn is_pinned(&self) -> bool {
+            true
+        }
+
+        default fn iterator_any(
+            &self,
+            split: Box<dyn Split>,
+        ) -> Result<Box<dyn Iterator<Item = Box<dyn AnyData>>>> {
+            Ok(Box::new(
+                self.iterator(split)?
+                .map(|x| Box::new(x) as Box<dyn AnyData>),
+            ))
+        }
+    };
+}
+
+impl RddBase for LocalFsReader<BytesReader> {
+    impl_common_lfs_rddb_funcs!();
 
     fn preferred_locations(&self, split: Box<dyn Split>) -> Vec<Ipv4Addr> {
         // for a given split there is only one preferred location because this is pinned,
         // the preferred location is the host at which this split will be executed;
-        let split = split.downcast_ref::<LocalFsReaderSplit>().unwrap();
+        let split = split.downcast_ref::<BytesReader>().unwrap();
         vec![split.host]
     }
 
     fn splits(&self) -> Vec<Box<dyn Split>> {
         let mut splits = Vec::with_capacity(self.splits.len());
         for (idx, host) in self.splits.iter().enumerate() {
-            splits.push(Box::new(LocalFsReaderSplit {
+            splits.push(Box::new(BytesReader {
                 idx,
                 host: *host.ip(),
-                files: vec![],
+                files: Vec::new(),
             }) as Box<dyn Split>)
         }
         splits
     }
+}
 
-    default fn iterator_any(
-        &self,
-        split: Box<dyn Split>,
-    ) -> Result<Box<dyn Iterator<Item = Box<dyn AnyData>>>> {
-        Ok(Box::new(
-            self.iterator(split)?
-                .map(|x| Box::new(x) as Box<dyn AnyData>),
-        ))
+impl RddBase for LocalFsReader<FileReader> {
+    impl_common_lfs_rddb_funcs!();
+
+    fn preferred_locations(&self, split: Box<dyn Split>) -> Vec<Ipv4Addr> {
+        let split = split.downcast_ref::<FileReader>().unwrap();
+        vec![split.host]
+    }
+
+    fn splits(&self) -> Vec<Box<dyn Split>> {
+        let mut splits = Vec::with_capacity(self.splits.len());
+        for (idx, host) in self.splits.iter().enumerate() {
+            splits.push(Box::new(FileReader {
+                idx,
+                host: *host.ip(),
+                files: Vec::new(),
+            }) as Box<dyn Split>)
+        }
+        splits
     }
 }
 
-impl Rdd for LocalFsReader {
-    type Item = LocalFsReaderSplit;
+macro_rules! impl_common_lfs_rdd_funcs {
+    () => {
+        fn get_rdd(&self) -> Arc<dyn Rdd<Item = Self::Item>>
+            where
+                Self: Sized,
+        {
+            Arc::new(self.clone()) as Arc<dyn Rdd<Item = Self::Item>>
+        }
 
-    fn get_rdd(&self) -> Arc<dyn Rdd<Item = Self::Item>>
-    where
-        Self: Sized,
-    {
-        Arc::new(self.clone()) as Arc<dyn Rdd<Item = Self::Item>>
-    }
+        fn get_rdd_base(&self) -> Arc<dyn RddBase> {
+            Arc::new(self.clone()) as Arc<dyn RddBase>
+        }
+    };
+}
 
-    fn get_rdd_base(&self) -> Arc<dyn RddBase> {
-        Arc::new(self.clone()) as Arc<dyn RddBase>
-    }
+impl Rdd for LocalFsReader<BytesReader> {
+    type Item = BytesReader;
+
+    impl_common_lfs_rdd_funcs!();
 
     fn compute(&self, split: Box<dyn Split>) -> Result<Box<dyn Iterator<Item = Self::Item>>> {
-        let split = split.downcast_ref::<LocalFsReaderSplit>().unwrap();
+        let split = split.downcast_ref::<BytesReader>().unwrap();
         let mut files_by_part = self.load_local_files()?;
         let idx = split.idx;
         let host = split.host;
         Ok(Box::new(
             files_by_part
                 .into_iter()
-                .map(move |files| LocalFsReaderSplit { files, host, idx }),
+                .map(move |files| BytesReader { files, host, idx }),
+        ) as Box<dyn Iterator<Item = Self::Item>>)
+    }
+}
+
+impl Rdd for LocalFsReader<FileReader> {
+    type Item = FileReader;
+
+    impl_common_lfs_rdd_funcs!();
+
+    fn compute(&self, split: Box<dyn Split>) -> Result<Box<dyn Iterator<Item = Self::Item>>> {
+        let split = split.downcast_ref::<FileReader>().unwrap();
+        let mut files_by_part = self.load_local_files()?;
+        let idx = split.idx;
+        let host = split.host;
+        Ok(Box::new(
+            files_by_part
+                .into_iter()
+                .map(move |files| FileReader { files, host, idx }),
         ) as Box<dyn Iterator<Item = Self::Item>>)
     }
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct LocalFsReaderSplit {
+pub struct BytesReader {
     files: Vec<PathBuf>,
     idx: usize,
     host: Ipv4Addr,
 }
 
-impl Split for LocalFsReaderSplit {
+impl Split for BytesReader {
     fn get_index(&self) -> usize {
         self.idx
     }
 }
 
-impl Iterator for LocalFsReaderSplit {
+impl Iterator for BytesReader {
     type Item = Vec<u8>;
     fn next(&mut self) -> Option<Self::Item> {
         if let Some(path) = self.files.pop() {
@@ -364,6 +434,26 @@ impl Iterator for LocalFsReaderSplit {
     }
 }
 
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct FileReader {
+    files: Vec<PathBuf>,
+    idx: usize,
+    host: Ipv4Addr,
+}
+
+impl Split for FileReader {
+    fn get_index(&self) -> usize {
+        self.idx
+    }
+}
+
+impl Iterator for FileReader {
+    type Item = PathBuf;
+    fn next(&mut self) -> Option<Self::Item> {
+        self.files.pop()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -372,7 +462,7 @@ mod tests {
     fn load_files() {
         let context = Context::new().unwrap();
 
-        let mut loader = LocalFsReader {
+        let mut loader: LocalFsReader<Vec<u8>> = LocalFsReader {
             id: 0,
             path: "A".into(),
             is_single_file: false,
@@ -381,6 +471,7 @@ mod tests {
             executor_partitions: Some(4),
             context,
             splits: Vec::new(),
+            _marker_reader_data: PhantomData,
         };
 
         let file_size_mean = 1628;
