@@ -328,7 +328,6 @@ fn test_coalesced() -> Result<()> {
 }
 
 #[test]
-#[ignore]
 fn test_union() -> Result<()> {
     let sc = CONTEXT.clone();
 
@@ -366,7 +365,6 @@ fn test_union() -> Result<()> {
 }
 
 #[test]
-#[ignore]
 fn test_union_with_unique_partitioner() {
     let sc = CONTEXT.clone();
     let partitioner = HashPartitioner::<i32>::new(2);

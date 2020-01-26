@@ -10,6 +10,7 @@ use crate::error::{Error, Result};
 use crate::io::ReaderConfiguration;
 use crate::rdd::{Rdd, RddBase};
 use crate::serializable_traits::AnyData;
+use crate::serializable_traits::Data;
 use crate::split::Split;
 use log::debug;
 use log::info;
@@ -55,7 +56,7 @@ impl LocalFsReaderConfig {
     }
 }
 
-impl ReaderConfiguration for LocalFsReaderConfig {
+impl ReaderConfiguration<Vec<u8>> for LocalFsReaderConfig {
     fn make_reader(self, context: Arc<Context>) -> SerArc<dyn Rdd<Item = Vec<u8>>> {
         let reader = LocalFsReader::new(self, context.clone());
         let read_files = Fn!(|readers: Box<dyn Iterator<Item = LocalFsReaderSplit>>| {

@@ -1,5 +1,11 @@
-use fasthash::MetroHasher;
-use rand::{Rng, SeedableRng};
+use std::cmp::Ordering;
+use std::fs;
+use std::hash::Hash;
+use std::io::{BufWriter, Write};
+use std::marker::PhantomData;
+use std::net::Ipv4Addr;
+use std::path::Path;
+use std::sync::Arc;
 
 use crate::context::Context;
 use crate::dependency::{Dependency, OneToOneDependency};
@@ -15,17 +21,11 @@ use crate::split::Split;
 use crate::task::TaskContext;
 use crate::utils;
 use crate::utils::random::{BernoulliSampler, PoissonSampler, RandomSampler};
+use fasthash::MetroHasher;
 use log::info;
+use rand::{Rng, SeedableRng};
 use serde_derive::{Deserialize, Serialize};
 use serde_traitobject::{Arc as SerArc, Deserialize, Serialize};
-use std::cmp::Ordering;
-use std::fs;
-use std::hash::Hash;
-use std::io::{BufWriter, Write};
-use std::marker::PhantomData;
-use std::net::Ipv4Addr;
-use std::path::Path;
-use std::sync::Arc;
 
 // Values which are needed for all RDDs
 #[derive(Serialize, Deserialize)]

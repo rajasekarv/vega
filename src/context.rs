@@ -259,10 +259,14 @@ impl Context {
     }
 
     /// Load distributed files and turn them into a parallel collection.
-    pub fn read_files<F, C, D: Data>(self: &Arc<Self>, config: C, func: F) -> impl Rdd<Item = D>
+    pub fn read_files<F, C, S: Data, D: Data>(
+        self: &Arc<Self>,
+        config: C,
+        func: F,
+    ) -> impl Rdd<Item = D>
     where
-        F: SerFunc(Vec<u8>) -> D,
-        C: ReaderConfiguration,
+        F: SerFunc(S) -> D,
+        C: ReaderConfiguration<S>,
     {
         config.make_reader(self.clone()).map(func)
     }
