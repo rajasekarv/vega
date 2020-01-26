@@ -54,7 +54,7 @@ impl ShuffleFetcher {
         let failure = Arc::new(Mutex::new(None));
         let sent_count = Arc::new(Mutex::new(0));
         for i in 0..parallel_fetches {
-            info!("inisde parallel fetch {}", i);
+            info!("inside parallel fetch {}", i);
             let server_queue = server_queue.clone();
             let producer = producer.clone();
             let failure = failure.clone();

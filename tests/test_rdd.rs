@@ -1,8 +1,7 @@
 use native_spark::io::*;
-use native_spark::*;
-
 use native_spark::partitioner::HashPartitioner;
 use native_spark::rdd::CoGroupedRdd;
+use native_spark::*;
 use serde_traitobject::Arc as SerArc;
 use std::fs::{create_dir_all, remove_dir_all, File};
 use std::io::prelude::*;
@@ -175,12 +174,7 @@ fn test_first() {
 
 #[test]
 fn test_read_files() -> Result<()> {
-    // Single file test
-    let file_name = "test_file_01";
-    let file_path = WORK_DIR.join(TEST_DIR).join(file_name);
-    set_up(file_name);
-
-    let processor = Fn!(|file: Vec<u8>| {
+    let deserializer = Fn!(|file: Vec<u8>| {
         // do stuff with the read files ...
         let parsed: Vec<_> = String::from_utf8(file)
             .unwrap()
@@ -195,46 +189,37 @@ fn test_read_files() -> Result<()> {
         parsed
     });
 
+    // Single file test
+    let file_name = "test_file_01";
+    let file_path = WORK_DIR.join(TEST_DIR).join(file_name);
+    set_up(file_name);
     test_runner(|| {
         let context = CONTEXT.clone();
         let result = context
-            .read_files(LocalFsReaderConfig::new(file_path), processor)
+            .read_files(LocalFsReaderConfig::new(file_path), deserializer)
             .collect()
             .unwrap();
         assert_eq!(result[0].len(), 2);
     });
 
     // Multiple files test
-    // let _multi_files: Vec<_> = (0..10)
-    //     .map(|idx| {
-    //         let f_name = format!("test_file_{}", idx);
-    //         let path = WORK_DIR.join(TEST_DIR).join(f_name.as_str());
-    //         set_up(path.as_path().to_str().unwrap());
-    //     })
-    //     .collect::<Vec<_>>();
+    (0..10).for_each(|idx| {
+        let f_name = format!("test_file_{}", idx);
+        let path = WORK_DIR.join(TEST_DIR).join(f_name.as_str());
+        set_up(path.as_path().to_str().unwrap());
+    });
 
-    // let processor = Fn!(|reader: DistributedLocalReader| {
-    //     let files: Vec<_> = reader.into_iter().collect();
+    let sc = CONTEXT.clone();
+    let files = sc.clone().read_files(
+        LocalFsReaderConfig::new(WORK_DIR.join(TEST_DIR)),
+        deserializer,
+    );
+    let result: Vec<_> = files.collect().unwrap().into_iter().flatten().collect();
+    assert_eq!(result.len(), 20);
+    // For an unknown reason if ran on test_runner is being run more than once;
+    // And the second iteration fails because files no longer exist.
+    tear_down();
 
-    //     // do stuff with the read files ...
-    //     let parsed: Vec<_> = files
-    //         .into_iter()
-    //         .map(|f| String::from_utf8(f).unwrap())
-    //         .flat_map(|s| s.lines().map(|l| l.to_owned()).collect::<Vec<_>>())
-    //         .collect();
-
-    //     // return parsed stuff
-    //     parsed
-    // });
-
-    // test_runner(|| {
-    //     let sc = CONTEXT.clone();
-    //     let files = sc
-    //         .clone()
-    //         .read_files(LocalFsReaderConfig::new(WORK_DIR.join(TEST_DIR)), processor);
-    //     let result: Vec<_> = files.collect().unwrap().into_iter().flatten().collect();
-    //     assert_eq!(result.len(), 20);
-    // });
     Ok(())
 }
 
@@ -309,6 +294,41 @@ fn test_partition_wise_sampling() -> Result<()> {
 }
 
 #[test]
+fn test_cartesian() -> Result<()> {
+    let sc = CONTEXT.clone();
+    let rdd1 = sc.parallelize((0..2).collect::<Vec<_>>(), 2);
+    let rdd2 = sc.parallelize("αβ".chars().collect::<Vec<_>>(), 2);
+
+    let res = rdd1.cartesian(rdd2).collect()?;
+    itertools::assert_equal(res, vec![(0, 'α'), (0, 'β'), (1, 'α'), (1, 'β')]);
+    Ok(())
+}
+
+#[test]
+fn test_coalesced() -> Result<()> {
+    let sc = CONTEXT.clone();
+
+    // do not shuffle
+    {
+        let rdd = sc.parallelize(vec![1; 101], 101);
+        let res = rdd.coalesce(5, false).glom().collect()?;
+        assert_eq!(res.len(), 5);
+        assert_eq!(res[0].iter().sum::<u8>(), 20);
+        assert_eq!(res[4].iter().sum::<u8>(), 21);
+    }
+
+    // shuffle and increase num partitions
+    {
+        let rdd = sc.parallelize(vec![1; 100], 20);
+        let res = rdd.repartition(100).glom().collect()?;
+        assert_eq!(res.len(), 100);
+    }
+
+    Ok(())
+}
+
+#[test]
+#[ignore]
 fn test_union() -> Result<()> {
     let sc = CONTEXT.clone();
 
@@ -346,40 +366,7 @@ fn test_union() -> Result<()> {
 }
 
 #[test]
-fn test_cartesian() -> Result<()> {
-    let sc = CONTEXT.clone();
-    let rdd1 = sc.parallelize((0..2).collect::<Vec<_>>(), 2);
-    let rdd2 = sc.parallelize("αβ".chars().collect::<Vec<_>>(), 2);
-
-    let res = rdd1.cartesian(rdd2).collect()?;
-    itertools::assert_equal(res, vec![(0, 'α'), (0, 'β'), (1, 'α'), (1, 'β')]);
-    Ok(())
-}
-
-#[test]
-fn test_coalesced() -> Result<()> {
-    let sc = CONTEXT.clone();
-
-    // do not shuffle
-    {
-        let rdd = sc.parallelize(vec![1; 101], 101);
-        let res = rdd.coalesce(5, false).glom().collect()?;
-        assert_eq!(res.len(), 5);
-        assert_eq!(res[0].iter().sum::<u8>(), 20);
-        assert_eq!(res[4].iter().sum::<u8>(), 21);
-    }
-
-    // shuffle and increase num partitions
-    {
-        let rdd = sc.parallelize(vec![1; 100], 20);
-        let res = rdd.repartition(100).glom().collect()?;
-        assert_eq!(res.len(), 100);
-    }
-
-    Ok(())
-}
-
-#[test]
+#[ignore]
 fn test_union_with_unique_partitioner() {
     let sc = CONTEXT.clone();
     let partitioner = HashPartitioner::<i32>::new(2);

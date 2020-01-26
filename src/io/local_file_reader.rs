@@ -42,14 +42,16 @@ impl LocalFsReaderConfig {
 
     /// Default behaviour is to expect the directory to exist in every node,
     /// if it doesn't the executor will panic.
-    pub fn expect_directory(&mut self, should_exist: bool) {
+    pub fn expect_directory(mut self, should_exist: bool) -> Self {
         self.expect_dir = should_exist;
+        self
     }
 
-    /// Number of partitions to use per executor, to perform the load tasks,
-    /// Ideally one executor is used per host with as many partitions as CPUs available.
-    pub fn num_partitions_per_executor(&mut self, num: u64) {
+    /// Number of partitions to use per executor to perform the load tasks.
+    /// One executor must be used per host with as many partitions as CPUs available (ideally).
+    pub fn num_partitions_per_executor(mut self, num: u64) -> Self {
         self.executor_partitions = Some(num);
+        self
     }
 }
 
@@ -79,8 +81,8 @@ pub struct LocalFsReader {
     executor_partitions: Option<u64>,
     #[serde(skip_serializing, skip_deserializing)]
     context: Arc<Context>,
-    // explicitly copy the address map as the ibe under context is not
-    // deserialized in tasks:
+    // explicitly copy the address map as the map under context is not
+    // deserialized in tasks and this is required:
     splits: Vec<SocketAddrV4>,
 }
 
@@ -322,7 +324,7 @@ impl Rdd for LocalFsReader {
 
     fn compute(&self, split: Box<dyn Split>) -> Result<Box<dyn Iterator<Item = Self::Item>>> {
         let split = split.downcast_ref::<LocalFsReaderSplit>().unwrap();
-        let mut files_by_part = self.load_local_files().expect("failed to load local files");
+        let mut files_by_part = self.load_local_files()?;
         let idx = split.idx;
         let host = split.host;
         Ok(Box::new(
