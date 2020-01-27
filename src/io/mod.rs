@@ -1,13 +1,17 @@
-mod file_reader;
+use std::marker::PhantomData;
+use std::net::Ipv4Addr;
+use std::path::PathBuf;
+use std::sync::Arc;
 
-use crate::*;
+use crate::context::Context;
+use crate::rdd::{Rdd, RddBase};
+use crate::serializable_traits::Data;
+use downcast_rs::Downcast;
+use serde_traitobject::Arc as SerArc;
 
-pub use file_reader::{DistributedLocalReader, LocalFsReaderConfig};
+mod local_file_reader;
+pub use local_file_reader::{LocalFsReader, LocalFsReaderConfig};
 
-pub trait ReaderConfiguration<D>
-where
-    D: Data,
-{
-    type Reader: Chunkable<D> + Sized;
-    fn make_reader(self) -> Self::Reader;
+pub trait ReaderConfiguration<T: Data> {
+    fn make_reader(self, context: Arc<Context>) -> SerArc<dyn Rdd<Item = T>>;
 }

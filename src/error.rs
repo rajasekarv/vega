@@ -1,5 +1,6 @@
 use std::ffi::OsString;
 use std::path::PathBuf;
+
 use thiserror::Error;
 
 pub type Result<T> = std::result::Result<T, Error>;
@@ -55,7 +56,10 @@ pub enum Error {
     PathToString(PathBuf),
 
     #[error("failed to parse slave address {0}")]
-    ParseSlaveAddress(String),
+    ParseHostAddress(String),
+
+    #[error("failed reading file")]
+    ReadFile(#[source] std::io::Error),
 
     #[error("Got split object from different concrete type other than {0}")]
     SplitDowncast(&'static str),

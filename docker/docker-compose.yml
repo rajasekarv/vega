@@ -17,6 +17,8 @@ services:
         target: "/home/dev"
     environment:
       NS_DEPLOYMENT_MODE: distributed
+    depends_on:
+      - ns_worker
 
   ns_worker:
     image: native_spark:latest

@@ -1,12 +1,13 @@
 use std::any::Any;
 use std::rc::Rc;
 
+use crate::serializable_traits::Data;
 use downcast_rs::Downcast;
 use rand::{Rng, SeedableRng};
 use rand_distr::{Bernoulli, Distribution, Poisson};
 use rand_pcg::Pcg64;
-
-use crate::{Data, Deserialize, Serialize};
+use serde_derive::{Deserialize, Serialize};
+use serde_traitobject::{Deserialize, Serialize};
 
 /// Default maximum gap-sampling fraction.
 /// For sampling fractions <= this value, the gap sampling optimization will be applied.

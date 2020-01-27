@@ -9,34 +9,31 @@ use parquet::column::reader::get_typed_column_reader;
 use parquet::data_type::{ByteArrayType, Int32Type, Int64Type};
 use parquet::file::reader::{FileReader, SerializedFileReader};
 
-use std::fs;
 use std::fs::File;
-use std::path::Path;
+use std::path::PathBuf;
 
 fn main() -> Result<()> {
-    let sc = Context::new()?;
-    let files = fs::read_dir("parquet_file_dir")
-        .unwrap()
-        .map(|x| x.unwrap().path().to_str().unwrap().to_owned())
-        .collect::<Vec<_>>();
-    let len = files.len();
-    let files = sc.make_rdd(files, len);
-    let read = files.flat_map(Fn!(|file| read(file)));
-    let sum = read.reduce_by_key(Fn!(|((vl, cl), (vr, cr))| (vl + vr, cl + cr)), 1);
+    let context = Context::new()?;
+    let deserializer = Fn!(|file: PathBuf| read(file));
+    let files = context
+        .read_files(LocalFsReaderConfig::new("./parquet_file_dir"), deserializer)
+        .flat_map(Fn!(
+            |iter: Vec<((i32, String, i64), (i64, f64))>| Box::new(iter.into_iter())
+                as Box<dyn Iterator<Item = _>>
+        ));
+    let sum = files.reduce_by_key(Fn!(|((vl, cl), (vr, cr))| (vl + vr, cl + cr)), 1);
     let avg = sum.map(Fn!(|(k, (v, c))| (k, v as f64 / c)));
     let res = avg.collect().unwrap();
     println!("{:?}", &res[0]);
     Ok(())
 }
 
-fn read(file: String) -> Box<dyn Iterator<Item = ((i32, String, i64), (i64, f64))>> {
-    let file = File::open(&Path::new(&file)).unwrap();
+fn read(file: PathBuf) -> Vec<((i32, String, i64), (i64, f64))> {
+    let file = File::open(file).unwrap();
     let reader = SerializedFileReader::new(file).unwrap();
     let metadata = reader.metadata();
     let batch_size = 500_000 as usize;
-    //let reader = Rc::new(RefCell::new(reader));
     let iter = (0..metadata.num_row_groups()).flat_map(move |i| {
-        //let reader = reader.borrow_mut();
         let row_group_reader = reader.get_row_group(i).unwrap();
         let mut first_reader =
             get_typed_column_reader::<Int32Type>(row_group_reader.get_column_reader(0).unwrap());
@@ -94,5 +91,5 @@ fn read(file: String) -> Box<dyn Iterator<Item = ((i32, String, i64), (i64, f64)
             key.zip(value)
         })
     });
-    Box::new(iter)
+    iter.collect()
 }

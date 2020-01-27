@@ -1,10 +1,20 @@
-use super::*;
-
 use std::collections::{BTreeMap, BTreeSet};
-use std::net::Ipv4Addr;
+use std::net::{Ipv4Addr, SocketAddrV4};
 use std::rc::Rc;
 use std::sync::Arc;
 
+use crate::dag_scheduler::{CompletionEvent, FetchFailedVals};
+use crate::dependency::{Dependency, ShuffleDependencyTrait};
+use crate::env;
+use crate::error::Result;
+use crate::job::JobTracker;
+use crate::rdd::{Rdd, RddBase};
+use crate::result_task::ResultTask;
+use crate::serializable_traits::{Data, SerFunc};
+use crate::shuffle_map_task::ShuffleMapTask;
+use crate::stage::Stage;
+use crate::task::{TaskBase, TaskContext, TaskOption};
+use log::{error, info};
 use threadpool::ThreadPool;
 
 pub trait Scheduler {
@@ -29,11 +39,11 @@ pub(crate) trait NativeScheduler {
     /// Fast path for execution. Runs the DD in the driver main thread if possible.
     fn local_execution<T: Data, U: Data, F>(jt: JobTracker<F, U, T>) -> Result<Option<Vec<U>>>
     where
-        F: SerFunc((TasKContext, Box<dyn Iterator<Item = T>>)) -> U,
+        F: SerFunc((TaskContext, Box<dyn Iterator<Item = T>>)) -> U,
     {
         if jt.final_stage.parents.is_empty() && (jt.num_output_parts == 1) {
             let split = (jt.final_rdd.splits()[jt.output_parts[0]]).clone();
-            let task_context = TasKContext::new(jt.final_stage.id, jt.output_parts[0], 0);
+            let task_context = TaskContext::new(jt.final_stage.id, jt.output_parts[0], 0);
             Ok(Some(vec![(&jt.func)((
                 task_context,
                 jt.final_rdd.iterator(split)?,
@@ -173,7 +183,7 @@ pub(crate) trait NativeScheduler {
         failed_vals: FetchFailedVals,
         stage_id: usize,
     ) where
-        F: SerFunc((TasKContext, Box<dyn Iterator<Item = T>>)) -> U,
+        F: SerFunc((TaskContext, Box<dyn Iterator<Item = T>>)) -> U,
     {
         let FetchFailedVals {
             server_uri,
@@ -203,7 +213,7 @@ pub(crate) trait NativeScheduler {
         num_finished: &mut usize,
         jt: JobTracker<F, U, T>,
     ) where
-        F: SerFunc((TasKContext, Box<dyn Iterator<Item = T>>)) -> U,
+        F: SerFunc((TaskContext, Box<dyn Iterator<Item = T>>)) -> U,
     {
         //TODO logging
         //TODO add to Accumulator
@@ -328,7 +338,7 @@ pub(crate) trait NativeScheduler {
 
     fn submit_stage<T: Data, U: Data, F>(&self, stage: Stage, jt: JobTracker<F, U, T>)
     where
-        F: SerFunc((TasKContext, Box<dyn Iterator<Item = T>>)) -> U,
+        F: SerFunc((TaskContext, Box<dyn Iterator<Item = T>>)) -> U,
     {
         info!("submiting stage {}", stage.id);
         if !jt.waiting.borrow().contains(&stage) && !jt.running.borrow().contains(&stage) {
@@ -351,7 +361,7 @@ pub(crate) trait NativeScheduler {
 
     fn submit_missing_tasks<T: Data, U: Data, F>(&self, stage: Stage, mut jt: JobTracker<F, U, T>)
     where
-        F: SerFunc((TasKContext, Box<dyn Iterator<Item = T>>)) -> U,
+        F: SerFunc((TaskContext, Box<dyn Iterator<Item = T>>)) -> U,
     {
         let mut pending_tasks = jt.pending_tasks.borrow_mut();
         let my_pending = pending_tasks
@@ -377,15 +387,17 @@ pub(crate) trait NativeScheduler {
                     locs,
                     id,
                 );
-                my_pending.insert(Box::new(result_task.clone()));
+                let task = Box::new(result_task.clone()) as Box<dyn TaskBase>;
+                let executor = self.next_executor_server(&*task);
+                my_pending.insert(task);
                 self.submit_task::<T, U, F>(
                     TaskOption::ResultTask(Box::new(result_task)),
                     id_in_job,
                     jt.thread_pool.clone(),
+                    executor,
                 );
             }
         } else {
-            let mut id_in_job = 0;
             for p in 0..stage.num_partitions {
                 info!("shuffle_stage {}", stage.id);
                 if stage.output_locs[p].is_empty() {
@@ -406,13 +418,15 @@ pub(crate) trait NativeScheduler {
                         p,
                         shuffle_map_task.dep.get_shuffle_id()
                     );
-                    my_pending.insert(Box::new(shuffle_map_task.clone()));
+                    let task = Box::new(shuffle_map_task.clone()) as Box<dyn TaskBase>;
+                    let executor = self.next_executor_server(&*task);
+                    my_pending.insert(task);
                     self.submit_task::<T, U, F>(
                         TaskOption::ShuffleMapTask(Box::new(shuffle_map_task)),
-                        id_in_job,
+                        p,
                         jt.thread_pool.clone(),
+                        executor,
                     );
-                    id_in_job += 1;
                 }
             }
         }
@@ -423,8 +437,9 @@ pub(crate) trait NativeScheduler {
         task: TaskOption,
         id_in_job: usize,
         thread_pool: Rc<ThreadPool>,
+        target_executor: SocketAddrV4,
     ) where
-        F: SerFunc((TasKContext, Box<dyn Iterator<Item = T>>)) -> U;
+        F: SerFunc((TaskContext, Box<dyn Iterator<Item = T>>)) -> U;
 
     // mutators:
     fn add_output_loc_to_stage(&self, stage_id: usize, partition: usize, host: String);
@@ -444,30 +459,37 @@ pub(crate) trait NativeScheduler {
     fn get_next_job_id(&self) -> usize;
     fn get_next_stage_id(&self) -> usize;
     fn get_next_task_id(&self) -> usize;
+    fn next_executor_server(&self, rdd: &dyn TaskBase) -> SocketAddrV4;
 
     fn get_preferred_locs(&self, rdd: Arc<dyn RddBase>, partition: usize) -> Vec<Ipv4Addr> {
         //TODO have to implement this completely
-
         if let Some(cached) = self.get_cache_locs(rdd.clone()) {
             if let Some(cached) = cached.get(partition) {
                 return cached.clone();
             }
         }
         let rdd_prefs = rdd.preferred_locations(rdd.splits()[partition].clone());
-        if !rdd_prefs.is_empty() {
-            return rdd_prefs;
-        }
-        for dep in rdd.get_dependencies().iter() {
-            if let Dependency::NarrowDependency(nar_dep) = dep {
-                for in_part in nar_dep.get_parents(partition) {
-                    let locs = self.get_preferred_locs(nar_dep.get_rdd_base(), in_part);
-                    if !locs.is_empty() {
-                        return locs;
+        if !rdd.is_pinned() {
+            if !rdd_prefs.is_empty() {
+                return rdd_prefs;
+            }
+            for dep in rdd.get_dependencies().iter() {
+                if let Dependency::NarrowDependency(nar_dep) = dep {
+                    for in_part in nar_dep.get_parents(partition) {
+                        let locs = self.get_preferred_locs(nar_dep.get_rdd_base(), in_part);
+                        if !locs.is_empty() {
+                            return locs;
+                        }
                     }
                 }
             }
+            Vec::new()
+        } else {
+            // when pinned, is required that there is exactly one preferred location
+            // for a given partition
+            assert!(rdd_prefs.len() == 1);
+            rdd_prefs
         }
-        Vec::new()
     }
 
     fn get_shuffle_map_stage(&self, shuf: Arc<dyn ShuffleDependencyTrait>) -> Stage;
@@ -477,7 +499,7 @@ pub(crate) trait NativeScheduler {
     }
 }
 
-macro_rules! impl_common_funcs {
+macro_rules! impl_common_scheduler_funcs {
     () => {
         fn add_output_loc_to_stage(&self, stage_id: usize, partition: usize, host: String) {
             self.stage_cache

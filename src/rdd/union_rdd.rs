@@ -1,12 +1,20 @@
 use std::any::Any;
+use std::net::Ipv4Addr;
+use std::sync::Arc;
 
 use itertools::{Itertools, MinMaxResult};
-use log::debug;
+use log::{debug, info};
+use serde_derive::{Deserialize, Serialize};
 use serde_traitobject::{Arc as SerArc, Box as SerBox};
 
-use crate::rdd::*;
-use UnionVariants::*;
-use super::*;
+use crate::context::Context;
+use crate::dependency::{Dependency, NarrowDependencyTrait, OneToOneDependency, RangeDependency};
+use crate::error::{Error, Result};
+use crate::partitioner::Partitioner;
+use crate::rdd::union_rdd::UnionVariants::{NonUniquePartitioner, PartitionerAware};
+use crate::rdd::{Rdd, RddBase, RddVals};
+use crate::serializable_traits::{AnyData, Data};
+use crate::split::Split;
 
 #[derive(Clone, Serialize, Deserialize)]
 struct UnionSplit<T: 'static> {
@@ -133,10 +141,10 @@ impl<T: Data> UnionVariants<T> {
             let deps = rdds
                 .iter()
                 .map(|x| {
-                    Dependency::NarrowDependency(Arc::new(OneToOneDependency::new(
-                        x.get_rdd_base(),
-                    ))
-                        as Arc<dyn NarrowDependencyTrait>)
+                    Dependency::NarrowDependency(
+                        Arc::new(OneToOneDependency::new(x.get_rdd_base()))
+                            as Arc<dyn NarrowDependencyTrait>,
+                    )
                 })
                 .collect();
             vals.dependencies = deps;

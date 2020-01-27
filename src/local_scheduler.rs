@@ -1,5 +1,4 @@
-use super::*;
-use crate::job::JobTracker;
+use crate::job::{Job, JobTracker};
 use crate::scheduler::NativeScheduler;
 
 use std::any::Any;
@@ -7,7 +6,7 @@ use std::cell::RefCell;
 use std::clone::Clone;
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet, VecDeque};
 use std::marker::PhantomData;
-use std::net::Ipv4Addr;
+use std::net::{Ipv4Addr, SocketAddrV4};
 use std::option::Option;
 use std::rc::Rc;
 use std::sync::{
@@ -18,6 +17,19 @@ use std::thread;
 use std::time;
 use std::time::{Duration, Instant};
 
+use crate::dag_scheduler::{CompletionEvent, TastEndReason};
+use crate::dependency::ShuffleDependencyTrait;
+use crate::env;
+use crate::error::{Error, Result};
+use crate::map_output_tracker::MapOutputTracker;
+use crate::rdd::{Rdd, RddBase};
+use crate::result_task::ResultTask;
+use crate::serializable_traits::{Data, SerFunc};
+use crate::serialized_data_capnp::serialized_data;
+use crate::shuffle_map_task::ShuffleMapTask;
+use crate::stage::Stage;
+use crate::task::{TaskBase, TaskContext, TaskOption, TaskResult};
+use log::info;
 use parking_lot::Mutex;
 use threadpool::ThreadPool;
 
@@ -88,7 +100,7 @@ impl LocalScheduler {
         allow_local: bool,
     ) -> Result<Vec<U>>
     where
-        F: SerFunc((TasKContext, Box<dyn Iterator<Item = T>>)) -> U,
+        F: SerFunc((TaskContext, Box<dyn Iterator<Item = T>>)) -> U,
     {
         // acquiring lock so that only one job can run a same time
         // this lock is just a temporary patch for preventing multiple jobs to update cache locks
@@ -202,7 +214,7 @@ impl LocalScheduler {
         id_in_job: usize,
         attempt_id: usize,
     ) where
-        F: SerFunc((TasKContext, Box<dyn Iterator<Item = T>>)) -> U,
+        F: SerFunc((TaskContext, Box<dyn Iterator<Item = T>>)) -> U,
     {
         let des_task: TaskOption = bincode::deserialize(&task).unwrap();
         let result = des_task.run(attempt_id);
@@ -262,14 +274,15 @@ impl LocalScheduler {
 }
 
 impl NativeScheduler for LocalScheduler {
-    /// Every single task in run in the local thread pool
+    /// Every single task is run in the local thread pool
     fn submit_task<T: Data, U: Data, F>(
         &self,
         task: TaskOption,
         id_in_job: usize,
         thread_pool: Rc<ThreadPool>,
+        server_address: SocketAddrV4,
     ) where
-        F: SerFunc((TasKContext, Box<dyn Iterator<Item = T>>)) -> U,
+        F: SerFunc((TaskContext, Box<dyn Iterator<Item = T>>)) -> U,
     {
         info!("inside submit task");
         let my_attempt_id = self.attempt_id.fetch_add(1, Ordering::SeqCst);
@@ -280,5 +293,10 @@ impl NativeScheduler for LocalScheduler {
         });
     }
 
-    impl_common_funcs!();
+    fn next_executor_server(&self, _rdd: &dyn TaskBase) -> SocketAddrV4 {
+        // Just point to the localhost
+        SocketAddrV4::new(Ipv4Addr::LOCALHOST, 0)
+    }
+
+    impl_common_scheduler_funcs!();
 }

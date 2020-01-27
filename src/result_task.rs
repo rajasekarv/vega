@@ -1,12 +1,18 @@
-use super::*;
+use crate::env;
+use crate::rdd::Rdd;
+use crate::serializable_traits::Data;
+use crate::task::{Task, TaskBase, TaskContext};
+use serde_derive::{Deserialize, Serialize};
+use serde_traitobject::{Deserialize, Serialize};
 use std::fmt::{Display, Formatter, Result};
 use std::marker::PhantomData;
 use std::net::Ipv4Addr;
 use std::sync::Arc;
+
 #[derive(Serialize, Deserialize)]
 pub struct ResultTask<T: Data, U: Data, F>
 where
-    F: Fn((TasKContext, Box<dyn Iterator<Item = T>>)) -> U
+    F: Fn((TaskContext, Box<dyn Iterator<Item = T>>)) -> U
         + 'static
         + Send
         + Sync
@@ -17,6 +23,7 @@ where
     pub task_id: usize,
     pub run_id: usize,
     pub stage_id: usize,
+    pinned: bool,
     #[serde(with = "serde_traitobject")]
     pub rdd: Arc<dyn Rdd<Item = T>>,
     pub func: Arc<F>,
@@ -28,7 +35,7 @@ where
 
 impl<T: Data, U: Data, F> Display for ResultTask<T, U, F>
 where
-    F: Fn((TasKContext, Box<dyn Iterator<Item = T>>)) -> U
+    F: Fn((TaskContext, Box<dyn Iterator<Item = T>>)) -> U
         + 'static
         + Send
         + Sync
@@ -43,7 +50,7 @@ where
 
 impl<T: Data, U: Data, F> ResultTask<T, U, F>
 where
-    F: Fn((TasKContext, Box<dyn Iterator<Item = T>>)) -> U
+    F: Fn((TaskContext, Box<dyn Iterator<Item = T>>)) -> U
         + 'static
         + Send
         + Sync
@@ -56,6 +63,7 @@ where
             task_id: self.task_id,
             run_id: self.run_id,
             stage_id: self.stage_id,
+            pinned: self.rdd.is_pinned(),
             rdd: self.rdd.clone(),
             func: self.func.clone(),
             partition: self.partition,
@@ -68,7 +76,7 @@ where
 
 impl<T: Data, U: Data, F> ResultTask<T, U, F>
 where
-    F: Fn((TasKContext, Box<dyn Iterator<Item = T>>)) -> U
+    F: Fn((TaskContext, Box<dyn Iterator<Item = T>>)) -> U
         + 'static
         + Send
         + Sync
@@ -90,6 +98,7 @@ where
             task_id,
             run_id,
             stage_id,
+            pinned: rdd.is_pinned(),
             rdd,
             func,
             partition,
@@ -102,7 +111,7 @@ where
 
 impl<T: Data, U: Data, F> TaskBase for ResultTask<T, U, F>
 where
-    F: Fn((TasKContext, Box<dyn Iterator<Item = T>>)) -> U
+    F: Fn((TaskContext, Box<dyn Iterator<Item = T>>)) -> U
         + 'static
         + Send
         + Sync
@@ -121,9 +130,15 @@ where
     fn get_task_id(&self) -> usize {
         self.task_id
     }
+
+    fn is_pinned(&self) -> bool {
+        self.pinned
+    }
+
     fn preferred_locations(&self) -> Vec<Ipv4Addr> {
         self.locs.clone()
     }
+
     fn generation(&self) -> Option<i64> {
         let base = self.rdd.get_rdd_base();
         let context = base.get_context();
@@ -133,7 +148,7 @@ where
 
 impl<T: Data, U: Data, F> Task for ResultTask<T, U, F>
 where
-    F: Fn((TasKContext, Box<dyn Iterator<Item = T>>)) -> U
+    F: Fn((TaskContext, Box<dyn Iterator<Item = T>>)) -> U
         + 'static
         + Send
         + Sync
@@ -143,7 +158,7 @@ where
 {
     fn run(&self, id: usize) -> serde_traitobject::Box<dyn serde_traitobject::Any + Send + Sync> {
         let split = self.rdd.splits()[self.partition].clone();
-        let context = TasKContext::new(self.stage_id, self.partition, id);
+        let context = TaskContext::new(self.stage_id, self.partition, id);
         serde_traitobject::Box::new((self.func)((context, self.rdd.iterator(split).unwrap())))
             as serde_traitobject::Box<dyn serde_traitobject::Any + Send + Sync>
     }

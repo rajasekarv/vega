@@ -1,10 +1,20 @@
-use serde_traitobject::Arc as SerArc;
-
 use std::hash::Hash;
 use std::marker::PhantomData;
 use std::sync::Arc;
 
-use crate::rdd::*;
+use crate::aggregator::Aggregator;
+use crate::context::Context;
+use crate::dependency::{Dependency, OneToOneDependency};
+use crate::error::Result;
+use crate::partitioner::{HashPartitioner, Partitioner};
+use crate::rdd::co_grouped_rdd::CoGroupedRdd;
+use crate::rdd::shuffled_rdd::ShuffledRdd;
+use crate::rdd::{Rdd, RddBase, RddVals};
+use crate::serializable_traits::{AnyData, Data, Func, SerFunc};
+use crate::split::Split;
+use log::info;
+use serde_derive::{Deserialize, Serialize};
+use serde_traitobject::{Arc as SerArc, Deserialize, Serialize};
 
 // Trait containing pair rdd methods. No need of implicit conversion like in Spark version
 pub trait PairRdd<K: Data + Eq + Hash, V: Data>: Rdd<Item = (K, V)> + Send + Sync {
@@ -70,7 +80,10 @@ pub trait PairRdd<K: Data + Eq + Hash, V: Data>: Rdd<Item = (K, V)> + Send + Syn
         self.combine_by_key(aggregator, partitioner)
     }
 
-    fn map_values<U: Data, F>(&self, f: F) -> SerArc<dyn Rdd<Item = (K, U)>>
+    fn map_values<U: Data, F: SerFunc(V) -> U + Clone>(
+        &self,
+        f: F,
+    ) -> SerArc<dyn Rdd<Item = (K, U)>>
     where
         F: SerFunc(V) -> U + Clone,
         Self: Sized,
@@ -78,7 +91,10 @@ pub trait PairRdd<K: Data + Eq + Hash, V: Data>: Rdd<Item = (K, V)> + Send + Syn
         SerArc::new(MappedValuesRdd::new(self.get_rdd(), f))
     }
 
-    fn flat_map_values<U: Data, F>(&self, f: F) -> SerArc<dyn Rdd<Item = (K, U)>>
+    fn flat_map_values<U: Data, F: SerFunc(V) -> Box<dyn Iterator<Item = U>> + Clone>(
+        &self,
+        f: F,
+    ) -> SerArc<dyn Rdd<Item = (K, U)>>
     where
         F: SerFunc(V) -> Box<dyn Iterator<Item = U>> + Clone,
         Self: Sized,

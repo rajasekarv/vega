@@ -1,7 +1,31 @@
-use fasthash::MetroHasher;
-use rand::Rng;
+use std::cmp::Ordering;
+use std::fs;
+use std::hash::Hash;
+use std::io::{BufWriter, Write};
+use std::marker::PhantomData;
+use std::net::Ipv4Addr;
+use std::path::Path;
+use std::sync::Arc;
 
-use crate::rdd::*;
+use crate::context::Context;
+use crate::dependency::{Dependency, OneToOneDependency};
+use crate::error::{Error, Result};
+use crate::partitioner::{HashPartitioner, Partitioner};
+use crate::rdd::cartesian_rdd::CartesianRdd;
+use crate::rdd::coalesced_rdd::CoalescedRdd;
+use crate::rdd::map_partitions_rdd::MapPartitionsRdd;
+use crate::rdd::pair_rdd::PairRdd;
+use crate::rdd::partitionwise_sampled_rdd::PartitionwiseSampledRdd;
+use crate::serializable_traits::{AnyData, Data, Func, SerFunc};
+use crate::split::Split;
+use crate::task::TaskContext;
+use crate::utils;
+use crate::utils::random::{BernoulliSampler, PoissonSampler, RandomSampler};
+use fasthash::MetroHasher;
+use log::info;
+use rand::{Rng, SeedableRng};
+use serde_derive::{Deserialize, Serialize};
+use serde_traitobject::{Arc as SerArc, Deserialize, Serialize};
 
 // Values which are needed for all RDDs
 #[derive(Serialize, Deserialize)]
@@ -57,6 +81,9 @@ pub trait RddBase: Send + Sync + Serialize + Deserialize {
         split: Box<dyn Split>,
     ) -> Result<Box<dyn Iterator<Item = Box<dyn AnyData>>>> {
         self.iterator_any(split)
+    }
+    fn is_pinned(&self) -> bool {
+        false
     }
 }
 
@@ -121,11 +148,11 @@ pub trait Rdd: RddBase + 'static {
 
     fn get_rdd_base(&self) -> Arc<dyn RddBase>;
 
+    fn compute(&self, split: Box<dyn Split>) -> Result<Box<dyn Iterator<Item = Self::Item>>>;
+
     fn iterator(&self, split: Box<dyn Split>) -> Result<Box<dyn Iterator<Item = Self::Item>>> {
         self.compute(split)
     }
-
-    fn compute(&self, split: Box<dyn Split>) -> Result<Box<dyn Iterator<Item = Self::Item>>>;
 
     fn map<U: Data, F>(&self, f: F) -> SerArc<dyn Rdd<Item = U>>
     where
@@ -184,7 +211,7 @@ pub trait Rdd: RddBase + 'static {
     where
         Self: Sized,
     {
-        fn save<R: Data>(ctx: TasKContext, iter: Box<dyn Iterator<Item = R>>, path: String) {
+        fn save<R: Data>(ctx: TaskContext, iter: Box<dyn Iterator<Item = R>>, path: String) {
             fs::create_dir_all(&path);
             let id = ctx.split_id;
             let file_path = Path::new(&path).join(format!("part-{}", id));

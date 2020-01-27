@@ -1,4 +1,7 @@
-use super::*;
+use crate::context::Context;
+use crate::env;
+use crate::serializable_traits::Data;
+use log::info;
 use parking_lot::Mutex;
 use std::collections::HashMap;
 use std::error::Error;
@@ -6,7 +9,6 @@ use std::io::Read;
 use std::sync::mpsc::channel;
 use std::sync::mpsc::Sender;
 use std::sync::Arc;
-//use std::sync::Mutex;
 use threadpool::ThreadPool;
 
 pub struct ShuffleFetcher;
@@ -52,7 +54,7 @@ impl ShuffleFetcher {
         let failure = Arc::new(Mutex::new(None));
         let sent_count = Arc::new(Mutex::new(0));
         for i in 0..parallel_fetches {
-            info!("inisde parallel fetch {}", i);
+            info!("inside parallel fetch {}", i);
             let server_queue = server_queue.clone();
             let producer = producer.clone();
             let failure = failure.clone();

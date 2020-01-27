@@ -1,17 +1,18 @@
-use super::*;
 use downcast_rs::Downcast;
+use serde_derive::{Deserialize, Serialize};
+use serde_traitobject::{Deserialize, Serialize};
 use std::cmp::Ordering;
 use std::net::Ipv4Addr;
 
-pub struct TasKContext {
+pub struct TaskContext {
     pub stage_id: usize,
     pub split_id: usize,
     pub attempt_id: usize,
 }
 
-impl TasKContext {
+impl TaskContext {
     pub fn new(stage_id: usize, split_id: usize, attempt_id: usize) -> Self {
-        TasKContext {
+        TaskContext {
             stage_id,
             split_id,
             attempt_id,
@@ -23,6 +24,9 @@ pub trait TaskBase: Downcast + Send + Sync {
     fn get_run_id(&self) -> usize;
     fn get_stage_id(&self) -> usize;
     fn get_task_id(&self) -> usize;
+    fn is_pinned(&self) -> bool {
+        false
+    }
     fn preferred_locations(&self) -> Vec<Ipv4Addr> {
         Vec::new()
     }
