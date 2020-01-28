@@ -10,39 +10,6 @@ A new, arguably faster, implementation of Apache Spark from scratch in Rust. WIP
 
 Framework tested only on Linux, requires nightly Rust. Read how to get started in the [documentation](https://rajasekarv.github.io/native_spark/chapter_1.html).
 
-## ToDo
+## Contributing
 
-- [x] Error Handling(Priority)
-- [ ] Fault tolerance
-
-### RDD
-
-Most of these except file reader and writer are trivial to implement
-
-- [x] map
-- [x] flat_map
-- [x] filter
-- [x] group_by
-- [x] reduce_by
-- [x] distinct
-- [x] count
-- [x] take_sample
-- [x] union
-- [x] glom
-- [x] cartesian
-- [ ] pipe
-- [x] map_partitions
-- [x] for_each
-- [x] collect
-- [x] reduce
-- [x] fold
-- [x] aggregate
-- [x] take
-- [x] first
-- [x] sample
-- [ ] zip
-- [ ] save_as_text_file (can save only as text file in executors local file system)  
-
-### Config Files
-
-- [ ] Replace hard coded values
+If you are interested in contributing please jump on Gitter and check out and head to the issue tracker where you can find open issues (anything labelled `good first issue` and `help wanted` is up for grabs).
