@@ -258,17 +258,17 @@ impl Context {
         serde_traitobject::Arc::new(ParallelCollection::new(self.clone(), seq, num_slices))
     }
 
-    /// Load distributed files and turn them into a parallel collection.
-    pub fn read_files<F, C, S: Data, D: Data>(
+    /// Load from a distributed source and turns it into a parallel collection.
+    pub fn read_source<F, C, I: Data, O: Data>(
         self: &Arc<Self>,
         config: C,
         func: F,
-    ) -> impl Rdd<Item = D>
+    ) -> impl Rdd<Item = O>
     where
-        F: SerFunc(S) -> D,
-        C: ReaderConfiguration<S>,
+        F: SerFunc(I) -> O,
+        C: ReaderConfiguration<I>,
     {
-        config.make_reader(self.clone()).map(func)
+        config.make_reader(self.clone(), func)
     }
 
     pub fn run_job<T: Data, U: Data, F>(

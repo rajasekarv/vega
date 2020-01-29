@@ -5,7 +5,7 @@ use std::io::{BufWriter, Write};
 use std::marker::PhantomData;
 use std::net::Ipv4Addr;
 use std::path::Path;
-use std::sync::Arc;
+use std::sync::{atomic::AtomicBool, atomic::Ordering::SeqCst, Arc};
 
 use crate::context::Context;
 use crate::dependency::{Dependency, OneToOneDependency};
@@ -677,6 +677,7 @@ where
     prev: Arc<dyn Rdd<Item = T>>,
     vals: Arc<RddVals>,
     f: F,
+    pinned: AtomicBool,
     _marker_t: PhantomData<T>, // phantom data is necessary because of type parameter T
 }
 
@@ -690,6 +691,7 @@ where
             prev: self.prev.clone(),
             vals: self.vals.clone(),
             f: self.f.clone(),
+            pinned: AtomicBool::new(self.pinned.load(SeqCst)),
             _marker_t: PhantomData,
         }
     }
@@ -699,7 +701,7 @@ impl<T: Data, U: Data, F> MapperRdd<T, U, F>
 where
     F: SerFunc(T) -> U,
 {
-    fn new(prev: Arc<dyn Rdd<Item = T>>, f: F) -> Self {
+    pub(crate) fn new(prev: Arc<dyn Rdd<Item = T>>, f: F) -> Self {
         let mut vals = RddVals::new(prev.get_context());
         vals.dependencies
             .push(Dependency::NarrowDependency(Arc::new(
@@ -710,8 +712,14 @@ where
             prev,
             vals,
             f,
+            pinned: AtomicBool::new(false),
             _marker_t: PhantomData,
         }
+    }
+
+    pub(crate) fn pin(self) -> Self {
+        self.pinned.store(true, SeqCst);
+        self
     }
 }
 
@@ -729,6 +737,10 @@ where
 
     fn get_dependencies(&self) -> Vec<Dependency> {
         self.vals.dependencies.clone()
+    }
+
+    fn preferred_locations(&self, split: Box<dyn Split>) -> Vec<Ipv4Addr> {
+        self.prev.preferred_locations(split)
     }
 
     fn splits(&self) -> Vec<Box<dyn Split>> {
@@ -755,6 +767,10 @@ where
             self.iterator(split)?
                 .map(|x| Box::new(x) as Box<dyn AnyData>),
         ))
+    }
+
+    fn is_pinned(&self) -> bool {
+        self.pinned.load(SeqCst)
     }
 }
 

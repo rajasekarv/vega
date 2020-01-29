@@ -16,7 +16,7 @@ fn main() -> Result<()> {
     let context = Context::new()?;
     let deserializer = Fn!(|file: PathBuf| read(file));
     let files = context
-        .read_files(LocalFsReaderConfig::new("./parquet_file_dir"), deserializer)
+        .read_source(LocalFsReaderConfig::new("./parquet_file_dir"), deserializer)
         .flat_map(Fn!(
             |iter: Vec<((i32, String, i64), (i64, f64))>| Box::new(iter.into_iter())
                 as Box<dyn Iterator<Item = _>>

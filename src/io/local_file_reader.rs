@@ -9,15 +9,14 @@ use crate::context::Context;
 use crate::dependency::Dependency;
 use crate::error::{Error, Result};
 use crate::io::ReaderConfiguration;
-use crate::rdd::{MapPartitionsRdd, Rdd, RddBase};
-use crate::serializable_traits::AnyData;
-use crate::serializable_traits::Data;
+use crate::rdd::{MapPartitionsRdd, MapperRdd, Rdd, RddBase};
+use crate::serializable_traits::{AnyData, Data, SerFunc};
 use crate::split::Split;
 use log::debug;
 use log::info;
 use rand::prelude::*;
 use serde_derive::{Deserialize, Serialize};
-use serde_traitobject::Arc as SerArc;
+use serde_traitobject::{Arc as SerArc, Box as SerBox};
 
 pub struct LocalFsReaderConfig {
     filter_ext: Option<std::ffi::OsString>,
@@ -58,7 +57,11 @@ impl LocalFsReaderConfig {
 }
 
 impl ReaderConfiguration<Vec<u8>> for LocalFsReaderConfig {
-    fn make_reader(self, context: Arc<Context>) -> SerArc<dyn Rdd<Item = Vec<u8>>> {
+    fn make_reader<F, U>(self, context: Arc<Context>, decoder: F) -> SerArc<dyn Rdd<Item = U>>
+    where
+        F: SerFunc(Vec<u8>) -> U,
+        U: Data,
+    {
         let reader = LocalFsReader::<BytesReader>::new(self, context.clone());
         let read_files = Fn!(
             |part: usize, readers: Box<dyn Iterator<Item = BytesReader>>| {
@@ -66,14 +69,19 @@ impl ReaderConfiguration<Vec<u8>> for LocalFsReaderConfig {
                     as Box<dyn Iterator<Item = _>>
             }
         );
-        SerArc::new(
+        let files_per_executor = Arc::new(
             MapPartitionsRdd::new(Arc::new(reader) as Arc<dyn Rdd<Item = _>>, read_files).pin(),
-        )
+        );
+        SerArc::new(MapperRdd::new(files_per_executor, decoder).pin())
     }
 }
 
 impl ReaderConfiguration<PathBuf> for LocalFsReaderConfig {
-    fn make_reader(self, context: Arc<Context>) -> SerArc<dyn Rdd<Item = PathBuf>> {
+    fn make_reader<F, U>(self, context: Arc<Context>, decoder: F) -> SerArc<dyn Rdd<Item = U>>
+    where
+        F: SerFunc(PathBuf) -> U,
+        U: Data,
+    {
         let reader = LocalFsReader::<FileReader>::new(self, context.clone());
         let read_files = Fn!(
             |part: usize, readers: Box<dyn Iterator<Item = FileReader>>| {
@@ -81,9 +89,10 @@ impl ReaderConfiguration<PathBuf> for LocalFsReaderConfig {
                     as Box<dyn Iterator<Item = _>>
             }
         );
-        SerArc::new(
+        let files_per_executor = Arc::new(
             MapPartitionsRdd::new(Arc::new(reader) as Arc<dyn Rdd<Item = _>>, read_files).pin(),
-        )
+        );
+        SerArc::new(MapperRdd::new(files_per_executor, decoder).pin())
     }
 }
 
