@@ -44,7 +44,7 @@ impl<T: Data, U: Data, F> MapPartitionsRdd<T, U, F>
 where
     F: SerFunc(usize, Box<dyn Iterator<Item = T>>) -> Box<dyn Iterator<Item = U>>,
 {
-    pub fn new(prev: Arc<dyn Rdd<Item = T>>, f: F) -> Self {
+    pub(crate) fn new(prev: Arc<dyn Rdd<Item = T>>, f: F) -> Self {
         let mut vals = RddVals::new(prev.get_context());
         vals.dependencies
             .push(Dependency::NarrowDependency(Arc::new(

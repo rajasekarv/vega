@@ -14,7 +14,7 @@ fn main() -> Result<()> {
             .map(|s| s.to_string())
             .collect::<Vec<_>>()
     });
-    let lines = context.read_files(LocalFsReaderConfig::new("./csv_folder"), deserializer);
+    let lines = context.read_source(LocalFsReaderConfig::new("./csv_folder"), deserializer);
     let line = lines.flat_map(Fn!(|lines: Vec<String>| {
         Box::new(lines.into_iter().map(|line| {
             let line = line.split(' ').collect::<Vec<_>>();
