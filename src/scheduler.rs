@@ -291,10 +291,7 @@ pub(crate) trait NativeScheduler {
                     let locs = stage
                         .output_locs
                         .iter()
-                        .map(|x| match x.get(0) {
-                            Some(s) => Some(s.to_owned()),
-                            None => None,
-                        })
+                        .map(|x| x.get(0).map(|s| s.to_owned()))
                         .collect();
                     info!(
                         "locs for shuffle id {:?} {:?}",
@@ -559,10 +556,7 @@ macro_rules! impl_common_scheduler_funcs {
         fn get_cache_locs(&self, rdd: Arc<dyn RddBase>) -> Option<Vec<Vec<Ipv4Addr>>> {
             let cache_locs = self.cache_locs.lock();
             let locs_opt = cache_locs.get(&rdd.get_rdd_id());
-            match locs_opt {
-                Some(locs) => Some(locs.clone()),
-                None => None,
-            }
+            locs_opt.cloned()
         }
 
         fn get_next_job_id(&self) -> usize {
@@ -587,10 +581,7 @@ macro_rules! impl_common_scheduler_funcs {
 
         fn get_shuffle_map_stage(&self, shuf: Arc<dyn ShuffleDependencyTrait>) -> Stage {
             info!("inside get_shufflemap stage");
-            let stage = match self.shuffle_to_map_stage.lock().get(&shuf.get_shuffle_id()) {
-                Some(s) => Some(s.clone()),
-                None => None,
-            };
+            let stage = self.shuffle_to_map_stage.lock().get(&shuf.get_shuffle_id()).cloned();
             match stage {
                 Some(stage) => stage.clone(),
                 None => {
