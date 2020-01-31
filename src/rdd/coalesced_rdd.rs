@@ -518,7 +518,7 @@ impl DefaultPartitionCoalescer {
             if !self.group_hash.contains_key(&nxt_replica) {
                 let mut pgroup =
                     PartitionGroup::new(Some(*nxt_replica), part_cnt.fetch_add(1, SyncOrd::SeqCst));
-                self.add_part_to_pgroup(objekt::clone_box(&**nxt_part).into(), &mut pgroup);
+                self.add_part_to_pgroup(dyn_clone::clone_box(&**nxt_part).into(), &mut pgroup);
                 self.group_hash.insert(
                     *nxt_replica,
                     vec![SerArc::new(PSyncGroup(Mutex::new(pgroup)))],
@@ -537,7 +537,7 @@ impl DefaultPartitionCoalescer {
                 Some(*nxt_replica),
                 part_cnt.fetch_add(1, SyncOrd::SeqCst),
             ))));
-            self.add_part_to_pgroup(objekt::clone_box(&**nxt_part).into(), &mut *pgroup.lock());
+            self.add_part_to_pgroup(dyn_clone::clone_box(&**nxt_part).into(), &mut *pgroup.lock());
             self.group_hash
                 .entry(*nxt_replica)
                 .or_insert_with(Vec::new)
