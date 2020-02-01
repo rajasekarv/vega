@@ -71,3 +71,4 @@ pub use error::*;
 mod hosts;
 pub mod utils;
 pub use utils::*;
+pub mod fs;
