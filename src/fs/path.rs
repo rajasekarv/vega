@@ -2,9 +2,9 @@ use once_cell::sync::Lazy;
 use regex::Regex;
 use url::Url;
 
-pub const SEPARATOR: &'static str = "/";
-pub const SEPARATOR_CHAR: &'static str = "/";
-pub const CUR_DIR: &'static str = ".";
+pub const SEPARATOR: char = '/';
+pub const SEPARATOR_CHAR: char = '/';
+pub const CUR_DIR: char = '.';
 pub static WINDOWS: Lazy<bool> = Lazy::new(|| if cfg!(windows) { true } else { false });
 
 static has_uri_scheme: Lazy<Regex> = Lazy::new(|| Regex::new("[a-zA-Z][a-zA-Z0-9+-.]+:").unwrap());
