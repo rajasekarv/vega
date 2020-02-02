@@ -41,7 +41,10 @@ impl BoundedMemoryCache {
     }
 
     fn get(&self, dataset_id: (usize, usize), partition: usize) -> Option<Vec<u8>> {
-        self.map.lock().get(&(dataset_id, partition)).map(|entry| { entry.0.clone() })
+        self.map
+            .lock()
+            .get(&(dataset_id, partition))
+            .map(|entry| entry.0.clone())
     }
 
     fn put(

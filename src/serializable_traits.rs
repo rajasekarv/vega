@@ -54,7 +54,14 @@ dyn_clone::clone_trait_object!(AnyData);
 
 // Automatically implementing the Data trait for all types which implements the required traits
 impl<
-        T: dyn_clone::DynClone + any::Any + Send + Sync + fmt::Debug + Serialize + Deserialize + 'static,
+        T: dyn_clone::DynClone
+            + any::Any
+            + Send
+            + Sync
+            + fmt::Debug
+            + Serialize
+            + Deserialize
+            + 'static,
     > AnyData for T
 {
     fn as_any(&self) -> &dyn any::Any {
