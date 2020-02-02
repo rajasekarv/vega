@@ -87,20 +87,21 @@ impl Configuration {
     fn new() -> Self {
         let arguments = App::new("NativeSpark")
             .arg(
-                Arg::with_name(LOCAL_IP)
-                    .long("local_ip")
-                    .require_equals(true)
-                    .env(LOCAL_IP)
-                    .takes_value(true)
-                    .required(true),
-            )
-            .arg(
                 Arg::with_name(DEPLOYMENT_MODE)
                     .long("deployment_mode")
                     .short("d")
                     .takes_value(true)
                     .env(DEPLOYMENT_MODE)
                     .default_value("local"),
+            )
+            .arg(
+                Arg::with_name(LOCAL_IP)
+                    .long("local_ip")
+                    .require_equals(true)
+                    .env(LOCAL_IP)
+                    .takes_value(true)
+                    .required_if(DEPLOYMENT_MODE, "distributed")
+                    .default_value_if(DEPLOYMENT_MODE, Some("local"), "0.0.0.0"),
             )
             .arg(
                 Arg::with_name(LOG_LEVEL)
