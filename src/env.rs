@@ -106,6 +106,7 @@ impl Configuration {
             .arg(
                 Arg::with_name(LOG_LEVEL)
                     .long("log_level")
+                    .env(LOG_LEVEL)
                     .takes_value(true)
                     .require_equals(true),
             )
@@ -126,7 +127,12 @@ impl Configuration {
 
         let local_ip = arguments.value_of(LOCAL_IP).unwrap().parse().unwrap();
 
-        let log_level = match arguments.value_of(LOG_LEVEL) {
+        let log_level = match arguments
+            .value_of(LOG_LEVEL)
+            .map(|s| s.to_lowercase())
+            .as_ref()
+            .map(String::as_str)
+        {
             Some("error") => LogLevel::Error,
             Some("warn") => LogLevel::Warn,
             Some("debug") => LogLevel::Debug,

@@ -22,11 +22,11 @@ impl Executor {
     pub fn worker(&self) {
         let listener = match TcpListener::bind(format!("0.0.0.0:{}", self.port,)) {
             Ok(s) => {
-                info!("created server in executor for task {} ", self.port,);
+                log::debug!("created server in executor for task {} ", self.port,);
                 s
             }
             _ => {
-                info!("unable to create server in executor for task {}", self.port);
+                log::debug!("unable to create server in executor for task {}", self.port);
                 return;
             }
         };
@@ -55,7 +55,7 @@ impl Executor {
                             let task_data = message_reader
                                 .get_root::<serialized_data::Reader>()
                                 .unwrap();
-                            info!(
+                            log::debug!(
                                 "task in executor {} {} slave task len",
                                 server_port,
                                 task_data.get_msg().unwrap().len()
@@ -72,11 +72,11 @@ impl Executor {
                             //                            let mut f = fs::File::create(task_dir_path.clone()).unwrap();
                             let msg = match task_data.get_msg() {
                                 Ok(s) => {
-                                    info!("got the task in executor",);
+                                    log::debug!("got the task in executor",);
                                     s
                                 }
                                 Err(e) => {
-                                    info!("problem in getting the task in executor {:?}", e);
+                                    log::debug!("problem in getting the task in executor {:?}", e);
                                     std::process::exit(0);
                                 }
                             };
@@ -88,50 +88,53 @@ impl Executor {
                             //                            f.read(&mut buffer).unwrap();
                             let des_task: TaskOption = match bincode::deserialize(&msg) {
                                 Ok(s) => {
-                                    info!("serialized the task in executor",);
+                                    log::debug!("serialized the task in executor",);
                                     s
                                 }
                                 Err(e) => {
-                                    info!("problem in serializing the task in executor {:?}", e);
+                                    log::debug!(
+                                        "problem in serializing the task in executor {:?}",
+                                        e
+                                    );
                                     std::process::exit(0);
                                 }
                             };
-                            info!(
+                            log::debug!(
                                 "task in executor {:?} {} slave task id",
                                 server_port,
                                 des_task.get_task_id(),
                             );
                             std::mem::drop(task_data);
-                            info!(
+                            log::debug!(
                                 "time taken in server for deserializing:{} {}",
                                 server_port,
                                 start.elapsed().as_millis(),
                             );
                             let start = Instant::now();
-                            info!("executing the trait from server port {}", server_port);
+                            log::debug!("executing the trait from server port {}", server_port);
                             //TODO change attempt id from 0 to proper value
                             let result = des_task.run(0);
 
-                            info!(
+                            log::debug!(
                                 "time taken in server for running:{} {}",
                                 server_port,
                                 start.elapsed().as_millis(),
                             );
                             let start = Instant::now();
                             let result = bincode::serialize(&result).unwrap();
-                            info!(
+                            log::debug!(
                                 "task in executor {} {} slave result len",
                                 server_port,
                                 result.len()
                             );
-                            info!(
+                            log::debug!(
                                 "time taken in server for serializing:{} {}",
                                 server_port,
                                 start.elapsed().as_millis(),
                             );
                             let mut message = ::capnp::message::Builder::new_default();
                             let mut task_data = message.init_root::<serialized_data::Builder>();
-                            info!("sending data to master");
+                            log::debug!("sending data to master");
                             task_data.set_msg(&result);
                             serialize_packed::write_message(&mut stream, &message);
                         });
@@ -145,14 +148,14 @@ impl Executor {
     pub fn exit_signal(&self) {
         let listener = match TcpListener::bind(format!("0.0.0.0:{}", self.port + 10,)) {
             Ok(s) => {
-                info!(
+                log::debug!(
                     "created end signal server in executor for task {} ",
                     self.port + 10,
                 );
                 s
             }
             _ => {
-                info!(
+                log::debug!(
                     "unable to create end signal server in executor for task {}",
                     self.port + 10
                 );
@@ -163,7 +166,7 @@ impl Executor {
             match stream {
                 Err(_) => continue,
                 Ok(mut stream) => {
-                    info!("inside end signal stream");
+                    log::debug!("inside end signal stream");
                     let r = ::capnp::message::ReaderOptions {
                         traversal_limit_in_words: std::u64::MAX,
                         nesting_limit: 64,
@@ -176,7 +179,7 @@ impl Executor {
                     let signal_data = message_reader
                         .get_root::<serialized_data::Reader>()
                         .unwrap();
-                    info!("got end signal inside server");
+                    log::debug!("got end signal inside server");
                     let signal: bool =
                         bincode::deserialize(signal_data.get_msg().unwrap()).unwrap();
                     if signal {

@@ -75,9 +75,10 @@ impl DistributedScheduler {
         servers: Option<Vec<SocketAddrV4>>,
         port: u16,
     ) -> Self {
-        info!(
+        log::debug!(
             "starting distributed scheduler in client - {} {}",
-            master, port
+            master,
+            port
         );
         DistributedScheduler {
             //            threads,
@@ -130,7 +131,7 @@ impl DistributedScheduler {
                 accum_updates: HashMap::new(),
             });
         } else {
-            info!("ignoring completion event for DAG Job");
+            log::debug!("ignoring completion event for DAG Job");
         }
     }
 
@@ -149,7 +150,7 @@ impl DistributedScheduler {
         // which affects construction of dag task graph. dag task graph construction need to be
         // altered
         let lock = self.scheduler_lock.lock();
-        info!(
+        log::debug!(
             "shuffle manager in final rdd of run job {:?}",
             env::Env::get().shuffle_manager
         );
@@ -171,7 +172,7 @@ impl DistributedScheduler {
         self.event_queues.lock().insert(jt.run_id, VecDeque::new());
 
         self.submit_stage(jt.final_stage.clone(), jt.clone());
-        info!(
+        log::debug!(
             "pending stages and tasks {:?}",
             jt.pending_tasks
                 .borrow()
@@ -185,9 +186,9 @@ impl DistributedScheduler {
             let start_time = Instant::now();
 
             if let Some(mut evt) = event_option {
-                info!("event starting");
+                log::debug!("event starting");
                 let stage = self.stage_cache.lock()[&evt.task.get_stage_id()].clone();
-                info!(
+                log::debug!(
                     "removing stage task from pending tasks {} {}",
                     stage.id,
                     evt.task.get_task_id()
@@ -261,7 +262,7 @@ impl NativeScheduler for DistributedScheduler {
         F: SerFunc((TaskContext, Box<dyn Iterator<Item = T>>)) -> U,
     {
         if self.master {
-            info!("inside submit task");
+            log::debug!("inside submit task");
             let my_attempt_id = self.attempt_id.fetch_add(1, Ordering::SeqCst);
             let event_queues = self.event_queues.clone();
             let event_queues_clone = event_queues.clone();
@@ -272,20 +273,20 @@ impl NativeScheduler for DistributedScheduler {
                 let ser_task = task;
 
                 let task_bytes = bincode::serialize(&ser_task).unwrap();
-                info!(
+                log::debug!(
                     "task in executor {} {:?} master",
                     target_executor.port(),
                     ser_task.get_task_id()
                 );
                 let mut stream = TcpStream::connect(&target_executor).unwrap();
-                info!(
+                log::debug!(
                     "task in executor {} {} master task len",
                     target_executor.port(),
                     task_bytes.len()
                 );
                 let mut message = ::capnp::message::Builder::new_default();
                 let mut task_data = message.init_root::<serialized_data::Builder>();
-                info!("sending data to server");
+                log::debug!("sending data to server");
                 task_data.set_msg(&task_bytes);
                 serialize_packed::write_message(&mut stream, &message);
 
@@ -298,7 +299,7 @@ impl NativeScheduler for DistributedScheduler {
                 let task_data = message_reader
                     .get_root::<serialized_data::Reader>()
                     .unwrap();
-                info!(
+                log::debug!(
                     "task in executor {} {} master task result len",
                     target_executor.port(),
                     task_data.get_msg().unwrap().len()

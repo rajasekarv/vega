@@ -37,7 +37,7 @@ impl ShuffleManager {
             local_dir = format!("{}/spark-local-{}", local_dir_root, local_dir_uuid);
             let path = std::path::Path::new(&local_dir);
             if !path.exists() {
-                info!("creating directory at path {:?} loc {:?}", path, local_dir);
+                log::debug!("creating directory at path {:?} loc {:?}", path, local_dir);
                 fs::create_dir_all(path);
                 found_local_dir = true;
             }
@@ -59,15 +59,15 @@ impl ShuffleManager {
             port,
             //            local_dir_uuid
         );
-        info!("server_uri {:?}", server_uri);
+        log::debug!("server_uri {:?}", server_uri);
         let server_address = format!("{}:{}", env::Configuration::get().local_ip.clone(), port);
-        info!("server_address {:?}", server_address);
+        log::debug!("server_address {:?}", server_address);
         let relative_path = format!("/spark-local-{}", local_dir_uuid);
         let local_dir_clone = local_dir.clone();
         let server_address_clone = server_address;
-        info!("relative path {}", relative_path);
-        info!("local_dir path {}", local_dir);
-        info!("shuffle dir path {}", shuffle_dir);
+        log::debug!("relative path {}", relative_path);
+        log::debug!("local_dir path {}", local_dir);
+        log::debug!("shuffle dir path {}", shuffle_dir);
         thread::spawn(move || {
             #[get("/shuffle/{shuffleid}/{inputid}/{reduceid}")]
             fn get_shuffle_data(info: Path<(usize, usize, usize)>) -> Bytes {
@@ -88,7 +88,7 @@ impl ShuffleManager {
                         .unwrap()[..],
                 )
             }
-            info!("starting server for shuffle task");
+            log::debug!("starting server for shuffle task");
             #[get("/")]
             fn no_params() -> &'static str {
                 "Hello world!\r"
@@ -104,18 +104,18 @@ impl ShuffleManager {
             .bind(server_address_clone)
             {
                 Ok(s) => {
-                    info!("server for shufflemap task binded");
+                    log::debug!("server for shufflemap task binded");
                     match s.run() {
                         Ok(_) => {
-                            info!("server for shufflemap task started");
+                            log::debug!("server for shufflemap task started");
                         }
                         Err(e) => {
-                            info!("cannot start server for shufflemap task started {}", e);
+                            log::debug!("cannot start server for shufflemap task started {}", e);
                         }
                     }
                 }
                 Err(e) => {
-                    info!("cannot bind server for shuffle map task {}", e);
+                    log::debug!("cannot bind server for shuffle map task {}", e);
                     std::process::exit(0)
                 }
             }
@@ -125,7 +125,7 @@ impl ShuffleManager {
             shuffle_dir,
             server_uri,
         };
-        info!("shuffle manager inside new {:?}", s);
+        log::debug!("shuffle manager inside new {:?}", s);
         s
     }
 

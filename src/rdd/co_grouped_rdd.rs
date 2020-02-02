@@ -114,7 +114,7 @@ impl<K: Data + Eq + Hash> CoGroupedRdd<K> {
                 ))
             } else {
                 let rdd_base = rdd.clone().into();
-                info!("creating aggregator inside cogrouprdd");
+                log::debug!("creating aggregator inside cogrouprdd");
                 deps.push(Dependency::ShuffleDependency(
                     Arc::new(ShuffleDependency::new(
                         context.new_shuffle_id(),
@@ -212,9 +212,9 @@ impl<K: Data + Eq + Hash> Rdd for CoGroupedRdd<K> {
             for (dep_num, dep) in split.clone().deps.into_iter().enumerate() {
                 match dep {
                     CoGroupSplitDep::NarrowCoGroupSplitDep { rdd, split } => {
-                        info!("inside iterator cogrouprdd  narrow dep");
+                        log::debug!("inside iterator cogrouprdd  narrow dep");
                         for i in rdd.iterator_any(split)? {
-                            info!(
+                            log::debug!(
                                 "inside iterator cogrouprdd  narrow dep iterator any {:?}",
                                 i
                             );
@@ -230,7 +230,7 @@ impl<K: Data + Eq + Hash> Rdd for CoGroupedRdd<K> {
                         }
                     }
                     CoGroupSplitDep::ShuffleCoGroupSplitDep { shuffle_id } => {
-                        info!("inside iterator cogrouprdd  shuffle dep agg {:?}", agg);
+                        log::debug!("inside iterator cogrouprdd  shuffle dep agg {:?}", agg);
                         let merge_pair = |(k, c): (K, Vec<Box<dyn AnyData>>)| {
                             let temp = agg
                                 .entry(k)
