@@ -43,6 +43,7 @@ impl ShuffleMapTask {
         }
     }
 }
+
 impl Display for ShuffleMapTask {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
@@ -52,6 +53,7 @@ impl Display for ShuffleMapTask {
         )
     }
 }
+
 impl TaskBase for ShuffleMapTask {
     fn get_run_id(&self) -> usize {
         self.run_id

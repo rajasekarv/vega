@@ -1,21 +1,27 @@
-//use actix_files as fserver;
+use std::convert::Infallible;
+use std::fs;
+use std::net::SocketAddr;
+use std::task::{Context, Poll};
+use std::thread;
+
 use crate::env;
-use actix_web::HttpServer;
 use actix_web::{
     get,
     web::{Bytes, Path},
-    App,
+    App, HttpServer,
 };
+use futures::future;
+use hyper::{server::conn::AddrIncoming, service::Service, Body, Request, Response, Server};
 use log::info;
 use rand::Rng;
 use serde_derive::{Deserialize, Serialize};
-use std::fs;
-use std::thread;
+use thiserror::Error;
 use uuid::Uuid;
 
-// creates directories and files required for storing shuffle data.  It also creates the file server required for serving files via http request
+/// Creates directories and files required for storing shuffle data.
+/// It also creates the file server required for serving files via http request.
 #[derive(Clone, Default, Debug, Serialize, Deserialize)]
-pub struct ShuffleManager {
+pub(crate) struct ShuffleManager {
     local_dir: String,
     shuffle_dir: String,
     server_uri: String,
@@ -57,7 +63,6 @@ impl ShuffleManager {
             "http://{}:{}",
             env::Configuration::get().local_ip.clone(),
             port,
-            //            local_dir_uuid
         );
         log::debug!("server_uri {:?}", server_uri);
         let server_address = format!("{}:{}", env::Configuration::get().local_ip.clone(), port);
@@ -71,16 +76,6 @@ impl ShuffleManager {
         thread::spawn(move || {
             #[get("/shuffle/{shuffleid}/{inputid}/{reduceid}")]
             fn get_shuffle_data(info: Path<(usize, usize, usize)>) -> Bytes {
-                //                println!("inside get shuffle data in  actix server");
-                //                println!(
-                //                    "bytes inside server {}",
-                //                    env::shuffle_cache
-                //                        .read()
-                //                        .unwrap()
-                //                        .get(&(info.0, info.1, info.2))
-                //                        .unwrap()
-                //                        .clone()[0]
-                //                );
                 Bytes::from(
                     &env::shuffle_cache
                         .read()
@@ -93,15 +88,9 @@ impl ShuffleManager {
             fn no_params() -> &'static str {
                 "Hello world!\r"
             }
-            match HttpServer::new(move || {
-                App::new().service(get_shuffle_data).service(no_params)
-                //                    .service(
-                //                        // static files
-                //                        fserver::Files::new(&relative_path, &local_dir_clone),
-                //                    )
-            })
-            .workers(8)
-            .bind(server_address_clone)
+            match HttpServer::new(move || App::new().service(get_shuffle_data).service(no_params))
+                .workers(8)
+                .bind(server_address_clone)
             {
                 Ok(s) => {
                     log::debug!("server for shufflemap task binded");
@@ -143,3 +132,108 @@ impl ShuffleManager {
 }
 
 //TODO implement drop for deleting files created when the shuffle manager stops
+
+type ShuffleServer = Server<AddrIncoming, ShuffleSvcMaker>;
+
+fn start_server(port: Option<u16>) -> ShuffleServer {
+    let bind_ip = env::Configuration::get().local_ip.clone();
+    let bind_port = if let Some(port) = port {
+        port
+    } else {
+        5000 + rand::thread_rng().gen_range(0, 1000)
+    };
+    let bind_addr = SocketAddr::from((bind_ip, bind_port));
+    Server::bind(&bind_addr).serve(ShuffleSvcMaker)
+}
+
+async fn get_shuffle(req: Request<Body>) -> Result<Response<Body>, Infallible> {
+    let response = "hello";
+    todo!()
+}
+
+struct ShuffleManager2 {}
+
+impl Service<Request<Body>> for ShuffleManager2 {
+    type Response = Response<Body>;
+    type Error = std::io::Error;
+    type Future = future::Ready<Result<Self::Response, Self::Error>>;
+
+    fn poll_ready(&mut self, _cx: &mut Context) -> Poll<Result<(), Self::Error>> {
+        Ok(()).into()
+    }
+
+    fn call(&mut self, req: Request<Body>) -> Self::Future {
+        let rsp = Response::builder();
+        let body = Body::from(Vec::from(&b"hey"[..]));
+        let rsp = rsp.status(200).body(body).unwrap();
+        future::ok(rsp)
+    }
+}
+
+struct ShuffleSvcMaker;
+
+impl<T> Service<T> for ShuffleSvcMaker {
+    type Response = ShuffleManager2;
+    type Error = std::io::Error;
+    type Future = future::Ready<Result<Self::Response, Self::Error>>;
+
+    fn poll_ready(&mut self, _cx: &mut Context) -> Poll<Result<(), Self::Error>> {
+        Ok(()).into()
+    }
+
+    fn call(&mut self, _: T) -> Self::Future {
+        future::ok(ShuffleManager2 {})
+    }
+}
+
+#[derive(Debug, Error)]
+pub enum ShuffleManagerError {
+    #[error("failed to start shuffle server")]
+    FailedToStart,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::time::Duration;
+    use tokio::prelude::*;
+
+    fn blocking_runtime() {
+        let mut rt = tokio::runtime::Builder::new()
+            .enable_all()
+            .basic_scheduler()
+            .build()
+            .expect("build runtime");
+
+        thread::spawn(move || {
+            rt.block_on(async {
+                run().await.unwrap();
+            })
+        });
+    }
+
+    async fn run() -> Result<(), Box<dyn std::error::Error + 'static>> {
+        let server = start_server(Some(5001));
+        server.await?;
+        Ok(())
+    }
+
+    #[test]
+    fn shuffle_server_up() -> Result<(), Box<dyn std::error::Error + 'static>> {
+        blocking_runtime();
+
+        let url = format!(
+            "http://{}:5001/shuffle/0/1/2",
+            env::Configuration::get().local_ip
+        );
+        let mut retries = 0;
+        while let Err(err) = reqwest::get(&url) {
+            retries += 1;
+            thread::sleep(Duration::from_millis(25));
+            if retries > 10 {
+                return Err(Box::new(ShuffleManagerError::FailedToStart));
+            }
+        }
+        Ok(())
+    }
+}

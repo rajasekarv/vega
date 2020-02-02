@@ -101,7 +101,11 @@ impl Configuration {
                     .env(LOCAL_IP)
                     .takes_value(true)
                     .required_if(DEPLOYMENT_MODE, "distributed")
-                    .default_value_if(DEPLOYMENT_MODE, Some("local"), "0.0.0.0"),
+                    .default_value_if(
+                        DEPLOYMENT_MODE,
+                        Some("local"),
+                        &Ipv4Addr::LOCALHOST.to_string(),
+                    ),
             )
             .arg(
                 Arg::with_name(LOG_LEVEL)
