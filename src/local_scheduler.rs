@@ -107,7 +107,7 @@ impl LocalScheduler {
         // which affects construction of dag task graph. dag task graph construction need to be
         // altered
         let lock = self.scheduler_lock.lock();
-        info!(
+        log::debug!(
             "shuffle manager in final rdd of run job {:?}",
             env::Env::get().shuffle_manager
         );
@@ -129,7 +129,7 @@ impl LocalScheduler {
         self.event_queues.lock().insert(jt.run_id, VecDeque::new());
 
         self.submit_stage(jt.final_stage.clone(), jt.clone());
-        info!(
+        log::debug!(
             "pending stages and tasks {:?}",
             jt.pending_tasks
                 .borrow()
@@ -143,9 +143,9 @@ impl LocalScheduler {
             let start = Instant::now();
 
             if let Some(mut evt) = event_option {
-                info!("event starting");
+                log::debug!("event starting");
                 let stage = self.stage_cache.lock()[&evt.task.get_stage_id()].clone();
-                info!(
+                log::debug!(
                     "removing stage task from pending tasks {} {}",
                     stage.id,
                     evt.task.get_task_id()
@@ -268,7 +268,7 @@ impl LocalScheduler {
                 accum_updates: HashMap::new(),
             });
         } else {
-            info!("ignoring completion event for DAG Job");
+            log::debug!("ignoring completion event for DAG Job");
         }
     }
 }
@@ -284,7 +284,7 @@ impl NativeScheduler for LocalScheduler {
     ) where
         F: SerFunc((TaskContext, Box<dyn Iterator<Item = T>>)) -> U,
     {
-        info!("inside submit task");
+        log::debug!("inside submit task");
         let my_attempt_id = self.attempt_id.fetch_add(1, Ordering::SeqCst);
         let event_queues = self.event_queues.clone();
         let task = bincode::serialize(&task).unwrap();

@@ -3,7 +3,7 @@ use std::net::Ipv4Addr;
 use std::sync::Arc;
 
 use itertools::{Itertools, MinMaxResult};
-use log::{debug, info};
+use log::debug;
 use serde_derive::{Deserialize, Serialize};
 use serde_traitobject::{Arc as SerArc, Box as SerBox};
 
@@ -130,14 +130,14 @@ impl<T: Data> UnionVariants<T> {
                 .collect();
             vals.dependencies = deps;
             let vals = Arc::new(vals);
-            info!("inside unique partitioner constructor");
+            log::debug!("inside unique partitioner constructor");
             Ok(NonUniquePartitioner {
                 rdds: final_rdds,
                 vals,
             })
         } else {
             let part = rdds[0].partitioner().ok_or(Error::LackingPartitioner)?;
-            info!("inside partition aware constructor");
+            log::debug!("inside partition aware constructor");
             let deps = rdds
                 .iter()
                 .map(|x| {
@@ -218,7 +218,7 @@ impl<T: Data> RddBase for UnionRdd<T> {
         match &self.0 {
             NonUniquePartitioner { .. } => Vec::new(),
             PartitionerAware { rdds, .. } => {
-                debug!(
+                log::debug!(
                     "finding preferred location for PartitionerAwareUnionRdd, partition {}",
                     split.get_index()
                 );
@@ -237,7 +237,7 @@ impl<T: Data> RddBase for UnionRdd<T> {
                                 &*part,
                                 self.get_context(),
                             );
-                            debug!("location of {} partition {} = {}", 1, 2, 3);
+                            log::debug!("location of {} partition {} = {}", 1, 2, 3);
                             parent_locations
                         });
 
@@ -248,7 +248,7 @@ impl<T: Data> RddBase for UnionRdd<T> {
                     MinMaxResult::NoElements => None,
                 };
 
-                debug!(
+                log::debug!(
                     "selected location for PartitionerAwareRdd, partition {} = {:?}",
                     split.get_index(),
                     location
@@ -293,7 +293,7 @@ impl<T: Data> RddBase for UnionRdd<T> {
         &self,
         split: Box<dyn Split>,
     ) -> Result<Box<dyn Iterator<Item = Box<dyn AnyData>>>> {
-        info!("inside iterator_any union_rdd",);
+        log::debug!("inside iterator_any union_rdd",);
         Ok(Box::new(
             self.iterator(split)?
                 .map(|x| Box::new(x) as Box<dyn AnyData>),

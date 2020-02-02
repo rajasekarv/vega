@@ -97,7 +97,7 @@ impl<T: Data> RddBase for PartitionwiseSampledRdd<T> {
         &self,
         split: Box<dyn Split>,
     ) -> Result<Box<dyn Iterator<Item = Box<dyn AnyData>>>> {
-        info!("inside PartitionwiseSampledRdd iterator_any");
+        log::debug!("inside PartitionwiseSampledRdd iterator_any");
         Ok(Box::new(
             self.iterator(split)?
                 .map(|x| Box::new(x) as Box<dyn AnyData>),
@@ -110,7 +110,7 @@ impl<T: Data, V: Data> RddBase for PartitionwiseSampledRdd<(T, V)> {
         &self,
         split: Box<dyn Split>,
     ) -> Result<Box<dyn Iterator<Item = Box<dyn AnyData>>>> {
-        info!("inside iterator_any maprdd",);
+        log::debug!("inside iterator_any maprdd",);
         Ok(Box::new(self.iterator(split)?.map(|(k, v)| {
             Box::new((k, Box::new(v) as Box<dyn AnyData>)) as Box<dyn AnyData>
         })))

@@ -22,16 +22,17 @@ impl ShuffleFetcher {
         reduce_id: usize,
         mut func: impl FnMut((K, V)) -> (),
     ) {
-        info!("inside fetch function");
+        log::debug!("inside fetch function");
         let parallel_fetches = 10; //TODO  make this as env variable
         let thread_pool = ThreadPool::new(parallel_fetches);
         let mut inputs_by_uri = HashMap::new();
         let server_uris = env::Env::get()
             .map_output_tracker
             .get_server_uris(shuffle_id);
-        info!(
+        log::debug!(
             "server uris for shuffle id {:?} - {:?}",
-            shuffle_id, server_uris
+            shuffle_id,
+            server_uris
         );
         for (index, server_uri) in server_uris.into_iter().enumerate() {
             inputs_by_uri
@@ -45,16 +46,18 @@ impl ShuffleFetcher {
         for (key, value) in inputs_by_uri {
             server_queue.lock().push((key, value));
         }
-        info!(
+        log::debug!(
             "servers for shuffle id {:?}, reduce id {:?} - {:?}",
-            shuffle_id, reduce_id, server_queue
+            shuffle_id,
+            reduce_id,
+            server_queue
         );
         //        let log_output = format!("servers {:?}", server_queue);
         let (producer, consumer) = channel();
         let failure = Arc::new(Mutex::new(None));
         let sent_count = Arc::new(Mutex::new(0));
         for i in 0..parallel_fetches {
-            info!("inside parallel fetch {}", i);
+            log::debug!("inside parallel fetch {}", i);
             let server_queue = server_queue.clone();
             let producer = producer.clone();
             let failure = failure.clone();
@@ -86,28 +89,31 @@ impl ShuffleFetcher {
                                 //TODO change e to FailedFetchException
                                 *failure.lock() = Some(e.to_string()));
                         *sent_count_clone.lock() += 1;
-                        info!(
+                        log::debug!(
                             "total results {} results sent {:?}",
-                            total_results, sent_count_clone
+                            total_results,
+                            sent_count_clone
                         );
-                        info!(
+                        log::debug!(
                             "total results {} results sent {:?}",
-                            total_results, sent_count_clone
+                            total_results,
+                            sent_count_clone
                         );
                     }
                 }
             })
         }
-        info!("total_results {}", total_results);
+        log::debug!("total_results {}", total_results);
 
         let mut results_done = 0;
         while failure.lock().is_none() && (results_done < total_results) {
             let (result, url) = consumer.recv().unwrap();
-            info!(
+            log::debug!(
                 "total results {} results done {}",
-                total_results, results_done
+                total_results,
+                results_done
             );
-            info!("received from consumer");
+            log::debug!("received from consumer");
             let input: Vec<(K, V)> =
                 bincode::deserialize(&result).expect("not able to serialize fetched data");
             for (k, v) in input {

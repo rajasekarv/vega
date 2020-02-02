@@ -8,7 +8,7 @@ use std::sync::Arc;
 
 use crate::serialized_data_capnp::serialized_data;
 use capnp::serialize_packed;
-use log::{error, info};
+use log::error;
 use simplelog::*;
 use toml;
 use uuid::Uuid;
@@ -114,7 +114,7 @@ impl Context {
                         .into_string()
                         .map_err(Error::OsStringToString)?;
                     for address in &hosts::Hosts::get()?.slaves {
-                        info!("deploying executor at address {:?}", address);
+                        log::debug!("deploying executor at address {:?}", address);
                         let address_cli: Ipv4Addr = address
                             .split('@')
                             .nth(1)
@@ -143,7 +143,7 @@ impl Context {
                                 command: "scp executor".into(),
                             })?;
                         let path = format!("{}/{}", local_dir, binary_name);
-                        info!("remote path {}", path);
+                        log::debug!("remote path {}", path);
                         // Deploy a remote slave
                         Command::new("ssh")
                             .args(&[
@@ -175,16 +175,16 @@ impl Context {
                 } else {
                     let uuid = Uuid::new_v4().to_string();
                     initialize_loggers(format!("/tmp/executor-{}", uuid));
-                    info!("started client");
+                    log::debug!("started client");
                     let executor = Executor::new(
                         env::Configuration::get()
                             .port
                             .ok_or(Error::GetOrCreateConfig("executor port not set"))?,
                     );
                     executor.worker();
-                    info!("initiated executor worker exit");
+                    log::debug!("initiated executor worker exit");
                     executor.exit_signal();
-                    info!("got executor end signal");
+                    log::debug!("got executor end signal");
                     std::process::exit(0);
                 }
             }
@@ -205,7 +205,7 @@ impl Context {
 
     fn drop_executors(&self) {
         for socket_addr in self.address_map.clone() {
-            info!(
+            log::debug!(
                 "dropping executor in {:?}:{:?}",
                 socket_addr.ip(),
                 socket_addr.port()
@@ -312,7 +312,7 @@ impl Context {
     where
         F: SerFunc((TaskContext, Box<dyn Iterator<Item = T>>)) -> U,
     {
-        info!("inside run job in context");
+        log::debug!("inside run job in context");
         let func = Arc::new(func);
         self.scheduler.run_job(
             func,
@@ -339,9 +339,13 @@ impl Context {
 }
 
 fn initialize_loggers(file_path: String) {
-    let term_logger = TermLogger::new(LevelFilter::Info, Config::default(), TerminalMode::Mixed);
+    let term_logger = TermLogger::new(
+        env::Configuration::get().log_level,
+        Config::default(),
+        TerminalMode::Mixed,
+    );
     let file_logger: Box<dyn SharedLogger> = WriteLogger::new(
-        LevelFilter::Info,
+        env::Configuration::get().log_level,
         Config::default(),
         File::create(file_path).expect("not able to create log file"),
     );

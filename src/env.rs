@@ -87,14 +87,6 @@ impl Configuration {
     fn new() -> Self {
         let arguments = App::new("NativeSpark")
             .arg(
-                Arg::with_name(LOCAL_IP)
-                    .long("local_ip")
-                    .require_equals(true)
-                    .env(LOCAL_IP)
-                    .takes_value(true)
-                    .required(true),
-            )
-            .arg(
                 Arg::with_name(DEPLOYMENT_MODE)
                     .long("deployment_mode")
                     .short("d")
@@ -103,8 +95,18 @@ impl Configuration {
                     .default_value("local"),
             )
             .arg(
+                Arg::with_name(LOCAL_IP)
+                    .long("local_ip")
+                    .require_equals(true)
+                    .env(LOCAL_IP)
+                    .takes_value(true)
+                    .required_if(DEPLOYMENT_MODE, "distributed")
+                    .default_value_if(DEPLOYMENT_MODE, Some("local"), "0.0.0.0"),
+            )
+            .arg(
                 Arg::with_name(LOG_LEVEL)
                     .long("log_level")
+                    .env(LOG_LEVEL)
                     .takes_value(true)
                     .require_equals(true),
             )
@@ -125,7 +127,12 @@ impl Configuration {
 
         let local_ip = arguments.value_of(LOCAL_IP).unwrap().parse().unwrap();
 
-        let log_level = match arguments.value_of(LOG_LEVEL) {
+        let log_level = match arguments
+            .value_of(LOG_LEVEL)
+            .map(|s| s.to_lowercase())
+            .as_ref()
+            .map(String::as_str)
+        {
             Some("error") => LogLevel::Error,
             Some("warn") => LogLevel::Warn,
             Some("debug") => LogLevel::Debug,

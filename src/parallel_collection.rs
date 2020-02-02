@@ -152,7 +152,7 @@ impl<K: Data, V: Data> RddBase for ParallelCollection<(K, V)> {
         &self,
         split: Box<dyn Split>,
     ) -> Result<Box<dyn Iterator<Item = Box<dyn AnyData>>>> {
-        info!("inside iterator_any parallel collection",);
+        log::debug!("inside iterator_any parallel collection",);
         Ok(Box::new(self.iterator(split)?.map(|(k, v)| {
             Box::new((k, Box::new(v) as Box<dyn AnyData>)) as Box<dyn AnyData>
         })))
@@ -196,7 +196,7 @@ impl<T: Data> RddBase for ParallelCollection<T> {
         &self,
         split: Box<dyn Split>,
     ) -> Result<Box<dyn Iterator<Item = Box<dyn AnyData>>>> {
-        info!("inside iterator_any parallel collection",);
+        log::debug!("inside iterator_any parallel collection",);
         Ok(Box::new(
             self.iterator(split)?
                 .map(|x| Box::new(x) as Box<dyn AnyData>),

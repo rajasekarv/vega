@@ -93,12 +93,12 @@ impl MapOutputTracker {
 
     fn server(&self) {
         if self.is_master {
-            info!("mapoutput tracker server starting");
+            log::debug!("mapoutput tracker server starting");
             let master_addr = self.master_addr;
             let server_uris = self.server_uris.clone();
             thread::spawn(move || {
                 let listener = TcpListener::bind(master_addr).unwrap();
-                info!("mapoutput tracker server started");
+                log::debug!("mapoutput tracker server started");
                 for stream in listener.incoming() {
                     match stream {
                         Err(_) => continue,
@@ -139,7 +139,7 @@ impl MapOutputTracker {
                                     .get(&shuffle_id)
                                     .unwrap_or(&Vec::new())
                                     .clone();
-                                info!("locs inside mapoutput tracker server before unwrapping for shuffle id {:?} {:?}",shuffle_id,locs);
+                                log::debug!("locs inside mapoutput tracker server before unwrapping for shuffle id {:?} {:?}",shuffle_id,locs);
                                 let locs = locs
                                     .into_iter()
                                     .map(|x| {
@@ -149,7 +149,7 @@ impl MapOutputTracker {
                                         x.unwrap().clone()
                                     })
                                     .collect::<Vec<_>>();
-                                info!("locs inside mapoutput tracker server after unwrapping for shuffle id {:?} {:?} ", shuffle_id, locs);
+                                log::debug!("locs inside mapoutput tracker server after unwrapping for shuffle id {:?} {:?} ", shuffle_id, locs);
 
                                 //writing
                                 let result = bincode::serialize(&locs).unwrap();
@@ -166,15 +166,15 @@ impl MapOutputTracker {
     }
 
     pub fn register_shuffle(&self, shuffle_id: usize, num_maps: usize) {
-        info!("inside register shuffle");
+        log::debug!("inside register shuffle");
         if self.server_uris.read().get(&shuffle_id).is_some() {
             //TODO error handling
-            info!("map tracker register shuffle none");
+            log::debug!("map tracker register shuffle none");
             return;
         }
         let mut server_uris = self.server_uris.write();
         server_uris.insert(shuffle_id, vec![None; num_maps]);
-        info!("server_uris after register_shuffle {:?}", server_uris);
+        log::debug!("server_uris after register_shuffle {:?}", server_uris);
     }
 
     pub fn register_map_output(&self, shuffle_id: usize, map_id: usize, server_uri: String) {
@@ -195,9 +195,10 @@ impl MapOutputTracker {
         //            );
         //            return;
         //        }
-        info!(
+        log::debug!(
             "registering map outputs inside map output tracker for shuffle id {} {:?}",
-            shuffle_id, locs
+            shuffle_id,
+            locs
         );
         self.server_uris.write().insert(shuffle_id, locs);
         //        .insert(shuffle_id, locs.into_iter().map(|x| Some(x)).collect());
@@ -224,7 +225,7 @@ impl MapOutputTracker {
     }
 
     pub fn get_server_uris(&self, shuffle_id: usize) -> Vec<String> {
-        info!(
+        log::debug!(
             "server uris inside get_server_uris method {:?}",
             self.server_uris
         );
@@ -246,7 +247,7 @@ impl MapOutputTracker {
                     let wait = time::Duration::from_millis(1);
                     thread::sleep(wait);
                 }
-                info!(
+                log::debug!(
                     "returning after fetching done {:?}",
                     self.server_uris
                         .read()
@@ -267,19 +268,19 @@ impl MapOutputTracker {
                     .map(|x| x.clone().unwrap())
                     .collect();
             } else {
-                info!("adding to fetching queue");
+                log::debug!("adding to fetching queue");
                 self.fetching.write().insert(shuffle_id);
             }
             // TODO logging
             let fetched = self.client(shuffle_id);
-            info!("fetched locs from client {:?}", fetched);
+            log::debug!("fetched locs from client {:?}", fetched);
             self.server_uris.write().insert(
                 shuffle_id,
                 fetched.iter().map(|x| Some(x.clone())).collect(),
             );
-            info!("wriiten to server_uris after fetching");
+            log::debug!("wriiten to server_uris after fetching");
             self.fetching.write().remove(&shuffle_id);
-            info!("returning from get server uri");
+            log::debug!("returning from get server uri");
 
             fetched
         } else {

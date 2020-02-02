@@ -116,7 +116,7 @@ impl<K: Data + Eq + Hash, V: Data, C: Data> RddBase for ShuffledRdd<K, V, C> {
         &self,
         split: Box<dyn Split>,
     ) -> Result<Box<dyn Iterator<Item = Box<dyn AnyData>>>> {
-        info!("inside iterator_any shuffledrdd",);
+        log::debug!("inside iterator_any shuffledrdd",);
         Ok(Box::new(
             self.iterator(split)?
                 .map(|(k, v)| Box::new((k, v)) as Box<dyn AnyData>),
@@ -127,7 +127,7 @@ impl<K: Data + Eq + Hash, V: Data, C: Data> RddBase for ShuffledRdd<K, V, C> {
         &self,
         split: Box<dyn Split>,
     ) -> Result<Box<dyn Iterator<Item = Box<dyn AnyData>>>> {
-        info!("inside cogroup iterator_any shuffledrdd",);
+        log::debug!("inside cogroup iterator_any shuffledrdd",);
         Ok(Box::new(self.iterator(split)?.map(|(k, v)| {
             Box::new((k, Box::new(v) as Box<dyn AnyData>)) as Box<dyn AnyData>
         })))
@@ -146,7 +146,7 @@ impl<K: Data + Eq + Hash, V: Data, C: Data> Rdd for ShuffledRdd<K, V, C> {
     }
 
     fn compute(&self, split: Box<dyn Split>) -> Result<Box<dyn Iterator<Item = Self::Item>>> {
-        info!("compute inside shuffled rdd");
+        log::debug!("compute inside shuffled rdd");
         let mut combiners: HashMap<K, Option<C>> = HashMap::new();
         let merge_pair = |(k, c): (K, C)| {
             if let Some(old_c) = combiners.get_mut(&k) {
@@ -167,7 +167,7 @@ impl<K: Data + Eq + Hash, V: Data, C: Data> Rdd for ShuffledRdd<K, V, C> {
             split.get_index(),
             merge_pair,
         );
-        info!("time taken for fetching {}", start.elapsed().as_millis());
+        log::debug!("time taken for fetching {}", start.elapsed().as_millis());
         Ok(Box::new(
             combiners.into_iter().map(|(k, v)| (k, v.unwrap())),
         ))

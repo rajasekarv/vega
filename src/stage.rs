@@ -78,18 +78,20 @@ impl Stage {
         if self.parents.is_empty() && !self.is_shuffle_map {
             true
         } else {
-            info!(
+            log::debug!(
                 "num available outputs and num partitions in is available method in stage{} {:?}",
-                self.num_available_outputs, self.num_partitions
+                self.num_available_outputs,
+                self.num_partitions
             );
             self.num_available_outputs == self.num_partitions
         }
     }
 
     pub fn add_output_loc(&mut self, partition: usize, host: String) {
-        info!(
+        log::debug!(
             "adding loc for partition inside stage {} {:?}",
-            partition, host
+            partition,
+            host
         );
         if !self.output_locs[partition].is_empty() {
             self.num_available_outputs += 1;

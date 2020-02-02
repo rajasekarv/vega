@@ -58,20 +58,20 @@ pub(crate) trait NativeScheduler {
         rdd_base: Arc<dyn RddBase>,
         shuffle_dependency: Option<Arc<dyn ShuffleDependencyTrait>>,
     ) -> Stage {
-        info!("inside new stage");
+        log::debug!("inside new stage");
         env::Env::get()
             .cache_tracker
             .register_rdd(rdd_base.get_rdd_id(), rdd_base.number_of_splits());
         if shuffle_dependency.is_some() {
-            info!("shuffle dependency and registering mapoutput tracker");
+            log::debug!("shuffle dependency and registering mapoutput tracker");
             self.register_shuffle(
                 shuffle_dependency.clone().unwrap().get_shuffle_id(),
                 rdd_base.number_of_splits(),
             );
-            info!("new stage tracker after");
+            log::debug!("new stage tracker after");
         }
         let id = self.get_next_stage_id();
-        info!("new stage id {}", id);
+        log::debug!("new stage id {}", id);
         let stage = Stage::new(
             id,
             rdd_base.clone(),
@@ -79,7 +79,7 @@ pub(crate) trait NativeScheduler {
             self.get_parent_stages(rdd_base),
         );
         self.insert_into_stage_cache(id, stage.clone());
-        info!("new stage stage return");
+        log::debug!("new stage stage return");
         stage
     }
 
@@ -89,11 +89,11 @@ pub(crate) trait NativeScheduler {
         visited: &mut BTreeSet<Arc<dyn RddBase>>,
         rdd: Arc<dyn RddBase>,
     ) {
-        info!(
+        log::debug!(
             "missing stages {:?}",
             missing.iter().map(|x| x.id).collect::<Vec<_>>()
         );
-        info!(
+        log::debug!(
             "visisted stages {:?}",
             visited.iter().map(|x| x.get_rdd_id()).collect::<Vec<_>>()
         );
@@ -102,16 +102,16 @@ pub(crate) trait NativeScheduler {
             // TODO CacheTracker register
             for p in 0..rdd.number_of_splits() {
                 let locs = self.get_cache_locs(rdd.clone());
-                info!("cache locs {:?}", locs);
+                log::debug!("cache locs {:?}", locs);
                 if locs == None {
                     for dep in rdd.get_dependencies() {
-                        info!("for dep in missing stages ");
+                        log::debug!("for dep in missing stages ");
                         match dep {
                             Dependency::ShuffleDependency(shuf_dep) => {
                                 let stage = self.get_shuffle_map_stage(shuf_dep.clone());
-                                info!("shuffle stage in missing stages {:?}", stage.id);
+                                log::debug!("shuffle stage in missing stages {:?}", stage.id);
                                 if !stage.is_available() {
-                                    info!(
+                                    log::debug!(
                                         "inserting shuffle stage in missing stages {:?}",
                                         stage.id
                                     );
@@ -119,7 +119,7 @@ pub(crate) trait NativeScheduler {
                                 }
                             }
                             Dependency::NarrowDependency(nar_dep) => {
-                                info!("narrow stage in missing stages ");
+                                log::debug!("narrow stage in missing stages ");
                                 self.visit_for_missing_parent_stages(
                                     missing,
                                     visited,
@@ -139,11 +139,11 @@ pub(crate) trait NativeScheduler {
         visited: &mut BTreeSet<Arc<dyn RddBase>>,
         rdd: Arc<dyn RddBase>,
     ) {
-        info!(
+        log::debug!(
             "parent stages {:?}",
             parents.iter().map(|x| x.id).collect::<Vec<_>>()
         );
-        info!(
+        log::debug!(
             "visisted stages {:?}",
             visited.iter().map(|x| x.get_rdd_id()).collect::<Vec<_>>()
         );
@@ -166,11 +166,11 @@ pub(crate) trait NativeScheduler {
     }
 
     fn get_parent_stages(&self, rdd: Arc<dyn RddBase>) -> Vec<Stage> {
-        info!("inside get parent stages");
+        log::debug!("inside get parent stages");
         let mut parents: BTreeSet<Stage> = BTreeSet::new();
         let mut visited: BTreeSet<Arc<dyn RddBase>> = BTreeSet::new();
         self.visit_for_parent_stages(&mut parents, &mut visited, rdd.clone());
-        info!(
+        log::debug!(
             "parent stages {:?}",
             parents.iter().map(|x| x.id).collect::<Vec<_>>()
         );
@@ -245,12 +245,12 @@ pub(crate) trait NativeScheduler {
                 .unwrap()
                 .clone();
 
-            info!("result inside queue {:?}", result);
+            log::debug!("result inside queue {:?}", result);
             self.add_output_loc_to_stage(smt.stage_id, smt.partition, result);
 
             let stage = self.fetch_from_stage_cache(smt.stage_id);
             // id_to_stage.lock().clone()[&smt.stage_id].clone();
-            info!(
+            log::debug!(
                 "pending stages {:?}",
                 jt.pending_tasks
                     .borrow()
@@ -258,7 +258,7 @@ pub(crate) trait NativeScheduler {
                     .map(|(x, y)| (x.id, y.iter().map(|k| k.get_task_id()).collect::<Vec<_>>()))
                     .collect::<Vec<_>>()
             );
-            info!(
+            log::debug!(
                 "pending tasks {:?}",
                 jt.pending_tasks
                     .borrow()
@@ -268,11 +268,11 @@ pub(crate) trait NativeScheduler {
                     .map(|x| x.get_task_id())
                     .collect::<Vec<_>>()
             );
-            info!(
+            log::debug!(
                 "running {:?}",
                 jt.running.borrow().iter().map(|x| x.id).collect::<Vec<_>>()
             );
-            info!(
+            log::debug!(
                 "waiting {:?}",
                 jt.waiting.borrow().iter().map(|x| x.id).collect::<Vec<_>>()
             );
@@ -280,11 +280,11 @@ pub(crate) trait NativeScheduler {
             if jt.running.borrow().contains(&stage)
                 && jt.pending_tasks.borrow().get(&stage).unwrap().is_empty()
             {
-                info!("here before registering map outputs ");
+                log::debug!("here before registering map outputs ");
                 //TODO logging
                 jt.running.borrow_mut().remove(&stage);
                 if stage.shuffle_dependency.is_some() {
-                    info!(
+                    log::debug!(
                         "stage output locs before register mapoutput tracker {:?}",
                         stage.output_locs
                     );
@@ -293,7 +293,7 @@ pub(crate) trait NativeScheduler {
                         .iter()
                         .map(|x| x.get(0).map(|s| s.to_owned()))
                         .collect();
-                    info!(
+                    log::debug!(
                         "locs for shuffle id {:?} {:?}",
                         stage.clone().shuffle_dependency.unwrap().get_shuffle_id(),
                         locs
@@ -302,13 +302,13 @@ pub(crate) trait NativeScheduler {
                         stage.shuffle_dependency.unwrap().get_shuffle_id(),
                         locs,
                     );
-                    info!("here after registering map outputs ");
+                    log::debug!("here after registering map outputs ");
                 }
                 //TODO Cache
                 self.update_cache_locs();
                 let mut newly_runnable = Vec::new();
                 for stage in jt.waiting.borrow().iter() {
-                    info!(
+                    log::debug!(
                         "waiting stage parent stages for stage {} are {:?}",
                         stage.id,
                         self.get_missing_parent_stages(stage.clone())
@@ -337,10 +337,10 @@ pub(crate) trait NativeScheduler {
     where
         F: SerFunc((TaskContext, Box<dyn Iterator<Item = T>>)) -> U,
     {
-        info!("submiting stage {}", stage.id);
+        log::debug!("submiting stage {}", stage.id);
         if !jt.waiting.borrow().contains(&stage) && !jt.running.borrow().contains(&stage) {
             let missing = self.get_missing_parent_stages(stage.clone());
-            info!(
+            log::debug!(
                 "inside submit stage missing stages {:?}",
                 missing.iter().map(|x| x.id).collect::<Vec<_>>()
             );
@@ -365,7 +365,7 @@ pub(crate) trait NativeScheduler {
             .entry(stage.clone())
             .or_insert_with(BTreeSet::new);
         if stage == jt.final_stage {
-            info!("final stage {}", stage.id);
+            log::debug!("final stage {}", stage.id);
             for (id_in_job, (id, part)) in jt
                 .output_parts
                 .iter()
@@ -396,10 +396,10 @@ pub(crate) trait NativeScheduler {
             }
         } else {
             for p in 0..stage.num_partitions {
-                info!("shuffle_stage {}", stage.id);
+                log::debug!("shuffle_stage {}", stage.id);
                 if stage.output_locs[p].is_empty() {
                     let locs = self.get_preferred_locs(stage.get_rdd(), p);
-                    info!("creating task for {} partition  {}", stage.id, p);
+                    log::debug!("creating task for {} partition  {}", stage.id, p);
                     let shuffle_map_task = ShuffleMapTask::new(
                         self.get_next_task_id(),
                         jt.run_id,
@@ -409,7 +409,7 @@ pub(crate) trait NativeScheduler {
                         p,
                         locs,
                     );
-                    info!(
+                    log::debug!(
                         "creating task for {} partition  {} and shuffle id {}",
                         stage.id,
                         p,
@@ -572,7 +572,7 @@ macro_rules! impl_common_scheduler_funcs {
         }
 
         fn get_missing_parent_stages(&self, stage: Stage) -> Vec<Stage> {
-            info!("inside get missing parent stages");
+            log::debug!("inside get missing parent stages");
             let mut missing: BTreeSet<Stage> = BTreeSet::new();
             let mut visited: BTreeSet<Arc<dyn RddBase>> = BTreeSet::new();
             self.visit_for_missing_parent_stages(&mut missing, &mut visited, stage.get_rdd());
@@ -580,17 +580,17 @@ macro_rules! impl_common_scheduler_funcs {
         }
 
         fn get_shuffle_map_stage(&self, shuf: Arc<dyn ShuffleDependencyTrait>) -> Stage {
-            info!("inside get_shufflemap stage");
+            log::debug!("inside get_shufflemap stage");
             let stage = self.shuffle_to_map_stage.lock().get(&shuf.get_shuffle_id()).cloned();
             match stage {
                 Some(stage) => stage.clone(),
                 None => {
-                    info!("inside get_shufflemap stage before");
+                    log::debug!("inside get_shufflemap stage before");
                     let stage = self.new_stage(shuf.get_rdd_base(), Some(shuf.clone()));
                     self.shuffle_to_map_stage
                         .lock()
                         .insert(shuf.get_shuffle_id(), stage.clone());
-                    info!("inside get_shufflemap return");
+                    log::debug!("inside get_shufflemap return");
                     stage
                 }
             }

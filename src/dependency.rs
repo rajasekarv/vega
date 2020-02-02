@@ -163,21 +163,21 @@ impl<K: Data + Eq + Hash, V: Data, C: Data> ShuffleDependencyTrait for ShuffleDe
     }
 
     fn do_shuffle_task(&self, rdd_base: Arc<dyn RddBase>, partition: usize) -> String {
-        info!("doing shuffle_task for partition {}", partition);
+        log::debug!("doing shuffle_task for partition {}", partition);
         let split = rdd_base.splits()[partition].clone();
         let aggregator = self.aggregator.clone();
         let num_output_splits = self.partitioner.get_num_of_partitions();
-        info!("is cogroup rdd{}", self.is_cogroup);
-        info!("num of output splits{}", num_output_splits);
+        log::debug!("is cogroup rdd{}", self.is_cogroup);
+        log::debug!("num of output splits{}", num_output_splits);
         let partitioner = self.partitioner.clone();
         let mut buckets = (0..num_output_splits)
             .map(|_| HashMap::new())
             .collect::<Vec<_>>();
-        info!(
+        log::debug!(
             "before rdd base iterator in shuffle map task for partition {}",
             partition
         );
-        info!("split index {}", split.get_index());
+        log::debug!("split index {}", split.get_index());
 
         let iter = if self.is_cogroup {
             rdd_base.cogroup_iterator_any(split)
@@ -189,7 +189,7 @@ impl<K: Data + Eq + Hash, V: Data, C: Data> ShuffleDependencyTrait for ShuffleDe
             let b = i.into_any().downcast::<(K, V)>().unwrap();
             let (k, v) = *b;
             if count == 0 {
-                info!(
+                log::debug!(
                     "iterator inside dependency map task after downcasting {:?} {:?}",
                     k, v
                 );
@@ -211,7 +211,7 @@ impl<K: Data + Eq + Hash, V: Data, C: Data> ShuffleDependencyTrait for ShuffleDe
         for (i, bucket) in buckets.into_iter().enumerate() {
             let set: Vec<(K, C)> = bucket.into_iter().map(|(k, v)| (k, v.unwrap())).collect();
             let ser_bytes = bincode::serialize(&set).unwrap();
-            info!(
+            log::debug!(
                 "shuffle dependency map task set in shuffle id, partition,i  {:?} {:?} {:?} {:?} ",
                 set.get(0),
                 self.shuffle_id,
