@@ -11,7 +11,9 @@ use actix_web::{
     App, HttpServer,
 };
 use futures::future;
-use hyper::{server::conn::AddrIncoming, service::Service, Body, Request, Response, Server};
+use hyper::{
+    server::conn::AddrIncoming, service::Service, Body, Request, Response, Server, StatusCode,
+};
 use log::info;
 use rand::Rng;
 use serde_derive::{Deserialize, Serialize};
@@ -149,9 +151,34 @@ fn start_server(port: Option<u16>) -> ShuffleServer {
 struct ShuffleManager2;
 
 impl ShuffleManager2 {
-    fn parse_path_part(&self, part: &str) -> Result<usize, ShuffleManagerError> {
+    fn parse_path_part(part: &str) -> Result<usize, ShuffleManagerError> {
         Ok(u64::from_str_radix(part, 10)
             .map_err(|_| ShuffleManagerError::FailedToParseUri("".to_owned()))? as usize)
+    }
+
+    fn get_cached_data(&self, uri: &hyper::Uri) -> Result<Vec<u8>, ShuffleManagerError> {
+        // the path is: .../{shuffleid}/{inputid}/{reduceid}
+        let parts: Vec<_> = uri.path().split('/').collect();
+        if parts.len() != 5 {
+            return Err(ShuffleManagerError::FailedToParseUri(format!("{}", uri)));
+        }
+
+        let parts: Vec<_> = match (&parts[2..])
+            .iter()
+            .map(|part| ShuffleManager2::parse_path_part(part))
+            .collect::<Result<_, _>>()
+        {
+            Err(err) => {
+                return Err(ShuffleManagerError::FailedToParseUri(format!("{}", uri)));
+            }
+            Ok(parts) => parts,
+        };
+        let cache = env::shuffle_cache.read();
+        if let Some(cached_data) = cache.get(&(parts[0], parts[1], parts[2])) {
+            Ok(Vec::from(&cached_data[..]))
+        } else {
+            Err(ShuffleManagerError::RequestedCacheNotFound)
+        }
     }
 }
 
@@ -165,37 +192,14 @@ impl Service<Request<Body>> for ShuffleManager2 {
     }
 
     fn call(&mut self, req: Request<Body>) -> Self::Future {
-        // the path is: .../{shuffleid}/{inputid}/{reduceid}
-        let parts: Vec<_> = req.uri().path().split('/').collect();
-        if parts.len() != 5 {
-            return future::err(ShuffleManagerError::FailedToParseUri(format!(
-                "{}",
-                req.uri()
-            )));
-        }
-
-        let parts: Vec<_> = match (&parts[2..])
-            .iter()
-            .map(|part| self.parse_path_part(part))
-            .collect::<Result<_, _>>()
-        {
-            Err(err) => {
-                return future::err(ShuffleManagerError::FailedToParseUri(format!(
-                    "{}",
-                    req.uri()
-                )))
+        match self.get_cached_data(req.uri()) {
+            Ok(cached_data) => {
+                let rsp = Response::builder();
+                let body = Body::from(Vec::from(&cached_data[..]));
+                let rsp = rsp.status(200).body(body).unwrap();
+                future::ok(rsp)
             }
-            Ok(parts) => parts,
-        };
-
-        let cache = env::shuffle_cache.read();
-        if let Some(cached_data) = cache.get(&(parts[0], parts[1], parts[2])) {
-            let rsp = Response::builder();
-            let body = Body::from(Vec::from(&cached_data[..]));
-            let rsp = rsp.status(200).body(body).unwrap();
-            future::ok(rsp)
-        } else {
-            return future::err(ShuffleManagerError::RequestedCacheNotFound);
+            Err(err) => future::ok(err.into()),
         }
     }
 }
@@ -228,13 +232,33 @@ pub enum ShuffleManagerError {
     RequestedCacheNotFound,
 }
 
+impl Into<Response<Body>> for ShuffleManagerError {
+    fn into(self) -> Response<Body> {
+        match self {
+            ShuffleManagerError::FailedToStart => Response::builder()
+                .status(StatusCode::NOT_FOUND)
+                .body(Body::from(&[] as &[u8]))
+                .unwrap(),
+            ShuffleManagerError::FailedToParseUri(uri) => Response::builder()
+                .status(StatusCode::BAD_REQUEST)
+                .body(Body::from(format!("Failed to parse: {}", uri)))
+                .unwrap(),
+            ShuffleManagerError::RequestedCacheNotFound => Response::builder()
+                .status(StatusCode::NOT_FOUND)
+                .body(Body::from(&[] as &[u8]))
+                .unwrap(),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::io::Read;
     use std::time::Duration;
     use tokio::prelude::*;
 
-    fn blocking_runtime() {
+    fn blocking_runtime(port: u16) {
         let mut rt = tokio::runtime::Builder::new()
             .enable_all()
             .basic_scheduler()
@@ -243,37 +267,63 @@ mod tests {
 
         thread::spawn(move || {
             rt.block_on(async {
-                run().await.unwrap();
+                run(port).await.unwrap();
             })
         });
     }
 
-    async fn run() -> Result<(), Box<dyn std::error::Error + 'static>> {
-        let server = start_server(Some(5001));
+    async fn run(port: u16) -> Result<(), Box<dyn std::error::Error + 'static>> {
+        let server = start_server(Some(port));
         server.await?;
         Ok(())
     }
 
     #[test]
-    fn shuffle_server_up() -> Result<(), Box<dyn std::error::Error + 'static>> {
-        blocking_runtime();
+    fn cached_data_not_found() -> Result<(), Box<dyn std::error::Error + 'static>> {
+        blocking_runtime(5001);
 
         let url = format!(
             "http://{}:5001/shuffle/0/1/2",
             env::Configuration::get().local_ip
         );
         let mut retries = 0;
-        while let Err(err) = reqwest::get(&url) {
-            if format!("{:?}", err).contains("IncompleteMessage") {
-                // if the server is up it won't event return an error
+        loop {
+            let res = reqwest::get(&url);
+            if let Ok(res) = res {
+                assert_eq!(res.status(), reqwest::StatusCode::NOT_FOUND);
                 return Ok(());
             }
             retries += 1;
-            thread::sleep(Duration::from_millis(25));
             if retries > 10 {
                 return Err(Box::new(ShuffleManagerError::FailedToStart));
             }
+            thread::sleep(Duration::from_millis(25));
         }
+        Ok(())
+    }
+
+    #[test]
+    fn get_cached_data() -> Result<(), Box<dyn std::error::Error + 'static>> {
+        blocking_runtime(5002);
+        let data = b"some random bytes".iter().copied().collect::<Vec<u8>>();
+        {
+            let mut cache = env::shuffle_cache.write();
+            cache.insert((2, 1, 0), data.clone());
+        }
+        let url = format!(
+            "http://{}:5002/shuffle/2/1/0",
+            env::Configuration::get().local_ip
+        );
+        let mut retries = 0;
+        let res = reqwest::get(&url)?;
+        assert_eq!(res.status(), reqwest::StatusCode::OK);
+        assert_eq!(
+            res.bytes()
+                .into_iter()
+                .map(|c| c.unwrap())
+                .collect::<Vec<u8>>(),
+            data
+        );
         Ok(())
     }
 }
