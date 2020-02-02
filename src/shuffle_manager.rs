@@ -146,16 +146,18 @@ fn start_server(port: Option<u16>) -> ShuffleServer {
     Server::bind(&bind_addr).serve(ShuffleSvcMaker)
 }
 
-async fn get_shuffle(req: Request<Body>) -> Result<Response<Body>, Infallible> {
-    let response = "hello";
-    todo!()
-}
+struct ShuffleManager2;
 
-struct ShuffleManager2 {}
+impl ShuffleManager2 {
+    fn parse_path_part(&self, part: &str) -> Result<usize, ShuffleManagerError> {
+        Ok(u64::from_str_radix(part, 10)
+            .map_err(|_| ShuffleManagerError::FailedToParseUri("".to_owned()))? as usize)
+    }
+}
 
 impl Service<Request<Body>> for ShuffleManager2 {
     type Response = Response<Body>;
-    type Error = std::io::Error;
+    type Error = ShuffleManagerError;
     type Future = future::Ready<Result<Self::Response, Self::Error>>;
 
     fn poll_ready(&mut self, _cx: &mut Context) -> Poll<Result<(), Self::Error>> {
@@ -163,10 +165,38 @@ impl Service<Request<Body>> for ShuffleManager2 {
     }
 
     fn call(&mut self, req: Request<Body>) -> Self::Future {
-        let rsp = Response::builder();
-        let body = Body::from(Vec::from(&b"hey"[..]));
-        let rsp = rsp.status(200).body(body).unwrap();
-        future::ok(rsp)
+        // the path is: .../{shuffleid}/{inputid}/{reduceid}
+        let parts: Vec<_> = req.uri().path().split('/').collect();
+        if parts.len() != 5 {
+            return future::err(ShuffleManagerError::FailedToParseUri(format!(
+                "{}",
+                req.uri()
+            )));
+        }
+
+        let parts: Vec<_> = match (&parts[2..])
+            .iter()
+            .map(|part| self.parse_path_part(part))
+            .collect::<Result<_, _>>()
+        {
+            Err(err) => {
+                return future::err(ShuffleManagerError::FailedToParseUri(format!(
+                    "{}",
+                    req.uri()
+                )))
+            }
+            Ok(parts) => parts,
+        };
+
+        let cache = env::shuffle_cache.read();
+        if let Some(cached_data) = cache.get(&(parts[0], parts[1], parts[2])) {
+            let rsp = Response::builder();
+            let body = Body::from(Vec::from(&cached_data[..]));
+            let rsp = rsp.status(200).body(body).unwrap();
+            future::ok(rsp)
+        } else {
+            return future::err(ShuffleManagerError::RequestedCacheNotFound);
+        }
     }
 }
 
@@ -174,7 +204,7 @@ struct ShuffleSvcMaker;
 
 impl<T> Service<T> for ShuffleSvcMaker {
     type Response = ShuffleManager2;
-    type Error = std::io::Error;
+    type Error = ShuffleManagerError;
     type Future = future::Ready<Result<Self::Response, Self::Error>>;
 
     fn poll_ready(&mut self, _cx: &mut Context) -> Poll<Result<(), Self::Error>> {
@@ -182,7 +212,7 @@ impl<T> Service<T> for ShuffleSvcMaker {
     }
 
     fn call(&mut self, _: T) -> Self::Future {
-        future::ok(ShuffleManager2 {})
+        future::ok(ShuffleManager2)
     }
 }
 
@@ -190,6 +220,12 @@ impl<T> Service<T> for ShuffleSvcMaker {
 pub enum ShuffleManagerError {
     #[error("failed to start shuffle server")]
     FailedToStart,
+
+    #[error("incorrect URI sent in the request: {0}")]
+    FailedToParseUri(String),
+
+    #[error("cached data not found")]
+    RequestedCacheNotFound,
 }
 
 #[cfg(test)]
@@ -228,6 +264,10 @@ mod tests {
         );
         let mut retries = 0;
         while let Err(err) = reqwest::get(&url) {
+            if format!("{:?}", err).contains("IncompleteMessage") {
+                // if the server is up it won't event return an error
+                return Ok(());
+            }
             retries += 1;
             thread::sleep(Duration::from_millis(25));
             if retries > 10 {
