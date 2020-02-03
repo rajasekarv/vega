@@ -1,17 +1,14 @@
 use std::convert::Infallible;
 use std::fs;
-use std::net::SocketAddr;
+use std::net::{Ipv4Addr, SocketAddr};
 use std::path::PathBuf;
 use std::result::Result as StdResult;
 use std::task::{Context, Poll};
 use std::thread;
+use std::time::Duration;
 
 use crate::env;
-use actix_web::{
-    get,
-    web::{Bytes, Path},
-    App, HttpServer,
-};
+use crossbeam::channel as cb_channel;
 use futures::future;
 use hyper::{
     server::conn::AddrIncoming, service::Service, Body, Request, Response, Server, StatusCode,
@@ -39,7 +36,8 @@ impl ShuffleManager {
         let local_dir = ShuffleManager::get_local_work_dir()?;
         let shuffle_dir = local_dir.join("shuffle");
         fs::create_dir_all(&shuffle_dir);
-        let server_uri = ShuffleManager::start_server()?;
+        let shuffle_port = env::Configuration::get().shuffle_svc_port;
+        let server_uri = ShuffleManager::start_server(shuffle_port)?;
         Ok(ShuffleManager {
             local_dir,
             shuffle_dir,
@@ -62,51 +60,33 @@ impl ShuffleManager {
     }
 
     /// Returns the shuffle server URI as a string.
-    fn start_server() -> Result<String> {
-        // let server_address = format!("{}:{}", env::Configuration::get().local_ip.clone(), port);
-        // log::debug!("server_address {:?}", server_address)
-        // let server_address_clone = server_address;
-        // thread::spawn(move || {
-        //     #[get("/shuffle/{shuffleid}/{inputid}/{reduceid}")]
-        //     fn get_shuffle_data(info: Path<(usize, usize, usize)>) -> Bytes {
-        //         Bytes::from(
-        //             &env::shuffle_cache
-        //                 .read()
-        //                 .get(&(info.0, info.1, info.2))
-        //                 .unwrap()[..],
-        //         )
-        //     }
-        //     log::debug!("starting server for shuffle task");
-        //     #[get("/")]
-        //     fn no_params() -> &'static str {
-        //         "Hello world!\r"
-        //     }
-        //     match HttpServer::new(move || App::new().service(get_shuffle_data).service(no_params))
-        //         .workers(8)
-        //         .bind(server_address_clone)
-        //     {
-        //         Ok(s) => {
-        //             log::debug!("server for shufflemap task binded");
-        //             match s.run() {
-        //                 Ok(_) => {
-        //                     log::debug!("server for shufflemap task started");
-        //                 }
-        //                 Err(e) => {
-        //                     log::debug!("cannot start server for shufflemap task started {}", e);
-        //                 }
-        //             }
-        //         }
-        //         Err(e) => {
-        //             log::debug!("cannot bind server for shuffle map task {}", e);
-        //             std::process::exit(0)
-        //         }
-        //     }
-        // });
-        let port = if let Some(port) = &env::Configuration::get().shuffle_svc_port {
-            *port
+    fn start_server(port: Option<u16>) -> Result<String> {
+        let bind_ip = env::Configuration::get().local_ip.clone();
+        let port = if let Some(bind_port) = port {
+            let mut rt = tokio::runtime::Builder::new()
+                .enable_all()
+                .threaded_scheduler()
+                .build()
+                .map_err(|_| ShuffleManagerError::FailedToStart)?;
+            Self::launch_async_runtime(rt, bind_ip, bind_port)?;
+            bind_port
         } else {
-            // for experimenting this should not lead to any clashes
-            5000 + rand::thread_rng().gen_range(0, 1000)
+            let mut port = 0;
+            for retry in 0..10 {
+                let bind_port = get_dynamic_port();
+                let mut rt = tokio::runtime::Builder::new()
+                    .enable_all()
+                    .threaded_scheduler()
+                    .build()
+                    .map_err(|_| ShuffleManagerError::FailedToStart)?;
+                if let Ok(server) = Self::launch_async_runtime(rt, bind_ip, bind_port) {
+                    port = bind_port;
+                    break;
+                } else if retry == 9 {
+                    return Err(ShuffleManagerError::FreePortNotFound(bind_port));
+                }
+            }
+            port
         };
         let server_uri = format!(
             "http://{}:{}",
@@ -115,6 +95,32 @@ impl ShuffleManager {
         );
         log::debug!("server_uri {:?}", server_uri);
         Ok(server_uri)
+    }
+
+    fn launch_async_runtime(
+        mut rt: tokio::runtime::Runtime,
+        bind_ip: Ipv4Addr,
+        bind_port: u16,
+    ) -> Result<()> {
+        let (s, r) = cb_channel::bounded::<StdResult<(), hyper::error::Error>>(1);
+        thread::spawn(move || {
+            if let Err(err) = rt.block_on(async {
+                let bind_addr = SocketAddr::from((bind_ip, bind_port));
+                let server = Server::try_bind(&bind_addr.clone())
+                    .map_err(|_| ShuffleManagerError::FreePortNotFound(bind_port))
+                    .unwrap();
+                let server = server.serve(ShuffleSvcMaker);
+                server.await
+            }) {
+                s.send(Err(err));
+            };
+        });
+        cb_channel::select! {
+            recv(r) -> msg => { msg.map_err(|_| ShuffleManagerError::FailedToStart)?; }
+            // wait a prudential time to check that initialization is ok and the move on
+            default(Duration::from_millis(100)) => log::debug!("started shuffle server @ {}", bind_port),
+        };
+        Ok(())
     }
 
     fn get_local_work_dir() -> Result<PathBuf> {
@@ -137,18 +143,13 @@ impl ShuffleManager {
 
 //TODO implement drop for deleting files created when the shuffle manager stops
 
-type ShuffleServer = Server<AddrIncoming, ShuffleSvcMaker>;
-
-fn start_server(port: Option<u16>) -> ShuffleServer {
-    let bind_ip = env::Configuration::get().local_ip.clone();
-    let bind_port = if let Some(port) = port {
-        port
-    } else {
-        5000 + rand::thread_rng().gen_range(0, 1000)
-    };
-    let bind_addr = SocketAddr::from((bind_ip, bind_port));
-    Server::bind(&bind_addr).serve(ShuffleSvcMaker)
+fn get_dynamic_port() -> u16 {
+    const FIRST_DYNAMIC_PORT: u16 = 49152;
+    const LAST_DYNAMIC_PORT: u16 = 65535;
+    FIRST_DYNAMIC_PORT + rand::thread_rng().gen_range(0, LAST_DYNAMIC_PORT - FIRST_DYNAMIC_PORT)
 }
+
+type ShuffleServer = Server<AddrIncoming, ShuffleSvcMaker>;
 
 struct ShuffleService;
 
@@ -224,17 +225,20 @@ impl<T> Service<T> for ShuffleSvcMaker {
 
 #[derive(Debug, Error)]
 pub enum ShuffleManagerError {
-    #[error("failed to start shuffle server")]
-    FailedToStart,
+    #[error("failed to create local shuffle dir after 10 attempts")]
+    CouldNotCreateShuffleDir,
 
     #[error("incorrect URI sent in the request: {0}")]
     FailedToParseUri(String),
 
+    #[error("failed to start shuffle server")]
+    FailedToStart,
+
+    #[error("failed to find free port: {0}")]
+    FreePortNotFound(u16),
+
     #[error("cached data not found")]
     RequestedCacheNotFound,
-
-    #[error("failed to create local shuffle dir after 10 attempts")]
-    CouldNotCreateShuffleDir,
 }
 
 impl Into<Response<Body>> for ShuffleManagerError {
@@ -267,28 +271,15 @@ mod tests {
     use std::time::Duration;
     use tokio::prelude::*;
 
-    fn blocking_runtime(port: u16) {
-        let mut rt = tokio::runtime::Builder::new()
-            .enable_all()
-            .basic_scheduler()
-            .build()
-            .expect("build runtime");
-
-        thread::spawn(move || {
-            rt.block_on(async {
-                let server = start_server(Some(port));
-                server.await.unwrap();
-            })
-        });
-    }
-
     #[test]
     fn cached_data_not_found() -> StdResult<(), Box<dyn std::error::Error + 'static>> {
-        blocking_runtime(5001);
+        let port = get_dynamic_port();
+        ShuffleManager::start_server(Some(port))?;
 
         let url = format!(
-            "http://{}:5001/shuffle/0/1/2",
-            env::Configuration::get().local_ip
+            "http://{}:{}/shuffle/0/1/2",
+            env::Configuration::get().local_ip,
+            port
         );
         let mut retries = 0;
         loop {
@@ -308,7 +299,8 @@ mod tests {
 
     #[test]
     fn get_cached_data() -> StdResult<(), Box<dyn std::error::Error + 'static>> {
-        blocking_runtime(5002);
+        let port = get_dynamic_port();
+        ShuffleManager::start_server(Some(port))?;
 
         let data = b"some random bytes".iter().copied().collect::<Vec<u8>>();
         {
@@ -316,8 +308,9 @@ mod tests {
             cache.insert((2, 1, 0), data.clone());
         }
         let url = format!(
-            "http://{}:5002/shuffle/2/1/0",
-            env::Configuration::get().local_ip
+            "http://{}:{}/shuffle/2/1/0",
+            env::Configuration::get().local_ip,
+            port
         );
         let mut retries = 0;
         let res = reqwest::get(&url)?;

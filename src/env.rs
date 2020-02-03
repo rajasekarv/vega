@@ -49,13 +49,13 @@ impl Env {
     }
 }
 
-mod config_vars {
-    pub(super) const DEPLOYMENT_MODE: &str = "NS_DEPLOYMENT_MODE";
-    pub(super) const LOCAL_DIR: &str = "NS_LOCAL_DIR";
-    pub(super) const LOCAL_IP: &str = "NS_LOCAL_IP";
-    pub(super) const LOG_LEVEL: &str = "NS_LOG_LEVEL";
-    pub(super) const PORT: &str = "NS_PORT";
-    pub(super) const SHUFFLE_SERVICE_PORT: &str = "NS_SHUFFLE_SERVICE_PORT";
+pub(crate) mod config_vars {
+    pub const DEPLOYMENT_MODE: &str = "NS_DEPLOYMENT_MODE";
+    pub const LOCAL_DIR: &str = "NS_LOCAL_DIR";
+    pub const LOCAL_IP: &str = "NS_LOCAL_IP";
+    pub const LOG_LEVEL: &str = "NS_LOG_LEVEL";
+    pub const PORT: &str = "NS_PORT";
+    pub const SHUFFLE_SERVICE_PORT: &str = "NS_SHUFFLE_SERVICE_PORT";
 }
 
 use crate::cache::BoundedMemoryCache;
