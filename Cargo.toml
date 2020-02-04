@@ -39,7 +39,7 @@ capnp = "0.12.1"
 serde = { version = "1.0.104", features = ["rc"] }
 serde_closure = "0.2.9"
 serde_derive = "1.0.104"
-url = "2.1.1"
+uriparse = "0.6.1"
 
 # dynamic typing
 downcast-rs = "1.1.1"
