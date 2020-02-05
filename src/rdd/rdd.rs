@@ -353,8 +353,8 @@ pub trait Rdd: RddBase + 'static {
                     let mut rand = utils::random::get_default_rng_from_seed(hasher.finish());
                     let mut position = rand.gen_range(0, num_partitions);
                     Box::new(items.map(move |t| {
-                        // Note that the hash code of the key will just be the key itself. The HashPartitioner
-                        // will mod it with the number of total partitions.
+                        // Note that the hash code of the key will just be the key itself.
+                        // The HashPartitioner will mod it with the number of total partitions.
                         position += 1;
                         (position, t)
                     })) as Box<dyn Iterator<Item = (usize, Self::Item)>>
