@@ -30,7 +30,6 @@ pub(crate) struct ShuffleManager {
     server_uri: String,
 }
 
-//TODO replace all hardcoded values with environment variables
 impl ShuffleManager {
     pub fn new() -> Result<Self> {
         let local_dir = ShuffleManager::get_local_work_dir()?;
@@ -68,7 +67,7 @@ impl ShuffleManager {
                 .threaded_scheduler()
                 .build()
                 .map_err(|_| ShuffleManagerError::FailedToStart)?;
-            Self::launch_async_runtime(rt, bind_ip, bind_port)?;
+            ShuffleManager::launch_async_runtime(rt, bind_ip, bind_port)?;
             bind_port
         } else {
             let mut port = 0;
@@ -79,7 +78,7 @@ impl ShuffleManager {
                     .threaded_scheduler()
                     .build()
                     .map_err(|_| ShuffleManagerError::FailedToStart)?;
-                if let Ok(server) = Self::launch_async_runtime(rt, bind_ip, bind_port) {
+                if let Ok(server) = ShuffleManager::launch_async_runtime(rt, bind_ip, bind_port) {
                     port = bind_port;
                     break;
                 } else if retry == 9 {
@@ -153,20 +152,28 @@ type ShuffleServer = Server<AddrIncoming, ShuffleSvcMaker>;
 
 struct ShuffleService;
 
+enum ShuffleResponse {
+    Status(StatusCode),
+    CachedData(Vec<u8>),
+}
+
 impl ShuffleService {
-    fn parse_path_part(part: &str) -> Result<usize> {
-        Ok(u64::from_str_radix(part, 10)
-            .map_err(|_| ShuffleManagerError::FailedToParseUri("".to_owned()))? as usize)
+    fn response_type(&self, uri: &hyper::Uri) -> Result<ShuffleResponse> {
+        let parts: Vec<_> = uri.path().split('/').collect();
+        match parts.as_slice() {
+            [_, endpoint] if *endpoint == "status" => Ok(ShuffleResponse::Status(StatusCode::OK)),
+            [_, endpoint, shuffle_id, input_id, reduce_id] if *endpoint == "shuffle" => Ok(
+                ShuffleResponse::CachedData(
+                    self.get_cached_data(uri, &[*shuffle_id, *input_id, *reduce_id])?,
+                ),
+            ),
+            _ => Err(ShuffleManagerError::FailedToParseUri(format!("{}", uri))),
+        }
     }
 
-    fn get_cached_data(&self, uri: &hyper::Uri) -> Result<Vec<u8>> {
+    fn get_cached_data(&self, uri: &hyper::Uri, parts: &[&str]) -> Result<Vec<u8>> {
         // the path is: .../{shuffleid}/{inputid}/{reduceid}
-        let parts: Vec<_> = uri.path().split('/').collect();
-        if parts.len() != 5 {
-            return Err(ShuffleManagerError::FailedToParseUri(format!("{}", uri)));
-        }
-
-        let parts: Vec<_> = match (&parts[2..])
+        let parts: Vec<_> = match parts
             .iter()
             .map(|part| ShuffleService::parse_path_part(part))
             .collect::<Result<_>>()
@@ -183,6 +190,12 @@ impl ShuffleService {
             Err(ShuffleManagerError::RequestedCacheNotFound)
         }
     }
+
+    #[inline]
+    fn parse_path_part(part: &str) -> Result<usize> {
+        Ok(u64::from_str_radix(part, 10)
+            .map_err(|_| ShuffleManagerError::FailedToParseUri("".to_owned()))? as usize)
+    }
 }
 
 impl Service<Request<Body>> for ShuffleService {
@@ -195,13 +208,21 @@ impl Service<Request<Body>> for ShuffleService {
     }
 
     fn call(&mut self, req: Request<Body>) -> Self::Future {
-        match self.get_cached_data(req.uri()) {
-            Ok(cached_data) => {
-                let rsp = Response::builder();
-                let body = Body::from(Vec::from(&cached_data[..]));
-                let rsp = rsp.status(200).body(body).unwrap();
-                future::ok(rsp)
-            }
+        match self.response_type(req.uri()) {
+            Ok(response) => match response {
+                ShuffleResponse::Status(code) => {
+                    let rsp = Response::builder();
+                    let body = Body::from(&[] as &[u8]);
+                    let rsp = rsp.status(code).body(body).unwrap();
+                    future::ok(rsp)
+                }
+                ShuffleResponse::CachedData(cached_data) => {
+                    let rsp = Response::builder();
+                    let body = Body::from(Vec::from(&cached_data[..]));
+                    let rsp = rsp.status(200).body(body).unwrap();
+                    future::ok(rsp)
+                }
+            },
             Err(err) => future::ok(err.into()),
         }
     }
@@ -223,7 +244,7 @@ impl<T> Service<T> for ShuffleSvcMaker {
     }
 }
 
-#[derive(Debug, Error)]
+#[derive(Debug, Error, PartialEq, Eq)]
 pub enum ShuffleManagerError {
     #[error("failed to create local shuffle dir after 10 attempts")]
     CouldNotCreateShuffleDir,
@@ -239,6 +260,9 @@ pub enum ShuffleManagerError {
 
     #[error("cached data not found")]
     RequestedCacheNotFound,
+
+    #[error("not valid endpoint")]
+    NotValidEndpoint,
 }
 
 impl Into<Response<Body>> for ShuffleManagerError {
@@ -268,40 +292,52 @@ impl Into<Response<Body>> for ShuffleManagerError {
 mod tests {
     use super::*;
     use std::io::Read;
+    use std::net::TcpListener;
     use std::time::Duration;
     use tokio::prelude::*;
 
+    fn get_free_port() -> u16 {
+        let mut port = 0;
+        for _ in 0..100 {
+            port = get_dynamic_port();
+            if !TcpListener::bind(format!("127.0.0.1:{}", port)).is_err() {
+                return port;
+            }
+        }
+        panic!("failed to find free port while testing");
+    }
+
     #[test]
-    fn cached_data_not_found() -> StdResult<(), Box<dyn std::error::Error + 'static>> {
-        let port = get_dynamic_port();
+    fn start_ok() -> StdResult<(), Box<dyn std::error::Error + 'static>> {
+        let port = get_free_port();
         ShuffleManager::start_server(Some(port))?;
 
         let url = format!(
-            "http://{}:{}/shuffle/0/1/2",
+            "http://{}:{}/status",
             env::Configuration::get().local_ip,
             port
         );
-        let mut retries = 0;
-        loop {
-            let res = reqwest::get(&url);
-            if let Ok(res) = res {
-                assert_eq!(res.status(), reqwest::StatusCode::NOT_FOUND);
-                return Ok(());
-            }
-            retries += 1;
-            if retries > 10 {
-                return Err(Box::new(ShuffleManagerError::FailedToStart));
-            }
-            thread::sleep(Duration::from_millis(25));
-        }
+        let res = reqwest::get(&url)?;
+        assert_eq!(res.status(), reqwest::StatusCode::OK);
         Ok(())
     }
 
     #[test]
-    fn get_cached_data() -> StdResult<(), Box<dyn std::error::Error + 'static>> {
-        let port = get_dynamic_port();
-        ShuffleManager::start_server(Some(port))?;
+    fn start_failure() -> StdResult<(), Box<dyn std::error::Error + 'static>> {
+        let port = get_free_port();
+        // bind first so it fails while trying to start
+        let bind = TcpListener::bind(format!("127.0.0.1:{}", port))?;
+        assert_eq!(
+            ShuffleManager::start_server(Some(port)).unwrap_err(),
+            ShuffleManagerError::FailedToStart
+        );
+        Ok(())
+    }
 
+    #[test]
+    fn cached_data_found() -> StdResult<(), Box<dyn std::error::Error + 'static>> {
+        let port = get_free_port();
+        ShuffleManager::start_server(Some(port))?;
         let data = b"some random bytes".iter().copied().collect::<Vec<u8>>();
         {
             let mut cache = env::shuffle_cache.write();
@@ -312,7 +348,6 @@ mod tests {
             env::Configuration::get().local_ip,
             port
         );
-        let mut retries = 0;
         let res = reqwest::get(&url)?;
         assert_eq!(res.status(), reqwest::StatusCode::OK);
         assert_eq!(
@@ -322,6 +357,37 @@ mod tests {
                 .collect::<Vec<u8>>(),
             data
         );
+        Ok(())
+    }
+
+    #[test]
+    fn cached_data_not_found() -> StdResult<(), Box<dyn std::error::Error + 'static>> {
+        let port = get_free_port();
+        ShuffleManager::start_server(Some(port))?;
+
+        let url = format!(
+            "http://{}:{}/shuffle/0/1/2",
+            env::Configuration::get().local_ip,
+            port
+        );
+        let res = reqwest::get(&url)?;
+        assert_eq!(res.status(), reqwest::StatusCode::NOT_FOUND);
+        Ok(())
+    }
+
+    #[test]
+    fn not_valid_endpoint() -> StdResult<(), Box<dyn std::error::Error + 'static>> {
+        let port = get_free_port();
+        ShuffleManager::start_server(Some(port))?;
+
+        let url = format!(
+            "http://{}:{}/not_valid",
+            env::Configuration::get().local_ip,
+            port
+        );
+        let mut res = reqwest::get(&url)?;
+        assert_eq!(res.status(), reqwest::StatusCode::BAD_REQUEST);
+        assert_eq!(res.text()?, format!("Failed to parse: /not_valid"));
         Ok(())
     }
 }
