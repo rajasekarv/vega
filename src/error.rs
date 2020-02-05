@@ -7,6 +7,9 @@ pub type Result<T> = std::result::Result<T, Error>;
 
 #[derive(Debug, Error)]
 pub enum Error {
+    #[error("async runtime configuration error")]
+    AsyncRuntimeError,
+
     #[error("failed to run {command}")]
     CommandOutput {
         source: std::io::Error,
