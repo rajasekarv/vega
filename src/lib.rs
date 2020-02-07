@@ -1,10 +1,10 @@
 #![feature(
+    arbitrary_self_types,
     coerce_unsized,
     core_intrinsics,
     fn_traits,
     specialization,
     unboxed_closures,
-    arbitrary_self_types,
     unsize
 )]
 #![allow(

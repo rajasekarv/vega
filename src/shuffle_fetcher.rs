@@ -11,9 +11,10 @@ use std::sync::mpsc::Sender;
 use std::sync::Arc;
 use threadpool::ThreadPool;
 
-pub struct ShuffleFetcher;
+/// Parallel shuffle fetcher.
+//  TODO: Instead of Thread, convert everything to Tokio based async methods
+pub(crate) struct ShuffleFetcher;
 
-// Parallel shuffle fetcher. Instead of Thread, convert everything to Tokio based async methods
 impl ShuffleFetcher {
     pub fn fetch<K: Data, V: Data>(
         &self,
@@ -52,7 +53,6 @@ impl ShuffleFetcher {
             reduce_id,
             server_queue
         );
-        //        let log_output = format!("servers {:?}", server_queue);
         let (producer, consumer) = channel();
         let failure = Arc::new(Mutex::new(None));
         let sent_count = Arc::new(Mutex::new(0));
