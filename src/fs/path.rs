@@ -66,8 +66,35 @@ impl Path {
         Path { url: url.into_owned() }
     }
 
+    pub fn from_scheme_auth_path(scheme: &str, auth: Option<&str>, path: &str ) -> Self {
+        let mut path = path.to_string();
+        if path.len() ==0 {
+            panic!("cannot creeate path from empty string");
+        }
+        if Self::has_windows_drive(&path) && path.chars().next().unwrap() != '/' {
+            path = format!("/{}", path);
+        }
+
+        if !*WINDOWS && path.chars().next().unwrap() != '/' {
+            path = format!("./{}", path);
+        }
+
+        path = Self::normalize_path(scheme.to_string(), path);
+        let mut url = URI::from_parts(scheme,auth,  path.as_str(), None::<Query>, None::<Fragment>).unwrap();
+        Path::from_url(url.into_owned())
+    }
+
     pub fn to_url(&self) -> &URI {
         &self.url
+    }
+
+    pub fn merge_paths(path1: Path, path2: Path) -> Path {
+        let mut path2 =  path2.to_url().path().to_string();
+        path2 = path2.get(Self::start_position_without_windows_drive(&path2) .. ).unwrap().into();
+        let scheme = path1.to_url().scheme().to_string();
+        let auth = path1.to_url().authority().map(|x| x.to_string());
+        let path = path1.to_url().path().to_string();
+        Path::from_scheme_auth_path(scheme.as_str(), auth.as_deref() , path.as_str() )
     }
 
     pub fn is_url_path_absolute(&self) -> bool {
@@ -182,7 +209,7 @@ mod tests {
     #[test]
     fn parent() {
         assert_eq!(
-            Path::from_path_string("file:///foo"),
+            Path::from_path_string("/foo"),
             Path::from_path_string("file:///foo/bar").get_parent().unwrap()
         );
         assert_eq!(
