@@ -43,32 +43,25 @@ impl Path {
             index = colon.unwrap() + 1;
         }
 
-        // parse uri authority if any
-        println!("index after scheme {}", index);
         if path_string.get(index..).unwrap().starts_with("//") && path_string.len() - index > 2 {
-            println!("{:?}", path_string.get(index + 2..));
             let next_slash = path_string[index+2..].find('/').map(|fi| index +2 +fi).unwrap();
-            println!("next slash {}", next_slash);
             let auth_end = if next_slash > 0 {
                 next_slash
             } else {
                 path_string.len()
             };
-            println!("auth end {}", auth_end);
             authority = Some(path_string.get(index +2..auth_end).unwrap());
             index = auth_end;
         }
-        println!("index after authority {}", index);
 
         let path = path_string.get(index .. path_string.len());
 
-        println!("scheme {:?}", scheme);
-        println!("path {:?}", path);
-        println!("authority {:?}", authority);
-        let mut url = URI::from_parts(scheme.unwrap(),None::<Authority>,  path.unwrap(), None::<Query>, None::<Fragment>).unwrap();
-        println!("url {:?}", url.to_string());
+        if scheme.is_none() {
+            scheme = Some("file");
+        }
+        let path = Self::normalize_path(scheme.unwrap().to_string(), path.unwrap().to_string());
+        let mut url = URI::from_parts(scheme.unwrap(),None::<Authority>,  path.as_str(), None::<Query>, None::<Fragment>).unwrap();
         url.normalize();
-        println!("normalized url {:?}", url.to_string());
 
         Path { url: url.into_owned() }
     }
@@ -78,7 +71,7 @@ impl Path {
     }
 
     pub fn is_url_path_absolute(&self) -> bool {
-        let start = self.start_position_without_windows_drive(&self.url.path().to_string());
+        let start = Self::start_position_without_windows_drive(&self.url.path().to_string());
         self.url.path().to_string().get(start..).unwrap().starts_with(SEPARATOR)
     }
 
@@ -86,7 +79,7 @@ impl Path {
         self.is_url_path_absolute()
     }
 
-    fn start_position_without_windows_drive(&self, path: &str) -> usize {
+    fn start_position_without_windows_drive(path: &str) -> usize {
         if Self::has_windows_drive(path) {
             if path.chars().next().unwrap() == SEPARATOR {
                 3
@@ -104,14 +97,14 @@ impl Path {
 
     pub fn get_name(&self) -> Option<String> {
         let path = self.url.path();
-        let slash = path.to_string().rfind(SEPARATOR)?;
-        path.to_string().get(slash + 1..).map(|x| x.to_owned())
+        let mut slash = path.to_string().rfind(SEPARATOR).map_or(0, |i| i + 1);
+        path.to_string().get(slash ..).map(|x| x.to_owned())
     }
 
     pub fn get_parent(&self) -> Option<Path> {
         let path = self.url.path();
         let last_slash = path.to_string().rfind(SEPARATOR);
-        let start = self.start_position_without_windows_drive(&path.to_string());
+        let start = Self::start_position_without_windows_drive(&path.to_string());
         if (path.to_string().len() == start) || (last_slash? == start && path.to_string().len() == start + 1) {
             return None;
         }
@@ -128,12 +121,24 @@ impl Path {
         };
         let mut parent = self.url.clone();
         parent.set_path(parent_path.as_str());
-        println!("parent {}", parent);
         Some(Path::from_url(parent.into_owned()))
     }
 
     pub fn is_root(&self) -> bool {
         self.get_parent().is_none()
+    }
+
+    fn normalize_path(scheme: String, mut path: String) -> String {
+        path = path.replace("//","/");
+        if (*WINDOWS && (Self::has_windows_drive(&path) || scheme.eq("file"))) {
+            path = path.replace("\\","/");
+        }
+
+        let min_len = Self::start_position_without_windows_drive(&path) + 1;
+        if (path.len() > min_len) && path.ends_with(SEPARATOR) {
+            path = path.get(0 .. path.len() - 1).unwrap().to_string();
+        }
+        path
     }
 }
 
@@ -180,7 +185,6 @@ mod tests {
             Path::from_path_string("file:///foo"),
             Path::from_path_string("file:///foo/bar").get_parent().unwrap()
         );
-        println!("-----");
         assert_eq!(
             Path::from_path_string("foo"),
             Path::from_path_string("foo/bar").get_parent().unwrap()
