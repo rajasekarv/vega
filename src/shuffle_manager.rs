@@ -1,5 +1,6 @@
 use std::convert::TryFrom;
 use std::fs;
+use std::future::Future;
 use std::net::{Ipv4Addr, SocketAddr};
 use std::path::PathBuf;
 use std::result::Result as StdResult;
@@ -30,7 +31,7 @@ pub(crate) struct ShuffleManager {
     shuffle_dir: PathBuf,
     server_uri: String,
     ask_status: cb_channel::Sender<()>,
-    rcv_status: cb_channel::Receiver<StatusCode>,
+    rcv_status: cb_channel::Receiver<Result<StatusCode>>,
 }
 
 impl ShuffleManager {
@@ -40,7 +41,7 @@ impl ShuffleManager {
         fs::create_dir_all(&shuffle_dir);
         let shuffle_port = env::Configuration::get().shuffle_svc_port;
         let server_uri = ShuffleManager::start_server(shuffle_port)?;
-        let (send_main, rcv_main) = ShuffleManager::init_status_checker(&server_uri);
+        let (send_main, rcv_main) = ShuffleManager::init_status_checker(&server_uri)?;
         let manager = ShuffleManager {
             local_dir,
             shuffle_dir,
@@ -48,7 +49,7 @@ impl ShuffleManager {
             ask_status: send_main,
             rcv_status: rcv_main,
         };
-        if let StatusCode::OK = manager.check_status() {
+        if let Ok(StatusCode::OK) = manager.check_status() {
             Ok(manager)
         } else {
             Err(ShuffleManagerError::FailedToStart)
@@ -59,19 +60,29 @@ impl ShuffleManager {
         self.server_uri.clone()
     }
 
-    pub fn get_output_file(&self, shuffle_id: usize, input_id: usize, output_id: usize) -> String {
+    pub fn get_output_file(
+        &self,
+        shuffle_id: usize,
+        input_id: usize,
+        output_id: usize,
+    ) -> StdResult<String, Box<dyn std::error::Error>> {
         let path = self
             .shuffle_dir
             .join(format!("/{}/{}", shuffle_id, input_id));
         fs::create_dir_all(&path);
         let file_path = path.join(format!("{}", output_id));
         fs::File::create(&file_path);
-        file_path.to_str().unwrap().to_owned()
+        Ok(file_path
+            .to_str()
+            .ok_or_else(|| ShuffleManagerError::CouldNotCreateShuffleDir)?
+            .to_owned())
     }
 
-    pub fn check_status(&self) -> StatusCode {
+    pub fn check_status(&self) -> Result<StatusCode> {
         self.ask_status.send(());
-        self.rcv_status.recv().unwrap()
+        self.rcv_status
+            .recv()
+            .map_err(|_| ShuffleManagerError::ServerDown)?
     }
 
     /// Returns the shuffle server URI as a string.
@@ -109,7 +120,7 @@ impl ShuffleManager {
                 .enable_all()
                 .threaded_scheduler()
                 .build()
-                .map_err(|_| ShuffleManagerError::FailedToStart)
+                .map_err(|_| ShuffleManagerError::AsyncRuntimeError)
             {
                 Err(err) => {
                     s.send(Err(err));
@@ -138,36 +149,46 @@ impl ShuffleManager {
 
     fn init_status_checker(
         server_uri: &str,
-    ) -> (cb_channel::Sender<()>, cb_channel::Receiver<StatusCode>) {
+    ) -> Result<(
+        cb_channel::Sender<()>,
+        cb_channel::Receiver<Result<StatusCode>>,
+    )> {
         // Build a two way com lane between the main thread and the background running executor
-        let (send_child, rcv_main) = cb_channel::unbounded::<StatusCode>();
+        let (send_child, rcv_main) = cb_channel::unbounded::<Result<StatusCode>>();
         let (send_main, rcv_child) = cb_channel::unbounded::<()>();
-        let status_uri = Uri::try_from(&format!("{}/status", server_uri)).unwrap();
-        thread::spawn(|| {
+        let uri_str = format!("{}/status", server_uri);
+        let status_uri =
+            Uri::try_from(&uri_str).map_err(|_| ShuffleManagerError::FailedToParseUri(uri_str))?;
+        thread::spawn(|| -> Result<()> {
             let mut rt = tokio::runtime::Builder::new()
                 .enable_all()
                 .basic_scheduler()
                 .core_threads(1)
                 .thread_stack_size(1024)
                 .build()
-                .map_err(|_| crate::error::Error::AsyncRuntimeError)
-                .unwrap();
-            rt.block_on(async move {
-                let client = Client::builder().http2_only(true).build_http::<Body>();
-                let req = client.get(status_uri.clone());
-                // loop forever waiting for requests to send
-                loop {
-                    // dispatch all queued requests
-                    while let Ok(()) = rcv_child.recv() {
-                        let req = client.get(status_uri.clone());
-                        send_child.send(req.await.unwrap().status());
+                .map_err(|_| ShuffleManagerError::AsyncRuntimeError)?;
+            let future: std::pin::Pin<Box<dyn Future<Output = Result<()>>>> =
+                Box::pin(async move {
+                    let client = Client::builder().http2_only(true).build_http::<Body>();
+                    // loop forever waiting for requests to send
+                    loop {
+                        let res = client
+                            .get(status_uri.clone())
+                            .await
+                            .map_err(|_| ShuffleManagerError::ServerDown)?;
+                        // dispatch all queued requests responses
+                        while let Ok(()) = rcv_child.recv() {
+                            send_child.send(Ok(res.status()));
+                        }
+                        // sleep for a while before checking again if there are status requests
+                        std::thread::sleep(Duration::from_millis(50));
                     }
-                    // sleep for a while before checking again if there are status requests
-                    std::thread::sleep(Duration::from_millis(50));
-                }
-            })
+                    Ok(())
+                });
+            rt.block_on(future)?;
+            Err(ShuffleManagerError::ServerDown)
         });
-        (send_main, rcv_main)
+        Ok((send_main, rcv_main))
     }
 
     fn get_local_work_dir() -> Result<PathBuf> {
@@ -185,12 +206,6 @@ impl ShuffleManager {
             }
         }
         Err(ShuffleManagerError::CouldNotCreateShuffleDir)
-    }
-}
-
-impl Default for ShuffleManager {
-    fn default() -> Self {
-        ShuffleManager::new().unwrap()
     }
 }
 
@@ -221,7 +236,10 @@ impl ShuffleService {
                     self.get_cached_data(uri, &[*shuffle_id, *input_id, *reduce_id])?,
                 ),
             ),
-            _ => Err(ShuffleManagerError::FailedToParseUri(format!("{}", uri))),
+            _ => Err(ShuffleManagerError::FailedToParseUri(format!(
+                "{}",
+                uri.path()
+            ))),
         }
     }
 
@@ -247,8 +265,10 @@ impl ShuffleService {
 
     #[inline]
     fn parse_path_part(part: &str) -> Result<usize> {
-        Ok(u64::from_str_radix(part, 10)
-            .map_err(|_| ShuffleManagerError::FailedToParseUri("".to_owned()))? as usize)
+        Ok(
+            u64::from_str_radix(part, 10).map_err(|_| ShuffleManagerError::NotValidRequest)?
+                as usize,
+        )
     }
 }
 
@@ -265,16 +285,18 @@ impl Service<Request<Body>> for ShuffleService {
         match self.response_type(req.uri()) {
             Ok(response) => match response {
                 ShuffleResponse::Status(code) => {
-                    let rsp = Response::builder();
                     let body = Body::from(&[] as &[u8]);
-                    let rsp = rsp.status(code).body(body).unwrap();
-                    future::ok(rsp)
+                    match Response::builder().status(code).body(body) {
+                        Ok(rsp) => future::ok(rsp),
+                        Err(_) => future::err(ShuffleManagerError::InternalError),
+                    }
                 }
                 ShuffleResponse::CachedData(cached_data) => {
-                    let rsp = Response::builder();
                     let body = Body::from(Vec::from(&cached_data[..]));
-                    let rsp = rsp.status(200).body(body).unwrap();
-                    future::ok(rsp)
+                    match Response::builder().status(200).body(body) {
+                        Ok(rsp) => future::ok(rsp),
+                        Err(_) => future::err(ShuffleManagerError::InternalError),
+                    }
                 }
             },
             Err(err) => future::ok(err.into()),
@@ -300,8 +322,14 @@ impl<T> Service<T> for ShuffleSvcMaker {
 
 #[derive(Debug, Error, PartialEq, Eq)]
 pub enum ShuffleManagerError {
+    #[error("failed initializing async runtime")]
+    AsyncRuntimeError,
+
     #[error("failed to create local shuffle dir after 10 attempts")]
     CouldNotCreateShuffleDir,
+
+    #[error("internal server error")]
+    InternalError,
 
     #[error("incorrect URI sent in the request: {0}")]
     FailedToParseUri(String),
@@ -312,11 +340,14 @@ pub enum ShuffleManagerError {
     #[error("failed to find free port: {0}")]
     FreePortNotFound(u16),
 
+    #[error("not valid request")]
+    NotValidRequest,
+
+    #[error("shuffle server timeout")]
+    ServerDown,
+
     #[error("cached data not found")]
     RequestedCacheNotFound,
-
-    #[error("not valid endpoint")]
-    NotValidEndpoint,
 }
 
 impl Into<Response<Body>> for ShuffleManagerError {
@@ -357,8 +388,12 @@ mod tests {
         panic!("failed to find free port while testing");
     }
 
-    #[test]
-    fn start_ok() -> StdResult<(), Box<dyn std::error::Error + 'static>> {
+    fn client() -> Client<hyper::client::HttpConnector, Body> {
+        Client::builder().http2_only(true).build_http::<Body>()
+    }
+
+    #[tokio::test]
+    async fn start_ok() -> StdResult<(), Box<dyn std::error::Error + 'static>> {
         let port = get_free_port();
         ShuffleManager::start_server(Some(port))?;
 
@@ -367,13 +402,13 @@ mod tests {
             env::Configuration::get().local_ip,
             port
         );
-        let res = reqwest::get(&url)?;
-        assert_eq!(res.status(), reqwest::StatusCode::OK);
+        let res = client().get(Uri::try_from(&url)?).await?;
+        assert_eq!(res.status(), StatusCode::OK);
         Ok(())
     }
 
-    #[test]
-    fn start_failure() -> StdResult<(), Box<dyn std::error::Error + 'static>> {
+    #[tokio::test]
+    async fn start_failure() -> StdResult<(), Box<dyn std::error::Error + 'static>> {
         let port = get_free_port();
         // bind first so it fails while trying to start
         let bind = TcpListener::bind(format!("127.0.0.1:{}", port))?;
@@ -389,13 +424,13 @@ mod tests {
         let port = get_free_port();
         let manager = ShuffleManager::new()?;
         for _ in 0..100 {
-            assert_eq!(manager.check_status(), StatusCode::OK);
+            assert_eq!(manager.check_status(), Ok(StatusCode::OK));
         }
         Ok(())
     }
 
-    #[test]
-    fn cached_data_found() -> StdResult<(), Box<dyn std::error::Error + 'static>> {
+    #[tokio::test]
+    async fn cached_data_found() -> StdResult<(), Box<dyn std::error::Error + 'static>> {
         let port = get_free_port();
         ShuffleManager::start_server(Some(port))?;
         let data = b"some random bytes".iter().copied().collect::<Vec<u8>>();
@@ -408,20 +443,15 @@ mod tests {
             env::Configuration::get().local_ip,
             port
         );
-        let res = reqwest::get(&url)?;
-        assert_eq!(res.status(), reqwest::StatusCode::OK);
-        assert_eq!(
-            res.bytes()
-                .into_iter()
-                .map(|c| c.unwrap())
-                .collect::<Vec<u8>>(),
-            data
-        );
+        let mut res = client().get(Uri::try_from(&url)?).await?;
+        assert_eq!(res.status(), StatusCode::OK);
+        let body = hyper::body::to_bytes(res.into_body()).await?;
+        assert_eq!(body.to_vec(), data);
         Ok(())
     }
 
-    #[test]
-    fn cached_data_not_found() -> StdResult<(), Box<dyn std::error::Error + 'static>> {
+    #[tokio::test]
+    async fn cached_data_not_found() -> StdResult<(), Box<dyn std::error::Error + 'static>> {
         let port = get_free_port();
         ShuffleManager::start_server(Some(port))?;
 
@@ -430,13 +460,14 @@ mod tests {
             env::Configuration::get().local_ip,
             port
         );
-        let res = reqwest::get(&url)?;
-        assert_eq!(res.status(), reqwest::StatusCode::NOT_FOUND);
+        let res = client().get(Uri::try_from(&url)?).await?;
+        assert_eq!(res.status(), StatusCode::NOT_FOUND);
         Ok(())
     }
 
-    #[test]
-    fn not_valid_endpoint() -> StdResult<(), Box<dyn std::error::Error + 'static>> {
+    #[tokio::test]
+    async fn not_valid_endpoint() -> StdResult<(), Box<dyn std::error::Error + 'static>> {
+        use std::iter::FromIterator;
         let port = get_free_port();
         ShuffleManager::start_server(Some(port))?;
 
@@ -445,9 +476,13 @@ mod tests {
             env::Configuration::get().local_ip,
             port
         );
-        let mut res = reqwest::get(&url)?;
-        assert_eq!(res.status(), reqwest::StatusCode::BAD_REQUEST);
-        assert_eq!(res.text()?, format!("Failed to parse: /not_valid"));
+        let res = client().get(Uri::try_from(&url)?).await?;
+        assert_eq!(res.status(), StatusCode::BAD_REQUEST);
+        let body = hyper::body::to_bytes(res.into_body()).await?;
+        assert_eq!(
+            String::from_iter(body.into_iter().map(|b| b as char)),
+            format!("Failed to parse: /not_valid")
+        );
         Ok(())
     }
 }
