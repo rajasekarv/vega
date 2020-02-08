@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::hash::Hash;
+use std::pin::Pin;
 use std::sync::Arc;
 use std::time::Instant;
 
@@ -8,7 +9,7 @@ use crate::context::Context;
 use crate::dependency::{Dependency, ShuffleDependency};
 use crate::error::{Error, Result};
 use crate::partitioner::Partitioner;
-use crate::rdd::{Rdd, RddBase, RddVals};
+use crate::rdd::{ComputeResult, Rdd, RddBase, RddVals};
 use crate::serializable_traits::{AnyData, Data};
 use crate::shuffle::ShuffleFetcher;
 use crate::split::Split;
@@ -86,6 +87,7 @@ impl<K: Data + Eq + Hash, V: Data, C: Data> ShuffledRdd<K, V, C> {
     }
 }
 
+#[async_trait::async_trait]
 impl<K: Data + Eq + Hash, V: Data, C: Data> RddBase for ShuffledRdd<K, V, C> {
     fn get_rdd_id(&self) -> usize {
         self.vals.id
@@ -135,6 +137,7 @@ impl<K: Data + Eq + Hash, V: Data, C: Data> RddBase for ShuffledRdd<K, V, C> {
     }
 }
 
+#[async_trait::async_trait]
 impl<K: Data + Eq + Hash, V: Data, C: Data> Rdd for ShuffledRdd<K, V, C> {
     type Item = (K, C);
 
@@ -146,7 +149,7 @@ impl<K: Data + Eq + Hash, V: Data, C: Data> Rdd for ShuffledRdd<K, V, C> {
         Arc::new(self.clone())
     }
 
-    fn compute(&self, split: Box<dyn Split>) -> Result<Box<dyn Iterator<Item = Self::Item>>> {
+    async fn compute(&self, split: Box<dyn Split>) -> ComputeResult<Self::Item> {
         log::debug!("compute inside shuffled rdd");
         let mut combiners: HashMap<K, Option<C>> = HashMap::new();
         let merge_pair = |(k, c): (K, C)| {
@@ -161,16 +164,10 @@ impl<K: Data + Eq + Hash, V: Data, C: Data> Rdd for ShuffledRdd<K, V, C> {
         };
 
         let start = Instant::now();
-        let fetcher = ShuffleFetcher;
-        fetcher.fetch(
-            self.vals.context.clone(),
-            self.shuffle_id,
-            split.get_index(),
-            merge_pair,
-        );
+        ShuffleFetcher::fetch(self.shuffle_id, split.get_index(), merge_pair).await;
         log::debug!("time taken for fetching {}", start.elapsed().as_millis());
-        Ok(Box::new(
+        Ok(Box::pin(futures::stream::iter(
             combiners.into_iter().map(|(k, v)| (k, v.unwrap())),
-        ))
+        )))
     }
 }

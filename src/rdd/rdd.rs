@@ -1,10 +1,12 @@
 use std::cmp::Ordering;
 use std::fs;
+use std::future::Future;
 use std::hash::Hash;
 use std::io::{BufWriter, Write};
 use std::marker::PhantomData;
 use std::net::Ipv4Addr;
 use std::path::Path;
+use std::pin::Pin;
 use std::sync::{atomic::AtomicBool, atomic::Ordering::SeqCst, Arc};
 
 use crate::context::Context;
@@ -17,6 +19,7 @@ use crate::task::TaskContext;
 use crate::utils;
 use crate::utils::random::{BernoulliSampler, PoissonSampler, RandomSampler};
 use fasthash::MetroHasher;
+use futures::{Stream, StreamExt};
 use log::info;
 use rand::{Rng, SeedableRng};
 use serde_derive::{Deserialize, Serialize};
@@ -69,35 +72,48 @@ impl RddVals {
     }
 }
 
+pub type AsyncComputation<R> = Result<Pin<Box<dyn Stream<Item = R>>>>;
+
+pub type ComputeResult<R> = Result<Pin<Box<dyn Stream<Item = R>>>>;
+
 // Due to the lack of HKTs in Rust, it is difficult to have collection of generic data with different types.
 // Required for storing multiple RDDs inside dependencies and other places like Tasks, etc.,
 // Refactored RDD trait into two traits one having RddBase trait which contains only non generic methods which provide information for dependency lists
 // Another separate Rdd containing generic methods like map, etc.,
 pub trait RddBase: Send + Sync + Serialize + Deserialize {
     fn get_rdd_id(&self) -> usize;
+
     fn get_context(&self) -> Arc<Context>;
+
     fn get_dependencies(&self) -> Vec<Dependency>;
+
     fn preferred_locations(&self, split: Box<dyn Split>) -> Vec<Ipv4Addr> {
         Vec::new()
     }
+
     fn partitioner(&self) -> Option<Box<dyn Partitioner>> {
         None
     }
+
     fn splits(&self) -> Vec<Box<dyn Split>>;
+
     fn number_of_splits(&self) -> usize {
         self.splits().len()
     }
+
     // Analyse whether this is required or not. It requires downcasting while executing tasks which could hurt performance.
     fn iterator_any(
         &self,
         split: Box<dyn Split>,
     ) -> Result<Box<dyn Iterator<Item = Box<dyn AnyData>>>>;
+
     fn cogroup_iterator_any(
         &self,
         split: Box<dyn Split>,
     ) -> Result<Box<dyn Iterator<Item = Box<dyn AnyData>>>> {
         self.iterator_any(split)
     }
+
     fn is_pinned(&self) -> bool {
         false
     }
@@ -144,30 +160,37 @@ impl<I: Rdd + ?Sized> RddBase for serde_traitobject::Arc<I> {
     }
 }
 
+#[async_trait::async_trait]
 impl<I: Rdd + ?Sized> Rdd for serde_traitobject::Arc<I> {
     type Item = I::Item;
+
     fn get_rdd(&self) -> Arc<dyn Rdd<Item = Self::Item>> {
         (**self).get_rdd()
     }
+
     fn get_rdd_base(&self) -> Arc<dyn RddBase> {
         (**self).get_rdd_base()
     }
-    fn compute(&self, split: Box<dyn Split>) -> Result<Box<dyn Iterator<Item = Self::Item>>> {
-        (**self).compute(split)
+
+    async fn compute(&self, split: Box<dyn Split>) -> ComputeResult<Self::Item> {
+        (**self).compute(split).await
     }
 }
 
 // Rdd containing methods associated with processing
+#[async_trait::async_trait]
 pub trait Rdd: RddBase + 'static {
     type Item: Data;
     fn get_rdd(&self) -> Arc<dyn Rdd<Item = Self::Item>>;
 
     fn get_rdd_base(&self) -> Arc<dyn RddBase>;
 
-    fn compute(&self, split: Box<dyn Split>) -> Result<Box<dyn Iterator<Item = Self::Item>>>;
+    /// Returns an asynchrnous computation task for a given partition.
+    async fn compute(&self, split: Box<dyn Split>) -> ComputeResult<Self::Item>;
 
-    fn iterator(&self, split: Box<dyn Split>) -> Result<Box<dyn Iterator<Item = Self::Item>>> {
-        self.compute(split)
+    fn iterator(&self, split: Box<dyn Split>) -> AsyncComputation<Self::Item> {
+        let async_comp: AsyncComputation<Self::Item> = self.compute(split);
+        async_comp
     }
 
     fn map<U: Data, F>(&self, f: F) -> SerArc<dyn Rdd<Item = U>>
@@ -819,6 +842,7 @@ where
     }
 }
 
+#[async_trait::async_trait]
 impl<T: Data, U: Data, F> RddBase for MapperRdd<T, U, F>
 where
     F: SerFunc(T) -> U,
@@ -885,6 +909,7 @@ where
     }
 }
 
+#[async_trait::async_trait]
 impl<T: Data, U: Data, F: 'static> Rdd for MapperRdd<T, U, F>
 where
     F: SerFunc(T) -> U,
@@ -898,8 +923,10 @@ where
         Arc::new(self.clone())
     }
 
-    fn compute(&self, split: Box<dyn Split>) -> Result<Box<dyn Iterator<Item = Self::Item>>> {
-        Ok(Box::new(self.prev.iterator(split)?.map(self.f.clone())))
+    async fn compute(&self, split: Box<dyn Split>) -> ComputeResult<Self::Item> {
+        let mut prev_iter = self.prev.iterator(split)?;
+        let this_iter = prev_iter.map(self.f.clone());
+        Ok(Box::pin(this_iter))
     }
 }
 
@@ -949,6 +976,7 @@ where
     }
 }
 
+#[async_trait::async_trait]
 impl<T: Data, U: Data, F> RddBase for FlatMapperRdd<T, U, F>
 where
     F: SerFunc(T) -> Box<dyn Iterator<Item = U>>,
@@ -968,6 +996,7 @@ where
     fn splits(&self) -> Vec<Box<dyn Split>> {
         self.prev.splits()
     }
+
     fn number_of_splits(&self) -> usize {
         self.prev.number_of_splits()
     }
@@ -1006,11 +1035,13 @@ where
     }
 }
 
+#[async_trait::async_trait]
 impl<T: Data, U: Data, F: 'static> Rdd for FlatMapperRdd<T, U, F>
 where
     F: SerFunc(T) -> Box<dyn Iterator<Item = U>>,
 {
     type Item = U;
+
     fn get_rdd_base(&self) -> Arc<dyn RddBase> {
         Arc::new(self.clone()) as Arc<dyn RddBase>
     }
@@ -1019,9 +1050,11 @@ where
         Arc::new(self.clone())
     }
 
-    fn compute(&self, split: Box<dyn Split>) -> Result<Box<dyn Iterator<Item = Self::Item>>> {
+    async fn compute(&self, split: Box<dyn Split>) -> ComputeResult<Self::Item> {
         let f = self.f.clone();
-        Ok(Box::new(self.prev.iterator(split)?.flat_map(f)))
+        let prev_res = self.prev.iterator(split).unwrap();
+        let this_iter = prev_res.map(|e| futures::stream::iter(f(e))).flatten();
+        Ok(Box::pin(this_iter))
     }
 }
 

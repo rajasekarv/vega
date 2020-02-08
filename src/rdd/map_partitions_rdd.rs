@@ -1,15 +1,18 @@
+use std::marker::PhantomData;
+use std::net::Ipv4Addr;
+use std::pin::Pin;
+use std::sync::{atomic::AtomicBool, atomic::Ordering::SeqCst, Arc};
+
 use crate::context::Context;
 use crate::dependency::{Dependency, OneToOneDependency};
 use crate::error::{Error, Result};
-use crate::rdd::{Rdd, RddBase, RddVals};
+use crate::rdd::{ComputeResult, Rdd, RddBase, RddVals};
 use crate::serializable_traits::{AnyData, Data, Func, SerFunc};
 use crate::split::Split;
+use futures::stream::StreamExt;
 use log::info;
 use serde_derive::{Deserialize, Serialize};
 use serde_traitobject::Arc as SerArc;
-use std::marker::PhantomData;
-use std::net::Ipv4Addr;
-use std::sync::{atomic::AtomicBool, atomic::Ordering::SeqCst, Arc};
 
 /// An RDD that applies the provided function to every partition of the parent RDD.
 #[derive(Serialize, Deserialize)]
@@ -66,8 +69,10 @@ where
     }
 }
 
+#[async_trait::async_trait]
 impl<T: Data, U: Data, F> RddBase for MapPartitionsRdd<T, U, F>
 where
+    // TODO: maybe take a Stream instead of an Iterator; or add an other speciallized version
     F: SerFunc(usize, Box<dyn Iterator<Item = T>>) -> Box<dyn Iterator<Item = U>>,
 {
     fn get_rdd_id(&self) -> usize {
@@ -94,14 +99,14 @@ where
         self.prev.number_of_splits()
     }
 
-    default fn cogroup_iterator_any(
+    fn cogroup_iterator_any(
         &self,
         split: Box<dyn Split>,
     ) -> Result<Box<dyn Iterator<Item = Box<dyn AnyData>>>> {
         self.iterator_any(split)
     }
 
-    default fn iterator_any(
+    fn iterator_any(
         &self,
         split: Box<dyn Split>,
     ) -> Result<Box<dyn Iterator<Item = Box<dyn AnyData>>>> {
@@ -132,19 +137,27 @@ where
     }
 }
 
+#[async_trait::async_trait]
 impl<T: Data, U: Data, F: 'static> Rdd for MapPartitionsRdd<T, U, F>
 where
     F: SerFunc(usize, Box<dyn Iterator<Item = T>>) -> Box<dyn Iterator<Item = U>>,
 {
     type Item = U;
+
     fn get_rdd_base(&self) -> Arc<dyn RddBase> {
         Arc::new(self.clone()) as Arc<dyn RddBase>
     }
+
     fn get_rdd(&self) -> Arc<dyn Rdd<Item = Self::Item>> {
         Arc::new(self.clone())
     }
-    fn compute(&self, split: Box<dyn Split>) -> Result<Box<dyn Iterator<Item = Self::Item>>> {
-        let f_result = self.f.clone()(split.get_index(), self.prev.iterator(split)?);
-        Ok(Box::new(f_result))
+
+    async fn compute(&self, split: Box<dyn Split>) -> ComputeResult<Self::Item> {
+        let prev_res = self.prev.iterator(split)?;
+        let f_result = self.f.clone()(
+            split.get_index(),
+            Box::new(prev_res.collect::<Vec<_>>().await.into_iter()),
+        );
+        Ok(Box::pin(futures::stream::iter(f_result)))
     }
 }

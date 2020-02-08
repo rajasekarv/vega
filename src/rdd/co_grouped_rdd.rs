@@ -1,3 +1,11 @@
+use std::any::Any;
+use std::collections::HashMap;
+use std::hash::Hash;
+use std::hash::Hasher;
+use std::marker::PhantomData;
+use std::pin::Pin;
+use std::sync::Arc;
+
 use crate::aggregator::Aggregator;
 use crate::context::Context;
 use crate::dependency::{
@@ -6,18 +14,12 @@ use crate::dependency::{
 };
 use crate::error::Result;
 use crate::partitioner::Partitioner;
-use crate::rdd::{Rdd, RddBase, RddVals};
+use crate::rdd::{ComputeResult, Rdd, RddBase, RddVals};
 use crate::serializable_traits::{AnyData, Data};
 use crate::shuffle::ShuffleFetcher;
 use crate::split::Split;
 use log::info;
 use serde_derive::{Deserialize, Serialize};
-use std::any::Any;
-use std::collections::HashMap;
-use std::hash::Hash;
-use std::hash::Hasher;
-use std::marker::PhantomData;
-use std::sync::Arc;
 
 #[derive(Clone, Serialize, Deserialize)]
 enum CoGroupSplitDep {
@@ -137,6 +139,7 @@ impl<K: Data + Eq + Hash> CoGroupedRdd<K> {
     }
 }
 
+#[async_trait::async_trait]
 impl<K: Data + Eq + Hash> RddBase for CoGroupedRdd<K> {
     fn get_rdd_id(&self) -> usize {
         self.vals.id
@@ -195,6 +198,7 @@ impl<K: Data + Eq + Hash> RddBase for CoGroupedRdd<K> {
     }
 }
 
+#[async_trait::async_trait]
 impl<K: Data + Eq + Hash> Rdd for CoGroupedRdd<K> {
     type Item = (K, Vec<Vec<Box<dyn AnyData>>>);
     fn get_rdd(&self) -> Arc<dyn Rdd<Item = Self::Item>> {
@@ -205,8 +209,7 @@ impl<K: Data + Eq + Hash> Rdd for CoGroupedRdd<K> {
         Arc::new(self.clone()) as Arc<dyn RddBase>
     }
 
-    #[allow(clippy::type_complexity)]
-    fn compute(&self, split: Box<dyn Split>) -> Result<Box<dyn Iterator<Item = Self::Item>>> {
+    async fn compute(&self, split: Box<dyn Split>) -> ComputeResult<Self::Item> {
         if let Ok(split) = split.downcast::<CoGroupSplit>() {
             let mut agg: HashMap<K, Vec<Vec<Box<dyn AnyData>>>> = HashMap::new();
             for (dep_num, dep) in split.clone().deps.into_iter().enumerate() {
@@ -239,18 +242,13 @@ impl<K: Data + Eq + Hash> Rdd for CoGroupedRdd<K> {
                                 temp[dep_num].push(v);
                             }
                         };
-                        let fetcher = ShuffleFetcher;
-
-                        fetcher.fetch(
-                            self.vals.context.clone(),
-                            shuffle_id,
-                            split.get_index(),
-                            merge_pair,
-                        );
+                        ShuffleFetcher::fetch(shuffle_id, split.get_index(), merge_pair).await;
                     }
                 }
             }
-            Ok(Box::new(agg.into_iter().map(|(k, v)| (k, v))))
+            Ok(Box::pin(futures::stream::iter(
+                agg.into_iter().map(|(k, v)| (k, v)),
+            )))
         } else {
             panic!("Got split object from different concrete type other than CoGroupSplit")
         }

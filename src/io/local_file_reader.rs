@@ -3,6 +3,7 @@ use std::io::{BufReader, Read};
 use std::marker::PhantomData;
 use std::net::{Ipv4Addr, SocketAddrV4};
 use std::path::{Path, PathBuf};
+use std::pin::Pin;
 use std::sync::Arc;
 
 use crate::context::Context;
@@ -10,7 +11,7 @@ use crate::dependency::Dependency;
 use crate::env;
 use crate::error::{Error, Result};
 use crate::io::ReaderConfiguration;
-use crate::rdd::{MapPartitionsRdd, MapperRdd, Rdd, RddBase};
+use crate::rdd::{ComputeResult, MapPartitionsRdd, MapperRdd, Rdd, RddBase};
 use crate::serializable_traits::{AnyData, Data, SerFunc};
 use crate::split::Split;
 use log::debug;
@@ -387,39 +388,41 @@ macro_rules! impl_common_lfs_rdd_funcs {
     };
 }
 
+#[async_trait::async_trait]
 impl Rdd for LocalFsReader<BytesReader> {
     type Item = BytesReader;
 
     impl_common_lfs_rdd_funcs!();
 
-    fn compute(&self, split: Box<dyn Split>) -> Result<Box<dyn Iterator<Item = Self::Item>>> {
+    async fn compute(&self, split: Box<dyn Split>) -> ComputeResult<Self::Item> {
         let split = split.downcast_ref::<BytesReader>().unwrap();
-        let mut files_by_part = self.load_local_files()?;
+        let mut files_by_part = self.load_local_files().unwrap();
         let idx = split.idx;
         let host = split.host;
-        Ok(Box::new(
+        Ok(Box::pin(futures::stream::iter(
             files_by_part
                 .into_iter()
                 .map(move |files| BytesReader { files, host, idx }),
-        ) as Box<dyn Iterator<Item = Self::Item>>)
+        )))
     }
 }
 
+#[async_trait::async_trait]
 impl Rdd for LocalFsReader<FileReader> {
     type Item = FileReader;
 
     impl_common_lfs_rdd_funcs!();
 
-    fn compute(&self, split: Box<dyn Split>) -> Result<Box<dyn Iterator<Item = Self::Item>>> {
+    async fn compute(&self, split: Box<dyn Split>) -> ComputeResult<Self::Item> {
         let split = split.downcast_ref::<FileReader>().unwrap();
         let mut files_by_part = self.load_local_files()?;
         let idx = split.idx;
         let host = split.host;
-        Ok(Box::new(
+        Ok(Box::pin(futures::stream::iter(
             files_by_part
                 .into_iter()
                 .map(move |files| FileReader { files, host, idx }),
-        ) as Box<dyn Iterator<Item = Self::Item>>)
+        )))
     }
 }
 
