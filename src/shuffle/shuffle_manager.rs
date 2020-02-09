@@ -88,7 +88,7 @@ impl ShuffleManager {
     }
 
     /// Returns the shuffle server URI as a string.
-    fn start_server(port: Option<u16>) -> Result<String> {
+    pub(super) fn start_server(port: Option<u16>) -> Result<String> {
         let bind_ip = env::Configuration::get().local_ip.clone();
         let port = if let Some(bind_port) = port {
             ShuffleManager::launch_async_server(bind_ip, bind_port)?;

@@ -26,7 +26,6 @@ pub(crate) struct ShuffleFetcher;
 
 impl ShuffleFetcher {
     pub async fn fetch_2<K: Data, V: Data>(
-        sc: Arc<Context>,
         shuffle_id: usize,
         reduce_id: usize,
         mut func: impl FnMut((K, V)) -> (),
@@ -266,10 +265,54 @@ impl ShuffleFetcher {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::shuffle::get_free_port;
 
     #[tokio::test]
-    async fn fetch() {
-        let data = ShuffleFetcher;
+    async fn fetch_ok() -> StdResult<(), Box<dyn std::error::Error + 'static>> {
+        let port = get_free_port();
+        ShuffleManager::start_server(Some(port))?;
+        {
+            let addr = format!("http://127.0.0.1:{}", port);
+            let mut servers = env::Env::get().map_output_tracker.server_uris.write();
+            servers.insert(0, vec![Some(addr)]);
+
+            let data = vec![(0i32, "example data".to_string())];
+            let serialized_data = bincode::serialize(&data).unwrap();
+            let mut cache = env::shuffle_cache.write();
+            cache.insert((0, 0, 0), serialized_data);
+        }
+
+        let test_func = |(k, v): (i32, String)| {
+            assert_eq!(k, 0);
+            assert_eq!(v, "example data");
+        };
+        ShuffleFetcher::fetch_2(0, 0, test_func).await?;
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn fetch_failure() -> StdResult<(), Box<dyn std::error::Error + 'static>> {
+        let port = get_free_port();
+        ShuffleManager::start_server(Some(port))?;
+        {
+            let addr = format!("http://127.0.0.1:{}", port);
+            let mut servers = env::Env::get().map_output_tracker.server_uris.write();
+            servers.insert(1, vec![Some(addr)]);
+
+            let data = "corrupted data";
+            let serialized_data = bincode::serialize(&data).unwrap();
+            let mut cache = env::shuffle_cache.write();
+            cache.insert((1, 0, 0), serialized_data);
+        }
+
+        let test_func = |(_k, _v): (i32, String)| {};
+        assert!(ShuffleFetcher::fetch_2(1, 0, test_func)
+            .await
+            .unwrap_err()
+            .deserialization_err());
+
+        Ok(())
     }
 
     #[test]
