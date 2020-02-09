@@ -13,7 +13,8 @@ name = "native_spark"
 crossbeam = "0.7.3"
 fasthash = "0.4.0"
 futures = "0.3"
-hyper = "0.13"
+hyper = "0.13.2"
+http = "0.2.0"
 itertools = "0.8.2"
 num_cpus = "1.12.0"
 log = "0.4.8"
@@ -24,7 +25,7 @@ simplelog = "0.7.4"
 thiserror = "1.0.10"
 threadpool = "1.7.1"
 toml = "0.5.6"
-tokio = { version = "0.2", features = ["rt-threaded"] }
+tokio = { version = "0.2", features = ["rt-threaded", "sync", "time"] }
 uuid = { version = "0.8", features = ["v4"] }
 
 # randomness
@@ -36,13 +37,13 @@ rand_pcg = "0.2"
 bincode = "1.2.1"
 capnp = "0.12.1"
 serde = { version = "1.0.104", features = ["rc"] }
-serde_closure = "0.2.9"
+serde_closure = "^0.2.9"
 serde_derive = "1.0.104"
 url = "2.1.1"
 
 # dynamic typing
 downcast-rs = "1.1.1"
-dyn-clone = "1.0.0"
+dyn-clone = "1.0"
 serde_traitobject = "0.2.4"
 
 [dependencies.clap]
@@ -56,4 +57,4 @@ capnpc = "0.12.0"
 chrono = "0.4.10"
 parquet = "0.15.1"
 tempfile = "3"
-tokio = { version = "0.2", features = ["macros"] }
+tokio = { version = "^0.2", features = ["macros"] }

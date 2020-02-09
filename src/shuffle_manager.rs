@@ -19,12 +19,13 @@ use log::info;
 use rand::Rng;
 use serde_derive::{Deserialize, Serialize};
 use thiserror::Error;
+use tokio::time::delay_for;
 use uuid::Uuid;
 
-type Result<T> = StdResult<T, ShuffleManagerError>;
+pub(crate) type Result<T> = StdResult<T, ShuffleManagerError>;
 
 /// Creates directories and files required for storing shuffle data.
-/// It also creates the file server required for serving files via http request.
+/// It also creates the file server required for serving files via HTTP request.
 #[derive(Debug)]
 pub(crate) struct ShuffleManager {
     local_dir: PathBuf,
@@ -82,7 +83,7 @@ impl ShuffleManager {
         self.ask_status.send(());
         self.rcv_status
             .recv()
-            .map_err(|_| ShuffleManagerError::ServerDown)?
+            .map_err(|_| ShuffleManagerError::AsyncRuntimeError)?
     }
 
     /// Returns the shuffle server URI as a string.
@@ -167,8 +168,7 @@ impl ShuffleManager {
         let (send_child, rcv_main) = cb_channel::unbounded::<Result<StatusCode>>();
         let (send_main, rcv_child) = cb_channel::unbounded::<()>();
         let uri_str = format!("{}/status", server_uri);
-        let status_uri =
-            Uri::try_from(&uri_str).map_err(|_| ShuffleManagerError::FailedToParseUri(uri_str))?;
+        let status_uri = Uri::try_from(&uri_str)?;
         thread::spawn(|| -> Result<()> {
             let mut rt = tokio::runtime::Builder::new()
                 .enable_all()
@@ -182,21 +182,18 @@ impl ShuffleManager {
                     let client = Client::builder().http2_only(true).build_http::<Body>();
                     // loop forever waiting for requests to send
                     loop {
-                        let res = client
-                            .get(status_uri.clone())
-                            .await
-                            .map_err(|_| ShuffleManagerError::ServerDown)?;
+                        let res = client.get(status_uri.clone()).await?;
                         // dispatch all queued requests responses
                         while let Ok(()) = rcv_child.recv() {
                             send_child.send(Ok(res.status()));
                         }
                         // sleep for a while before checking again if there are status requests
-                        std::thread::sleep(Duration::from_millis(50));
+                        delay_for(Duration::from_millis(25)).await
                     }
                     Ok(())
                 });
-            rt.block_on(future)?;
-            Err(ShuffleManagerError::ServerDown)
+            rt.block_on(future);
+            Err(ShuffleManagerError::AsyncRuntimeError)
         });
         Ok((send_main, rcv_main))
     }
@@ -246,7 +243,7 @@ impl ShuffleService {
                     self.get_cached_data(uri, &[*shuffle_id, *input_id, *reduce_id])?,
                 ),
             ),
-            _ => Err(ShuffleManagerError::FailedToParseUri(format!(
+            _ => Err(ShuffleManagerError::UnexpectedUri(format!(
                 "{}",
                 uri.path()
             ))),
@@ -261,7 +258,7 @@ impl ShuffleService {
             .collect::<Result<_>>()
         {
             Err(err) => {
-                return Err(ShuffleManagerError::FailedToParseUri(format!("{}", uri)));
+                return Err(ShuffleManagerError::UnexpectedUri(format!("{}", uri)));
             }
             Ok(parts) => parts,
         };
@@ -330,7 +327,9 @@ impl<T> Service<T> for ShuffleSvcMaker {
     }
 }
 
-#[derive(Debug, Error, PartialEq, Eq)]
+use http::uri::InvalidUri;
+
+#[derive(Debug, Error)]
 pub enum ShuffleManagerError {
     #[error("failed initializing async runtime")]
     AsyncRuntimeError,
@@ -338,11 +337,14 @@ pub enum ShuffleManagerError {
     #[error("failed to create local shuffle dir after 10 attempts")]
     CouldNotCreateShuffleDir,
 
+    #[error("incorrect URI sent in the request")]
+    IncorrectUri(#[from] http::uri::InvalidUri),
+
     #[error("internal server error")]
     InternalError,
 
-    #[error("incorrect URI sent in the request: {0}")]
-    FailedToParseUri(String),
+    #[error("shuffle fetcher failed while fetching chunk")]
+    FailedFetchOp,
 
     #[error("failed to start shuffle server")]
     FailedToStart,
@@ -353,17 +355,20 @@ pub enum ShuffleManagerError {
     #[error("not valid request")]
     NotValidRequest,
 
-    #[error("shuffle server timeout")]
-    ServerDown,
-
     #[error("cached data not found")]
     RequestedCacheNotFound,
+
+    #[error("unexpected shuffle server problem")]
+    UnexpectedServerError(#[from] hyper::error::Error),
+
+    #[error("unexpected URI sent in the request: {0}")]
+    UnexpectedUri(String),
 }
 
 impl Into<Response<Body>> for ShuffleManagerError {
     fn into(self) -> Response<Body> {
         match self {
-            ShuffleManagerError::FailedToParseUri(uri) => Response::builder()
+            ShuffleManagerError::UnexpectedUri(uri) => Response::builder()
                 .status(StatusCode::BAD_REQUEST)
                 .body(Body::from(format!("Failed to parse: {}", uri)))
                 .unwrap(),
@@ -379,11 +384,21 @@ impl Into<Response<Body>> for ShuffleManagerError {
     }
 }
 
+impl ShuffleManagerError {
+    fn no_port(&self) -> bool {
+        match self {
+            ShuffleManagerError::FreePortNotFound(_) => true,
+            _ => false,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use std::io::Read;
     use std::net::TcpListener;
+    use std::sync::Arc;
     use std::time::Duration;
     use tokio::prelude::*;
 
@@ -417,25 +432,39 @@ mod tests {
         Ok(())
     }
 
-    #[tokio::test]
-    async fn start_failure() -> StdResult<(), Box<dyn std::error::Error + 'static>> {
+    #[test]
+    fn start_failure() -> StdResult<(), Box<dyn std::error::Error + 'static>> {
         let port = get_free_port();
         // bind first so it fails while trying to start
         let bind = TcpListener::bind(format!("127.0.0.1:{}", port))?;
-        assert_eq!(
-            ShuffleManager::start_server(Some(port)).unwrap_err(),
-            ShuffleManagerError::FailedToStart
-        );
+        assert!(ShuffleManager::start_server(Some(port))
+            .unwrap_err()
+            .no_port());
         Ok(())
     }
 
     #[test]
     fn status_cheking_ok() -> StdResult<(), Box<dyn std::error::Error + 'static>> {
-        let port = get_free_port();
-        let manager = ShuffleManager::new()?;
-        for _ in 0..100 {
-            assert_eq!(manager.check_status(), Ok(StatusCode::OK));
+        let parallelism = num_cpus::get();
+        let manager = Arc::new(ShuffleManager::new()?);
+        let mut threads = Vec::with_capacity(parallelism);
+        for _ in 0..parallelism {
+            let manager = manager.clone();
+            threads.push(thread::spawn(move || -> Result<()> {
+                for _ in 0..1_000 {
+                    match manager.check_status() {
+                        Ok(StatusCode::OK) => {}
+                        _ => return Err(ShuffleManagerError::AsyncRuntimeError),
+                    }
+                }
+                Ok(())
+            }));
         }
+        let results = threads
+            .into_iter()
+            .filter_map(|res| res.join().ok())
+            .collect::<Result<Vec<_>>>()?;
+        assert_eq!(results.len(), parallelism);
         Ok(())
     }
 
