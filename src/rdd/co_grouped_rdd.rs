@@ -8,7 +8,7 @@ use crate::error::Result;
 use crate::partitioner::Partitioner;
 use crate::rdd::{Rdd, RddBase, RddVals};
 use crate::serializable_traits::{AnyData, Data};
-use crate::shuffle_fetcher::ShuffleFetcher;
+use crate::shuffle::ShuffleFetcher;
 use crate::split::Split;
 use log::info;
 use serde_derive::{Deserialize, Serialize};

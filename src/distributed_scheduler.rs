@@ -27,7 +27,7 @@ use crate::result_task::ResultTask;
 use crate::scheduler::*;
 use crate::serializable_traits::{Data, SerFunc};
 use crate::serialized_data_capnp::serialized_data;
-use crate::shuffle_map_task::ShuffleMapTask;
+use crate::shuffle::ShuffleMapTask;
 use crate::stage::Stage;
 use crate::task::{TaskBase, TaskContext, TaskOption, TaskResult};
 use capnp::serialize_packed;
