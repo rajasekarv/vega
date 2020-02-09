@@ -4,6 +4,7 @@ use std::path::PathBuf;
 use thiserror::Error;
 
 pub type Result<T> = std::result::Result<T, Error>;
+pub type StdResult<T, E> = std::result::Result<T, E>;
 
 #[derive(Debug, Error)]
 pub enum Error {

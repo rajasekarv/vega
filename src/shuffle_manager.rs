@@ -3,12 +3,12 @@ use std::fs;
 use std::future::Future;
 use std::net::{Ipv4Addr, SocketAddr};
 use std::path::PathBuf;
-use std::result::Result as StdResult;
 use std::task::{Context, Poll};
 use std::thread;
 use std::time::Duration;
 
 use crate::env;
+use crate::error::StdResult;
 use crossbeam::channel as cb_channel;
 use futures::future;
 use hyper::{
@@ -321,11 +321,14 @@ use http::uri::InvalidUri;
 
 #[derive(Debug, Error)]
 pub enum ShuffleManagerError {
-    #[error("failed initializing async runtime")]
+    #[error("failure while initializing/running the async runtime")]
     AsyncRuntimeError,
 
     #[error("failed to create local shuffle dir after 10 attempts")]
     CouldNotCreateShuffleDir,
+
+    #[error("deserialization error")]
+    DeserializationError(#[from] bincode::Error),
 
     #[error("incorrect URI sent in the request")]
     IncorrectUri(#[from] http::uri::InvalidUri),
@@ -434,7 +437,7 @@ mod tests {
     }
 
     #[test]
-    fn status_cheking_ok() -> StdResult<(), Box<dyn std::error::Error + 'static>> {
+    fn status_checking_ok() -> StdResult<(), Box<dyn std::error::Error + 'static>> {
         let parallelism = num_cpus::get();
         let manager = Arc::new(ShuffleManager::new()?);
         let mut threads = Vec::with_capacity(parallelism);
