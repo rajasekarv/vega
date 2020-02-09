@@ -11,7 +11,7 @@ use crate::context::Context;
 use crate::env;
 use crate::error::StdResult;
 use crate::serializable_traits::Data;
-use crate::shuffle_manager::{Result, ShuffleManagerError};
+use crate::shuffle::*;
 use futures::future;
 use hyper::{
     client::Client, server::conn::AddrIncoming, service::Service, Body, Request, Response, Server,
@@ -26,7 +26,6 @@ pub(crate) struct ShuffleFetcher;
 
 impl ShuffleFetcher {
     pub async fn fetch_2<K: Data, V: Data>(
-        &self,
         sc: Arc<Context>,
         shuffle_id: usize,
         reduce_id: usize,
@@ -82,7 +81,7 @@ impl ShuffleFetcher {
                     for input_id in input_ids {
                         if failure.load(atomic::Ordering::Acquire) {
                             // Abort early since the work failed in an other future
-                            return Err(ShuffleManagerError::AsyncRuntimeError);
+                            return Err(ShuffleError::AsyncRuntimeError);
                         }
                         log::debug!("inside parallel fetch {}", input_id);
                         let chunk_uri = ShuffleFetcher::make_chunk_uri(
@@ -99,7 +98,7 @@ impl ShuffleFetcher {
                             shuffle_chunks.push(data.to_vec());
                         } else {
                             failure.store(true, atomic::Ordering::Release);
-                            return Err(ShuffleManagerError::FailedFetchOp);
+                            return Err(ShuffleError::FailedFetchOp);
                         }
                     }
                     Ok(shuffle_chunks)
@@ -133,7 +132,7 @@ impl ShuffleFetcher {
                     }
                     Ok(())
                 } else {
-                    Err(ShuffleManagerError::AsyncRuntimeError)
+                    Err(ShuffleError::AsyncRuntimeError)
                 }
             })
             .fold(Ok(()), |curr, res| if res.is_err() { res } else { curr })
@@ -269,7 +268,9 @@ mod tests {
     use super::*;
 
     #[tokio::test]
-    async fn fetch() {}
+    async fn fetch() {
+        let data = ShuffleFetcher;
+    }
 
     #[test]
     fn build_shuffle_id_uri() -> StdResult<(), Box<dyn std::error::Error + 'static>> {

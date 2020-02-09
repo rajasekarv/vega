@@ -8,7 +8,7 @@ use std::net::Ipv4Addr;
 use std::sync::Arc;
 
 #[derive(Serialize, Deserialize, Clone)]
-pub struct ShuffleMapTask {
+pub(crate) struct ShuffleMapTask {
     pub task_id: usize,
     pub run_id: usize,
     pub stage_id: usize,

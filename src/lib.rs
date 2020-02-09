@@ -33,6 +33,7 @@ pub mod context;
 pub use context::Context;
 mod executor;
 pub mod partitioner;
+mod shuffle;
 pub use partitioner::*;
 pub mod rdd;
 pub use rdd::*;
@@ -46,10 +47,6 @@ mod parallel_collection;
 pub use parallel_collection::*;
 mod cache;
 mod cache_tracker;
-mod shuffle_fetcher;
-mod shuffle_manager;
-pub mod shuffle_map_task;
-pub use shuffle_map_task::*;
 #[macro_use]
 mod scheduler;
 use scheduler::*;

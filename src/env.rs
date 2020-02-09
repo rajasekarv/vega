@@ -63,8 +63,7 @@ use crate::cache_tracker::CacheTracker;
 use crate::error::Error;
 use crate::hosts::Hosts;
 use crate::map_output_tracker::MapOutputTracker;
-use crate::shuffle_fetcher::ShuffleFetcher;
-use crate::shuffle_manager::ShuffleManager;
+use crate::shuffle::{ShuffleFetcher, ShuffleManager};
 use config_vars::*;
 
 #[derive(Clone, Copy)]

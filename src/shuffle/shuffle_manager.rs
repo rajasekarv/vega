@@ -9,6 +9,7 @@ use std::time::Duration;
 
 use crate::env;
 use crate::error::StdResult;
+use crate::shuffle::*;
 use crossbeam::channel as cb_channel;
 use futures::future;
 use hyper::{
@@ -22,7 +23,7 @@ use thiserror::Error;
 use tokio::time::delay_for;
 use uuid::Uuid;
 
-pub(crate) type Result<T> = StdResult<T, ShuffleManagerError>;
+pub(crate) type Result<T> = StdResult<T, ShuffleError>;
 
 /// Creates directories and files required for storing shuffle data.
 /// It also creates the file server required for serving files via HTTP request.
@@ -53,7 +54,7 @@ impl ShuffleManager {
         if let Ok(StatusCode::OK) = manager.check_status() {
             Ok(manager)
         } else {
-            Err(ShuffleManagerError::FailedToStart)
+            Err(ShuffleError::FailedToStart)
         }
     }
 
@@ -75,7 +76,7 @@ impl ShuffleManager {
         fs::File::create(&file_path);
         Ok(file_path
             .to_str()
-            .ok_or_else(|| ShuffleManagerError::CouldNotCreateShuffleDir)?
+            .ok_or_else(|| ShuffleError::CouldNotCreateShuffleDir)?
             .to_owned())
     }
 
@@ -83,7 +84,7 @@ impl ShuffleManager {
         self.ask_status.send(());
         self.rcv_status
             .recv()
-            .map_err(|_| ShuffleManagerError::AsyncRuntimeError)?
+            .map_err(|_| ShuffleError::AsyncRuntimeError)?
     }
 
     /// Returns the shuffle server URI as a string.
@@ -100,7 +101,7 @@ impl ShuffleManager {
                     port = bind_port;
                     break;
                 } else if retry == 9 {
-                    return Err(ShuffleManagerError::FreePortNotFound(bind_port));
+                    return Err(ShuffleError::FreePortNotFound(bind_port));
                 }
             }
             port
@@ -121,7 +122,7 @@ impl ShuffleManager {
                 .enable_all()
                 .threaded_scheduler()
                 .build()
-                .map_err(|_| ShuffleManagerError::AsyncRuntimeError)
+                .map_err(|_| ShuffleError::AsyncRuntimeError)
             {
                 Err(err) => {
                     s.send(Err(err));
@@ -130,10 +131,10 @@ impl ShuffleManager {
                     if let Err(err) = rt.block_on(async move {
                         let bind_addr = SocketAddr::from((bind_ip, bind_port));
                         Server::try_bind(&bind_addr.clone())
-                            .map_err(|_| ShuffleManagerError::FreePortNotFound(bind_port))?
+                            .map_err(|_| ShuffleError::FreePortNotFound(bind_port))?
                             .serve(ShuffleSvcMaker)
                             .await
-                            .map_err(|_| ShuffleManagerError::FailedToStart)
+                            .map_err(|_| ShuffleError::FailedToStart)
                     }) {
                         s.send(Err(err));
                     };
@@ -141,7 +142,7 @@ impl ShuffleManager {
             }
         });
         cb_channel::select! {
-            recv(r) -> msg => { msg.map_err(|_| ShuffleManagerError::FailedToStart)??; }
+            recv(r) -> msg => { msg.map_err(|_| ShuffleError::FailedToStart)??; }
             // wait a prudential time to check that initialization is ok and the move on
             default(Duration::from_millis(100)) => log::debug!("started shuffle server @ {}", bind_port),
         };
@@ -166,7 +167,7 @@ impl ShuffleManager {
                 .core_threads(1)
                 .thread_stack_size(1024)
                 .build()
-                .map_err(|_| ShuffleManagerError::AsyncRuntimeError)?;
+                .map_err(|_| ShuffleError::AsyncRuntimeError)?;
             let future: std::pin::Pin<Box<dyn Future<Output = Result<()>>>> =
                 Box::pin(async move {
                     let client = Client::builder().http2_only(true).build_http::<Body>();
@@ -183,7 +184,7 @@ impl ShuffleManager {
                     Ok(())
                 });
             rt.block_on(future);
-            Err(ShuffleManagerError::AsyncRuntimeError)
+            Err(ShuffleError::AsyncRuntimeError)
         });
         Ok((send_main, rcv_main))
     }
@@ -202,7 +203,7 @@ impl ShuffleManager {
                 return Ok(local_dir);
             }
         }
-        Err(ShuffleManagerError::CouldNotCreateShuffleDir)
+        Err(ShuffleError::CouldNotCreateShuffleDir)
     }
 }
 
@@ -233,10 +234,7 @@ impl ShuffleService {
                     self.get_cached_data(uri, &[*shuffle_id, *input_id, *reduce_id])?,
                 ),
             ),
-            _ => Err(ShuffleManagerError::UnexpectedUri(format!(
-                "{}",
-                uri.path()
-            ))),
+            _ => Err(ShuffleError::UnexpectedUri(format!("{}", uri.path()))),
         }
     }
 
@@ -248,7 +246,7 @@ impl ShuffleService {
             .collect::<Result<_>>()
         {
             Err(err) => {
-                return Err(ShuffleManagerError::UnexpectedUri(format!("{}", uri)));
+                return Err(ShuffleError::UnexpectedUri(format!("{}", uri)));
             }
             Ok(parts) => parts,
         };
@@ -256,22 +254,19 @@ impl ShuffleService {
         if let Some(cached_data) = cache.get(&(parts[0], parts[1], parts[2])) {
             Ok(Vec::from(&cached_data[..]))
         } else {
-            Err(ShuffleManagerError::RequestedCacheNotFound)
+            Err(ShuffleError::RequestedCacheNotFound)
         }
     }
 
     #[inline]
     fn parse_path_part(part: &str) -> Result<usize> {
-        Ok(
-            u64::from_str_radix(part, 10).map_err(|_| ShuffleManagerError::NotValidRequest)?
-                as usize,
-        )
+        Ok(u64::from_str_radix(part, 10).map_err(|_| ShuffleError::NotValidRequest)? as usize)
     }
 }
 
 impl Service<Request<Body>> for ShuffleService {
     type Response = Response<Body>;
-    type Error = ShuffleManagerError;
+    type Error = ShuffleError;
     type Future = future::Ready<StdResult<Self::Response, Self::Error>>;
 
     fn poll_ready(&mut self, _cx: &mut Context) -> Poll<StdResult<(), Self::Error>> {
@@ -285,14 +280,14 @@ impl Service<Request<Body>> for ShuffleService {
                     let body = Body::from(&[] as &[u8]);
                     match Response::builder().status(code).body(body) {
                         Ok(rsp) => future::ok(rsp),
-                        Err(_) => future::err(ShuffleManagerError::InternalError),
+                        Err(_) => future::err(ShuffleError::InternalError),
                     }
                 }
                 ShuffleResponse::CachedData(cached_data) => {
                     let body = Body::from(Vec::from(&cached_data[..]));
                     match Response::builder().status(200).body(body) {
                         Ok(rsp) => future::ok(rsp),
-                        Err(_) => future::err(ShuffleManagerError::InternalError),
+                        Err(_) => future::err(ShuffleError::InternalError),
                     }
                 }
             },
@@ -305,7 +300,7 @@ struct ShuffleSvcMaker;
 
 impl<T> Service<T> for ShuffleSvcMaker {
     type Response = ShuffleService;
-    type Error = ShuffleManagerError;
+    type Error = ShuffleError;
     type Future = future::Ready<StdResult<Self::Response, Self::Error>>;
 
     fn poll_ready(&mut self, _cx: &mut Context) -> Poll<StdResult<(), Self::Error>> {
@@ -314,75 +309,6 @@ impl<T> Service<T> for ShuffleSvcMaker {
 
     fn call(&mut self, _: T) -> Self::Future {
         future::ok(ShuffleService)
-    }
-}
-
-use http::uri::InvalidUri;
-
-#[derive(Debug, Error)]
-pub enum ShuffleManagerError {
-    #[error("failure while initializing/running the async runtime")]
-    AsyncRuntimeError,
-
-    #[error("failed to create local shuffle dir after 10 attempts")]
-    CouldNotCreateShuffleDir,
-
-    #[error("deserialization error")]
-    DeserializationError(#[from] bincode::Error),
-
-    #[error("incorrect URI sent in the request")]
-    IncorrectUri(#[from] http::uri::InvalidUri),
-
-    #[error("internal server error")]
-    InternalError,
-
-    #[error("shuffle fetcher failed while fetching chunk")]
-    FailedFetchOp,
-
-    #[error("failed to start shuffle server")]
-    FailedToStart,
-
-    #[error("failed to find free port: {0}")]
-    FreePortNotFound(u16),
-
-    #[error("not valid request")]
-    NotValidRequest,
-
-    #[error("cached data not found")]
-    RequestedCacheNotFound,
-
-    #[error("unexpected shuffle server problem")]
-    UnexpectedServerError(#[from] hyper::error::Error),
-
-    #[error("unexpected URI sent in the request: {0}")]
-    UnexpectedUri(String),
-}
-
-impl Into<Response<Body>> for ShuffleManagerError {
-    fn into(self) -> Response<Body> {
-        match self {
-            ShuffleManagerError::UnexpectedUri(uri) => Response::builder()
-                .status(StatusCode::BAD_REQUEST)
-                .body(Body::from(format!("Failed to parse: {}", uri)))
-                .unwrap(),
-            ShuffleManagerError::RequestedCacheNotFound => Response::builder()
-                .status(StatusCode::NOT_FOUND)
-                .body(Body::from(&[] as &[u8]))
-                .unwrap(),
-            _ => Response::builder()
-                .status(StatusCode::INTERNAL_SERVER_ERROR)
-                .body(Body::from(&[] as &[u8]))
-                .unwrap(),
-        }
-    }
-}
-
-impl ShuffleManagerError {
-    fn no_port(&self) -> bool {
-        match self {
-            ShuffleManagerError::FreePortNotFound(_) => true,
-            _ => false,
-        }
     }
 }
 
@@ -447,7 +373,7 @@ mod tests {
                 for _ in 0..1_000 {
                     match manager.check_status() {
                         Ok(StatusCode::OK) => {}
-                        _ => return Err(ShuffleManagerError::AsyncRuntimeError),
+                        _ => return Err(ShuffleError::AsyncRuntimeError),
                     }
                 }
                 Ok(())
