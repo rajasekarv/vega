@@ -33,6 +33,7 @@ mod executor;
 pub mod partitioner;
 mod shuffle;
 pub use partitioner::*;
+#[path = "rdd/rdd.rs"]
 pub mod rdd;
 pub use rdd::*;
 pub mod io;
