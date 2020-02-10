@@ -1,14 +1,15 @@
-use itertools::{iproduct, Itertools};
+use std::marker::PhantomData;
+use std::pin::Pin;
+use std::sync::Arc;
 
 use crate::context::Context;
 use crate::dependency::Dependency;
 use crate::error::{Error, Result};
-use crate::rdd::{Rdd, RddBase, RddVals};
+use crate::rdd::{ComputeResult, Rdd, RddBase, RddVals};
 use crate::serializable_traits::{AnyData, Data};
 use crate::split::Split;
+use itertools::{iproduct, Itertools};
 use serde_derive::{Deserialize, Serialize};
-use std::marker::PhantomData;
-use std::sync::Arc;
 
 #[derive(Clone, Serialize, Deserialize)]
 struct CartesianSplit {
@@ -70,6 +71,7 @@ impl<T: Data, U: Data> Clone for CartesianRdd<T, U> {
     }
 }
 
+#[async_trait::async_trait]
 impl<T: Data, U: Data> RddBase for CartesianRdd<T, U> {
     fn get_rdd_id(&self) -> usize {
         self.vals.id
@@ -113,6 +115,7 @@ impl<T: Data, U: Data> RddBase for CartesianRdd<T, U> {
     }
 }
 
+#[async_trait::async_trait]
 impl<T: Data, U: Data> Rdd for CartesianRdd<T, U> {
     type Item = (T, U);
     fn get_rdd(&self) -> Arc<dyn Rdd<Item = Self::Item>>
@@ -126,14 +129,15 @@ impl<T: Data, U: Data> Rdd for CartesianRdd<T, U> {
         Arc::new(self.clone()) as Arc<dyn RddBase>
     }
 
-    fn compute(&self, split: Box<dyn Split>) -> Result<Box<dyn Iterator<Item = Self::Item>>> {
-        let current_split = split
-            .downcast::<CartesianSplit>()
-            .or(Err(Error::SplitDowncast("CartesianSplit")))?;
+    async fn compute(&self, split: Box<dyn Split>) -> ComputeResult<Self::Item> {
+        // let current_split = split
+        //     .downcast::<CartesianSplit>()
+        //     .or(Err(Error::SplitDowncast("CartesianSplit")))?;
 
-        let iter1 = self.rdd1.iterator(current_split.s1)?;
-        // required because iter2 must be clonable:
-        let iter2: Vec<_> = self.rdd2.iterator(current_split.s2)?.collect();
-        Ok(Box::new(iter1.cartesian_product(iter2.into_iter())))
+        // let iter1 = self.rdd1.iterator(current_split.s1).await?;
+        // // required because iter2 must be clonable:
+        // let iter2: Vec<_> = self.rdd2.iterator(current_split.s2).await?.collect();
+        // Ok(Box::pin(iter1.cartesian_product(iter2.into_iter())))
+        todo!()
     }
 }

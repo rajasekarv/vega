@@ -1,20 +1,21 @@
 use std::any::Any;
 use std::net::Ipv4Addr;
+use std::pin::Pin;
 use std::sync::Arc;
-
-use itertools::{Itertools, MinMaxResult};
-use log::debug;
-use serde_derive::{Deserialize, Serialize};
-use serde_traitobject::{Arc as SerArc, Box as SerBox};
 
 use crate::context::Context;
 use crate::dependency::{Dependency, NarrowDependencyTrait, OneToOneDependency, RangeDependency};
 use crate::error::{Error, Result};
 use crate::partitioner::Partitioner;
 use crate::rdd::union_rdd::UnionVariants::{NonUniquePartitioner, PartitionerAware};
-use crate::rdd::{Rdd, RddBase, RddVals};
+use crate::rdd::{ComputeResult, Rdd, RddBase, RddVals};
 use crate::serializable_traits::{AnyData, Data};
 use crate::split::Split;
+use futures::stream::{Stream, StreamExt};
+use itertools::{Itertools, MinMaxResult};
+use log::debug;
+use serde_derive::{Deserialize, Serialize};
+use serde_traitobject::{Arc as SerArc, Box as SerBox};
 
 #[derive(Clone, Serialize, Deserialize)]
 struct UnionSplit<T: 'static> {
@@ -308,6 +309,7 @@ impl<T: Data> RddBase for UnionRdd<T> {
     }
 }
 
+#[async_trait::async_trait]
 impl<T: Data> Rdd for UnionRdd<T> {
     type Item = T;
 
@@ -319,7 +321,7 @@ impl<T: Data> Rdd for UnionRdd<T> {
         Arc::new(UnionRdd(self.0.clone())) as Arc<dyn Rdd<Item = T>>
     }
 
-    fn compute(&self, split: Box<dyn Split>) -> Result<Box<dyn Iterator<Item = T>>> {
+    async fn compute(&self, split: Box<dyn Split>) -> ComputeResult<Self::Item> {
         let context = self.get_context();
         match &self.0 {
             NonUniquePartitioner { rdds, .. } => {
@@ -327,18 +329,19 @@ impl<T: Data> Rdd for UnionRdd<T> {
                     .downcast::<UnionSplit<T>>()
                     .or(Err(Error::SplitDowncast("UnionSplit")))?;
                 let parent = (&rdds[part.parent_rdd_index]);
-                parent.iterator(part.parent_partition())
+                let iter = parent.iterator(part.parent_partition())?;
+                Ok(Box::pin(iter))
             }
             PartitionerAware { rdds, .. } => {
                 let split = split
                     .downcast::<PartitionerAwareUnionSplit>()
                     .or(Err(Error::SplitDowncast("PartitionerAwareUnionSplit")))?;
-                let iter: Result<Vec<_>> = rdds
-                    .iter()
-                    .zip(split.parents(&rdds))
-                    .map(|(rdd, p)| rdd.iterator(p.clone()))
-                    .collect();
-                Ok(Box::new(iter?.into_iter().flatten()))
+                let mut iter = Vec::with_capacity(rdds.len());
+                for (rdd, p) in rdds.iter().zip(split.parents(&rdds)) {
+                    let res = rdd.iterator(p.clone())?;
+                    iter.push(res);
+                }
+                Ok(Box::pin(futures::stream::iter(iter.into_iter()).flatten()))
             }
         }
     }
