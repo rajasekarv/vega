@@ -11,12 +11,6 @@ use crate::context::Context;
 use crate::dependency::{Dependency, OneToOneDependency};
 use crate::error::{Error, Result};
 use crate::partitioner::{HashPartitioner, Partitioner};
-use crate::rdd::cartesian_rdd::CartesianRdd;
-use crate::rdd::coalesced_rdd::CoalescedRdd;
-use crate::rdd::map_partitions_rdd::MapPartitionsRdd;
-use crate::rdd::pair_rdd::PairRdd;
-use crate::rdd::partitionwise_sampled_rdd::PartitionwiseSampledRdd;
-use crate::rdd::zip_rdd::ZippedPartitionsRdd;
 use crate::serializable_traits::{AnyData, Data, Func, SerFunc};
 use crate::split::Split;
 use crate::task::TaskContext;
@@ -27,6 +21,23 @@ use log::info;
 use rand::{Rng, SeedableRng};
 use serde_derive::{Deserialize, Serialize};
 use serde_traitobject::{Arc as SerArc, Deserialize, Serialize};
+
+pub mod cartesian_rdd;
+pub use cartesian_rdd::*;
+pub mod co_grouped_rdd;
+pub use co_grouped_rdd::*;
+pub mod coalesced_rdd;
+pub use coalesced_rdd::*;
+pub mod pair_rdd;
+pub use pair_rdd::*;
+pub mod partitionwise_sampled_rdd;
+pub use partitionwise_sampled_rdd::*;
+pub mod shuffled_rdd;
+pub use shuffled_rdd::*;
+pub mod map_partitions_rdd;
+pub use map_partitions_rdd::*;
+pub mod union_rdd;
+pub use union_rdd::*;
 
 // Values which are needed for all RDDs
 #[derive(Serialize, Deserialize)]
