@@ -19,8 +19,6 @@
 extern crate downcast_rs;
 #[macro_use]
 extern crate serde_closure;
-use capnp;
-use log::{error, info};
 use serde_derive::{Deserialize, Serialize};
 use serde_traitobject::{Deserialize, Serialize};
 use serialized_data_capnp::serialized_data;

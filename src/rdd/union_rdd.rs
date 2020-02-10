@@ -110,7 +110,7 @@ impl<T: Data> Clone for UnionVariants<T> {
 impl<T: Data> UnionVariants<T> {
     fn new(rdds: &[Arc<dyn Rdd<Item = T>>]) -> Result<Self> {
         let context = rdds[0].get_context();
-        let mut vals = RddVals::new(context.clone());
+        let mut vals = RddVals::new(context);
 
         let mut pos = 0;
         let final_rdds: Vec<_> = rdds.iter().map(|rdd| rdd.clone().into()).collect();

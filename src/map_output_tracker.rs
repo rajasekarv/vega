@@ -140,15 +140,7 @@ impl MapOutputTracker {
                                     .unwrap_or(&Vec::new())
                                     .clone();
                                 log::debug!("locs inside mapoutput tracker server before unwrapping for shuffle id {:?} {:?}",shuffle_id,locs);
-                                let locs = locs
-                                    .into_iter()
-                                    .map(|x| {
-                                        //                                        while let None = x {
-                                        //                                            continue;
-                                        //                                        }
-                                        x.unwrap().clone()
-                                    })
-                                    .collect::<Vec<_>>();
+                                let locs = locs.into_iter().map(|x| x.unwrap()).collect::<Vec<_>>();
                                 log::debug!("locs inside mapoutput tracker server after unwrapping for shuffle id {:?} {:?} ", shuffle_id, locs);
 
                                 //writing

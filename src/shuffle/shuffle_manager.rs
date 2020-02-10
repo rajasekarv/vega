@@ -89,7 +89,7 @@ impl ShuffleManager {
 
     /// Returns the shuffle server URI as a string.
     pub(super) fn start_server(port: Option<u16>) -> Result<String> {
-        let bind_ip = env::Configuration::get().local_ip.clone();
+        let bind_ip = env::Configuration::get().local_ip;
         let port = if let Some(bind_port) = port {
             let mut rt = tokio::runtime::Builder::new()
                 .enable_all()
@@ -244,7 +244,7 @@ impl ShuffleService {
                     self.get_cached_data(uri, &[*shuffle_id, *input_id, *reduce_id])?,
                 ),
             ),
-            _ => Err(ShuffleError::UnexpectedUri(format!("{}", uri.path()))),
+            _ => Err(ShuffleError::UnexpectedUri(uri.path().to_string())),
         }
     }
 
@@ -335,7 +335,7 @@ mod tests {
         let mut port = 0;
         for _ in 0..100 {
             port = get_dynamic_port();
-            if !TcpListener::bind(format!("127.0.0.1:{}", port)).is_err() {
+            if TcpListener::bind(format!("127.0.0.1:{}", port)).is_ok() {
                 return port;
             }
         }
@@ -449,7 +449,7 @@ mod tests {
         let body = hyper::body::to_bytes(res.into_body()).await?;
         assert_eq!(
             String::from_iter(body.into_iter().map(|b| b as char)),
-            format!("Failed to parse: /not_valid")
+            "Failed to parse: /not_valid".to_string()
         );
         Ok(())
     }

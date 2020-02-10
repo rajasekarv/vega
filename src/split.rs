@@ -1,6 +1,5 @@
 // not necessary I guess
 use downcast_rs::DowncastSync;
-use dyn_clone;
 use serde_traitobject::{Deserialize, Serialize};
 use std::net::Ipv4Addr;
 
