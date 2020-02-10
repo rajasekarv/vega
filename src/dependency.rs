@@ -170,7 +170,7 @@ impl<K: Data + Eq + Hash, V: Data, C: Data> ShuffleDependencyTrait for ShuffleDe
         log::debug!("is cogroup rdd{}", self.is_cogroup);
         log::debug!("num of output splits{}", num_output_splits);
         let partitioner = self.partitioner.clone();
-        let mut buckets = (0..num_output_splits)
+        let mut buckets: Vec<HashMap<K, C>> = (0..num_output_splits)
             .map(|_| HashMap::new())
             .collect::<Vec<_>>();
         log::debug!(
@@ -191,25 +191,23 @@ impl<K: Data + Eq + Hash, V: Data, C: Data> ShuffleDependencyTrait for ShuffleDe
             if count == 0 {
                 log::debug!(
                     "iterator inside dependency map task after downcasting {:?} {:?}",
-                    k, v
+                    k,
+                    v
                 );
             }
             let bucket_id = partitioner.get_partition(&k);
             let bucket = &mut buckets[bucket_id];
-            let old_v = bucket.get_mut(&k);
-            if old_v.is_none() {
-                bucket.insert(k, Some(aggregator.create_combiner.call((v,))));
-            } else {
-                let old_v = old_v.unwrap();
-                let old = old_v.take().unwrap();
-                let input = ((old, v),);
+            if let Some(old_v) = bucket.get_mut(&k) {
+                let input = ((old_v.clone(), v),);
                 let output = aggregator.merge_value.call(input);
-                *old_v = Some(output);
+                *old_v = output;
+            } else {
+                bucket.insert(k, aggregator.create_combiner.call((v,)));
             }
         }
 
         for (i, bucket) in buckets.into_iter().enumerate() {
-            let set: Vec<(K, C)> = bucket.into_iter().map(|(k, v)| (k, v.unwrap())).collect();
+            let set: Vec<(K, C)> = bucket.into_iter().collect();
             let ser_bytes = bincode::serialize(&set).unwrap();
             log::debug!(
                 "shuffle dependency map task set in shuffle id, partition,i  {:?} {:?} {:?} {:?} ",

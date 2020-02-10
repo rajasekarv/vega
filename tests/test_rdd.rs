@@ -139,7 +139,7 @@ fn test_take() -> Result<()> {
     assert_eq!(taken_7.len(), 6);
 
     let col2: Vec<i32> = vec![];
-    let col2_rdd = sc.clone().parallelize(col2, 4);
+    let col2_rdd = sc.parallelize(col2, 4);
     let taken_0 = col2_rdd.take(1)?;
     assert!(taken_0.is_empty());
     Ok(())
@@ -195,7 +195,7 @@ fn test_read_files_bytes() -> Result<()> {
     });
 
     let sc = CONTEXT.clone();
-    let files = sc.clone().read_source(
+    let files = sc.read_source(
         LocalFsReaderConfig::new(WORK_DIR.join(TEST_DIR)),
         deserializer,
     );
@@ -234,9 +234,7 @@ fn test_read_files() -> Result<()> {
 fn test_distinct() -> Result<()> {
     use std::collections::HashSet;
     let sc = CONTEXT.clone();
-    let rdd = sc
-        .clone()
-        .parallelize(vec![1, 2, 2, 2, 3, 3, 3, 4, 4, 5], 3);
+    let rdd = sc.parallelize(vec![1, 2, 2, 2, 3, 3, 3, 4, 4, 5], 3);
     assert_eq!(rdd.distinct().collect()?.len(), 5);
     assert_eq!(
         rdd.distinct()
@@ -293,7 +291,7 @@ fn test_partition_wise_sampling() -> Result<()> {
 
     // no replace & Bernoulli + GapSampling
     {
-        let rdd = sc.clone().parallelize((0_i32..100).collect::<Vec<_>>(), 5);
+        let rdd = sc.parallelize((0_i32..100).collect::<Vec<_>>(), 5);
         let result = rdd.take_sample(false, 10, None)?;
         assert!(result.len() == 10);
     }

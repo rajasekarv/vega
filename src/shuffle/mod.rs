@@ -105,7 +105,7 @@ fn get_free_port() -> u16 {
     let mut port = 0;
     for _ in 0..100 {
         port = get_dynamic_port();
-        if !TcpListener::bind(format!("127.0.0.1:{}", port)).is_err() {
+        if TcpListener::bind(format!("127.0.0.1:{}", port)).is_ok() {
             return port;
         }
     }
