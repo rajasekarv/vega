@@ -18,9 +18,9 @@ pub enum MapOutputTrackerMessage {
 
 // starts the server in master node and client in slave nodes. Similar to cache tracker
 #[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct MapOutputTracker {
+pub(crate) struct MapOutputTracker {
     is_master: bool,
-    server_uris: Arc<RwLock<HashMap<usize, Vec<Option<String>>>>>,
+    pub server_uris: Arc<RwLock<HashMap<usize, Vec<Option<String>>>>>,
     fetching: Arc<RwLock<HashSet<usize>>>,
     generation: Arc<Mutex<i64>>,
     master_addr: SocketAddr,
@@ -140,15 +140,7 @@ impl MapOutputTracker {
                                     .unwrap_or(&Vec::new())
                                     .clone();
                                 log::debug!("locs inside mapoutput tracker server before unwrapping for shuffle id {:?} {:?}",shuffle_id,locs);
-                                let locs = locs
-                                    .into_iter()
-                                    .map(|x| {
-                                        //                                        while let None = x {
-                                        //                                            continue;
-                                        //                                        }
-                                        x.unwrap().clone()
-                                    })
-                                    .collect::<Vec<_>>();
+                                let locs = locs.into_iter().map(|x| x.unwrap()).collect::<Vec<_>>();
                                 log::debug!("locs inside mapoutput tracker server after unwrapping for shuffle id {:?} {:?} ", shuffle_id, locs);
 
                                 //writing

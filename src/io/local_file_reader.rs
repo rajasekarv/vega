@@ -63,7 +63,7 @@ impl ReaderConfiguration<Vec<u8>> for LocalFsReaderConfig {
         F: SerFunc(Vec<u8>) -> U,
         U: Data,
     {
-        let reader = LocalFsReader::<BytesReader>::new(self, context.clone());
+        let reader = LocalFsReader::<BytesReader>::new(self, context);
         let read_files = Fn!(
             |part: usize, readers: Box<dyn Iterator<Item = BytesReader>>| {
                 Box::new(readers.into_iter().map(|file| file.into_iter()).flatten())
@@ -83,7 +83,7 @@ impl ReaderConfiguration<PathBuf> for LocalFsReaderConfig {
         F: SerFunc(PathBuf) -> U,
         U: Data,
     {
-        let reader = LocalFsReader::<FileReader>::new(self, context.clone());
+        let reader = LocalFsReader::<FileReader>::new(self, context);
         let read_files = Fn!(
             |part: usize, readers: Box<dyn Iterator<Item = FileReader>>| {
                 Box::new(readers.map(|reader| reader.into_iter()).flatten())

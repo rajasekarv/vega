@@ -6,7 +6,6 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use clap::{App, Arg, SubCommand};
-use log;
 use log::LevelFilter as LogLevel;
 use once_cell::sync::{Lazy, OnceCell};
 use parking_lot::{Mutex, RwLock};
@@ -63,8 +62,7 @@ use crate::cache_tracker::CacheTracker;
 use crate::error::Error;
 use crate::hosts::Hosts;
 use crate::map_output_tracker::MapOutputTracker;
-use crate::shuffle_fetcher::ShuffleFetcher;
-use crate::shuffle_manager::ShuffleManager;
+use crate::shuffle::{ShuffleFetcher, ShuffleManager};
 use config_vars::*;
 
 #[derive(Clone, Copy)]
@@ -155,14 +153,13 @@ impl Configuration {
         let log_level = match arguments
             .value_of(LOG_LEVEL)
             .map(|s| s.to_lowercase())
-            .as_ref()
-            .map(String::as_str)
+            .as_deref()
         {
             Some("error") => LogLevel::Error,
             Some("warn") => LogLevel::Warn,
             Some("debug") => LogLevel::Debug,
             Some("trace") => LogLevel::Trace,
-            Some("info") | _ => LogLevel::Info,
+            _ => LogLevel::Info,
         };
         log::set_max_level(log_level);
 

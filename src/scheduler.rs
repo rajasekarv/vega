@@ -11,7 +11,7 @@ use crate::job::JobTracker;
 use crate::rdd::{Rdd, RddBase};
 use crate::result_task::ResultTask;
 use crate::serializable_traits::{Data, SerFunc};
-use crate::shuffle_map_task::ShuffleMapTask;
+use crate::shuffle::ShuffleMapTask;
 use crate::stage::Stage;
 use crate::task::{TaskBase, TaskContext, TaskOption};
 use log::{error, info};

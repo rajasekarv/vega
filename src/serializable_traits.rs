@@ -1,4 +1,3 @@
-use dyn_clone;
 use serde_traitobject::{deserialize, serialize, Deserialize, Serialize};
 use std::{
     any,
