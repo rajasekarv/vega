@@ -11,7 +11,7 @@ use std::sync::Arc;
 use crate::context::Context;
 use crate::dependency::{Dependency, OneToOneDependency};
 use crate::error::{Error, Result};
-use crate::rdd::{ComputeResult, Rdd, RddBase, RddVals};
+use crate::rdd::{AnyDataStream, ComputeResult, Rdd, RddBase, RddVals};
 use crate::serializable_traits::{AnyData, Data, Func, SerFunc};
 use crate::split::Split;
 use crate::utils;
@@ -29,7 +29,7 @@ where
     #[serde(with = "serde_traitobject")]
     prev: Arc<dyn Rdd<Item = T>>,
     vals: Arc<RddVals>,
-    f: F,
+    func: F,
     _marker_t: PhantomData<T>, // phantom data is necessary because of type parameter T
 }
 
@@ -41,7 +41,7 @@ where
         FlatMapperRdd {
             prev: self.prev.clone(),
             vals: self.vals.clone(),
-            f: self.f.clone(),
+            func: self.func.clone(),
             _marker_t: PhantomData,
         }
     }
@@ -51,7 +51,7 @@ impl<T: Data, U: Data, F> FlatMapperRdd<T, U, F>
 where
     F: SerFunc(T) -> Box<dyn Iterator<Item = U>>,
 {
-    pub(crate) fn new(prev: Arc<dyn Rdd<Item = T>>, f: F) -> Self {
+    pub(crate) fn new(prev: Arc<dyn Rdd<Item = T>>, func: F) -> Self {
         let mut vals = RddVals::new(prev.get_context());
         vals.dependencies
             .push(Dependency::NarrowDependency(Arc::new(
@@ -61,7 +61,7 @@ where
         FlatMapperRdd {
             prev,
             vals,
-            f,
+            func,
             _marker_t: PhantomData,
         }
     }
@@ -92,39 +92,25 @@ where
         self.prev.number_of_splits()
     }
 
-    default fn cogroup_iterator_any(
-        &self,
-        split: Box<dyn Split>,
-    ) -> Result<Box<dyn Iterator<Item = Box<dyn AnyData>>>> {
-        self.iterator_any(split)
+    async fn cogroup_iterator_any(&self, split: Box<dyn Split>) -> Result<AnyDataStream> {
+        self.iterator_any(split).await
     }
 
-    default fn iterator_any(
-        &self,
-        split: Box<dyn Split>,
-    ) -> Result<Box<dyn Iterator<Item = Box<dyn AnyData>>>> {
+    async fn iterator_any(&self, split: Box<dyn Split>) -> Result<AnyDataStream> {
         log::debug!("inside iterator_any flatmaprdd",);
-        Ok(Box::new(
-            self.iterator(split)?
-                .map(|x| Box::new(x) as Box<dyn AnyData>),
-        ))
+        super::iterator_any(self, split).await
     }
 }
 
-impl<T: Data, V: Data, U: Data, F: 'static> RddBase for FlatMapperRdd<T, (V, U), F>
-where
-    F: SerFunc(T) -> Box<dyn Iterator<Item = (V, U)>>,
-{
-    fn cogroup_iterator_any(
-        &self,
-        split: Box<dyn Split>,
-    ) -> Result<Box<dyn Iterator<Item = Box<dyn AnyData>>>> {
-        log::debug!("inside iterator_any flatmaprdd",);
-        Ok(Box::new(self.iterator(split)?.map(|(k, v)| {
-            Box::new((k, Box::new(v) as Box<dyn AnyData>)) as Box<dyn AnyData>
-        })))
-    }
-}
+// impl<T: Data, V: Data, U: Data, F: 'static> RddBase for FlatMapperRdd<T, (V, U), F>
+// where
+//     F: SerFunc(T) -> Box<dyn Iterator<Item = (V, U)>>,
+// {
+//     fn cogroup_iterator_any(&self, split: Box<dyn Split>) -> Result<AnyDataStream> {
+//         log::debug!("inside iterator_any flatmaprdd",);
+//         super::cogroup_iterator_any(self, split)
+//     }
+// }
 
 #[async_trait::async_trait]
 impl<T: Data, U: Data, F: 'static> Rdd for FlatMapperRdd<T, U, F>
@@ -141,10 +127,15 @@ where
         Arc::new(self.clone())
     }
 
-    async fn compute(&self, split: Box<dyn Split>) -> ComputeResult<Self::Item> {
-        let f = self.f.clone();
-        let prev_res = self.prev.iterator(split).unwrap();
-        let this_iter = prev_res.map(|e| futures::stream::iter(f(e))).flatten();
-        Ok(Box::pin(this_iter))
+    async fn compute(&self, split: Box<dyn Split>) -> Result<ComputeResult<Self::Item>> {
+        let func = self.func.clone();
+        let prev_res = self.prev.iterator(split).await?;
+        let mut prev_res = prev_res.lock();
+        let this_iter = prev_res
+            .into_iter()
+            .map(move |e| func(e))
+            .flatten()
+            .collect::<Vec<_>>();
+        Ok(Arc::new(Mutex::new(this_iter.into_iter())))
     }
 }

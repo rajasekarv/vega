@@ -11,11 +11,11 @@ use std::sync::Arc;
 use crate::context::Context;
 use crate::dependency::{Dependency, OneToOneDependency};
 use crate::error::{Error, Result};
-use crate::rdd::{ComputeResult, Rdd, RddBase, RddVals};
+use crate::rdd::{AnyDataStream, AsyncComputation, ComputeResult, Rdd, RddBase, RddVals};
 use crate::serializable_traits::{AnyData, Data, Func, SerFunc};
 use crate::split::Split;
 use crate::utils;
-use futures::stream::StreamExt;
+use futures::{FutureExt, StreamExt};
 use parking_lot::Mutex;
 use rand::Rng;
 use serde_derive::{Deserialize, Serialize};
@@ -37,7 +37,7 @@ where
 // Can't derive clone automatically
 impl<T: Data, U: Data, F> Clone for MapperRdd<T, U, F>
 where
-    F: Func(T) -> U + Clone,
+    F: SerFunc(T) -> U + Clone,
 {
     fn clone(&self) -> Self {
         MapperRdd {
@@ -105,22 +105,13 @@ where
         self.prev.number_of_splits()
     }
 
-    default fn cogroup_iterator_any(
-        &self,
-        split: Box<dyn Split>,
-    ) -> Result<Box<dyn Iterator<Item = Box<dyn AnyData>>>> {
-        self.iterator_any(split)
+    async fn cogroup_iterator_any(&self, split: Box<dyn Split>) -> Result<AnyDataStream> {
+        self.iterator_any(split).await
     }
 
-    default fn iterator_any(
-        &self,
-        split: Box<dyn Split>,
-    ) -> Result<Box<dyn Iterator<Item = Box<dyn AnyData>>>> {
+    async fn iterator_any(&self, split: Box<dyn Split>) -> Result<AnyDataStream> {
         log::debug!("inside iterator_any maprdd",);
-        Ok(Box::new(
-            self.iterator(split)?
-                .map(|x| Box::new(x) as Box<dyn AnyData>),
-        ))
+        super::iterator_any(self, split).await
     }
 
     fn is_pinned(&self) -> bool {
@@ -128,20 +119,15 @@ where
     }
 }
 
-impl<T: Data, V: Data, U: Data, F> RddBase for MapperRdd<T, (V, U), F>
-where
-    F: SerFunc(T) -> (V, U),
-{
-    fn cogroup_iterator_any(
-        &self,
-        split: Box<dyn Split>,
-    ) -> Result<Box<dyn Iterator<Item = Box<dyn AnyData>>>> {
-        log::debug!("inside iterator_any maprdd",);
-        Ok(Box::new(self.iterator(split)?.map(|(k, v)| {
-            Box::new((k, Box::new(v) as Box<dyn AnyData>)) as Box<dyn AnyData>
-        })))
-    }
-}
+// impl<T: Data, V: Data, U: Data, F> RddBase for MapperRdd<T, (V, U), F>
+// where
+//     F: SerFunc(T) -> (V, U),
+// {
+//     fn cogroup_iterator_any(&self, split: Box<dyn Split>) -> Result<AnyDataStream> {
+//         log::debug!("inside iterator_any maprdd",);
+//         super::cogroup_iterator_any(self, split)
+//     }
+// }
 
 #[async_trait::async_trait]
 impl<T: Data, U: Data, F: 'static> Rdd for MapperRdd<T, U, F>
@@ -157,9 +143,14 @@ where
         Arc::new(self.clone())
     }
 
-    async fn compute(&self, split: Box<dyn Split>) -> ComputeResult<Self::Item> {
-        let mut prev_iter = self.prev.iterator(split)?;
-        let this_iter = prev_iter.map(self.f.clone());
-        Ok(Box::pin(this_iter))
+    async fn compute(&self, split: Box<dyn Split>) -> Result<ComputeResult<Self::Item>> {
+        let func = self.f.clone();
+        let mut prev_iter = self.prev.iterator(split).await?;
+        let this_iter = prev_iter
+            .lock()
+            .into_iter()
+            .map(|e| func(e))
+            .collect::<Vec<_>>();
+        Ok(Arc::new(Mutex::new(this_iter.into_iter())))
     }
 }

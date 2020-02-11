@@ -5,10 +5,11 @@ use std::sync::Arc;
 use crate::context::Context;
 use crate::dependency::Dependency;
 use crate::error::{Error, Result};
-use crate::rdd::{ComputeResult, Rdd, RddBase, RddVals};
+use crate::rdd::{AnyDataStream, ComputeResult, Rdd, RddBase, RddVals};
 use crate::serializable_traits::{AnyData, Data};
 use crate::split::Split;
 use itertools::{iproduct, Itertools};
+use parking_lot::Mutex;
 use serde_derive::{Deserialize, Serialize};
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -104,14 +105,8 @@ impl<T: Data, U: Data> RddBase for CartesianRdd<T, U> {
         array
     }
 
-    default fn iterator_any(
-        &self,
-        split: Box<dyn Split>,
-    ) -> Result<Box<dyn Iterator<Item = Box<dyn AnyData>>>> {
-        Ok(Box::new(
-            self.iterator(split)?
-                .map(|x| Box::new(x) as Box<dyn AnyData>),
-        ))
+    async fn iterator_any(&self, split: Box<dyn Split>) -> Result<AnyDataStream> {
+        super::iterator_any(self, split).await
     }
 }
 
@@ -129,15 +124,26 @@ impl<T: Data, U: Data> Rdd for CartesianRdd<T, U> {
         Arc::new(self.clone()) as Arc<dyn RddBase>
     }
 
-    async fn compute(&self, split: Box<dyn Split>) -> ComputeResult<Self::Item> {
-        // let current_split = split
-        //     .downcast::<CartesianSplit>()
-        //     .or(Err(Error::SplitDowncast("CartesianSplit")))?;
-
-        // let iter1 = self.rdd1.iterator(current_split.s1).await?;
-        // // required because iter2 must be clonable:
-        // let iter2: Vec<_> = self.rdd2.iterator(current_split.s2).await?.collect();
-        // Ok(Box::pin(iter1.cartesian_product(iter2.into_iter())))
-        todo!()
+    async fn compute(&self, split: Box<dyn Split>) -> Result<ComputeResult<Self::Item>> {
+        let current_split = split
+            .downcast::<CartesianSplit>()
+            .or(Err(Error::SplitDowncast("CartesianSplit")))?;
+        let iter1: Vec<_> = self
+            .rdd1
+            .iterator(current_split.s1)
+            .await?
+            .lock()
+            .into_iter()
+            .collect();
+        let iter2: Vec<_> = self
+            .rdd2
+            .iterator(current_split.s2)
+            .await?
+            .lock()
+            .into_iter()
+            .collect();
+        Ok(Arc::new(Mutex::new(
+            iter1.into_iter().cartesian_product(iter2.into_iter()),
+        )))
     }
 }

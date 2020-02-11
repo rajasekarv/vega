@@ -7,10 +7,11 @@ use std::sync::Arc;
 use crate::context::Context;
 use crate::dependency::Dependency;
 use crate::error::Result;
-use crate::rdd::{ComputeResult, Rdd, RddBase, RddVals};
+use crate::rdd::{AnyDataStream, ComputeResult, Rdd, RddBase, RddVals};
 use crate::serializable_traits::{AnyData, Data};
 use crate::split::Split;
 use log::info;
+use parking_lot::Mutex;
 use serde_derive::{Deserialize, Serialize};
 
 /// A collection of objects which can be sliced into partitions with a partitioning function.
@@ -148,18 +149,14 @@ impl<T: Data> ParallelCollection<T> {
     }
 }
 
-impl<K: Data, V: Data> RddBase for ParallelCollection<(K, V)> {
-    fn cogroup_iterator_any(
-        &self,
-        split: Box<dyn Split>,
-    ) -> Result<Box<dyn Iterator<Item = Box<dyn AnyData>>>> {
-        log::debug!("inside iterator_any parallel collection",);
-        Ok(Box::new(self.iterator(split)?.map(|(k, v)| {
-            Box::new((k, Box::new(v) as Box<dyn AnyData>)) as Box<dyn AnyData>
-        })))
-    }
-}
+// impl<K: Data, V: Data> RddBase for ParallelCollection<(K, V)> {
+//     fn cogroup_iterator_any(&self, split: Box<dyn Split>) -> Result<AnyDataStream> {
+//         log::debug!("inside iterator_any parallel collection",);
+//         super::cogroup_iterator_any(self, split)
+//     }
+// }
 
+#[async_trait::async_trait]
 impl<T: Data> RddBase for ParallelCollection<T> {
     fn get_rdd_id(&self) -> usize {
         self.rdd_vals.vals.id
@@ -186,22 +183,13 @@ impl<T: Data> RddBase for ParallelCollection<T> {
         self.rdd_vals.splits_.len()
     }
 
-    default fn cogroup_iterator_any(
-        &self,
-        split: Box<dyn Split>,
-    ) -> Result<Box<dyn Iterator<Item = Box<dyn AnyData>>>> {
-        self.iterator_any(split)
+    async fn cogroup_iterator_any(&self, split: Box<dyn Split>) -> Result<AnyDataStream> {
+        self.iterator_any(split).await
     }
 
-    default fn iterator_any(
-        &self,
-        split: Box<dyn Split>,
-    ) -> Result<Box<dyn Iterator<Item = Box<dyn AnyData>>>> {
+    async fn iterator_any(&self, split: Box<dyn Split>) -> Result<AnyDataStream> {
         log::debug!("inside iterator_any parallel collection",);
-        Ok(Box::new(
-            self.iterator(split)?
-                .map(|x| Box::new(x) as Box<dyn AnyData>),
-        ))
+        crate::rdd::iterator_any(self, split).await
     }
 }
 
@@ -218,10 +206,10 @@ impl<T: Data> Rdd for ParallelCollection<T> {
         Arc::new(self.clone()) as Arc<dyn RddBase>
     }
 
-    async fn compute(&self, split: Box<dyn Split>) -> ComputeResult<Self::Item> {
-        if let Some(s) = split.downcast_ref::<ParallelCollectionSplit<T>>() {
-            let iter = s.iterator();
-            Ok(Box::pin(futures::stream::iter(iter)))
+    async fn compute(&self, split: Box<dyn Split>) -> Result<ComputeResult<Self::Item>> {
+        if let Some(split) = split.downcast_ref::<ParallelCollectionSplit<T>>() {
+            let iter = split.iterator();
+            Ok(Arc::new(Mutex::new(iter)))
         } else {
             panic!(
                 "Got split object from different concrete type other than ParallelCollectionSplit"

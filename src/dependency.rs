@@ -2,13 +2,15 @@ use crate::aggregator::Aggregator;
 use crate::env;
 use crate::partitioner::Partitioner;
 use crate::rdd::RddBase;
-use crate::serializable_traits::Data;
+use crate::serializable_traits::{AnyData, Data};
+use futures::{Stream, StreamExt};
 use log::info;
 use serde_derive::{Deserialize, Serialize};
 use serde_traitobject::{Deserialize, Serialize};
 use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::hash::Hash;
+use std::pin::Pin;
 use std::sync::Arc;
 
 // Revise if enum is good choice. Considering enum since down casting one trait object to another trait object is difficult.
@@ -90,11 +92,12 @@ impl NarrowDependencyTrait for RangeDependency {
     }
 }
 
+#[async_trait::async_trait]
 pub trait ShuffleDependencyTrait: Serialize + Deserialize + Send + Sync {
     fn get_shuffle_id(&self) -> usize;
     fn get_rdd_base(&self) -> Arc<dyn RddBase>;
     fn is_shuffle(&self) -> bool;
-    fn do_shuffle_task(&self, rdd_base: Arc<dyn RddBase>, partition: usize) -> String;
+    async fn do_shuffle_task(&self, rdd_base: Arc<dyn RddBase>, partition: usize) -> String;
 }
 
 impl PartialOrd for dyn ShuffleDependencyTrait {
@@ -149,6 +152,7 @@ impl<K: Data, V: Data, C: Data> ShuffleDependency<K, V, C> {
     }
 }
 
+#[async_trait::async_trait]
 impl<K: Data + Eq + Hash, V: Data, C: Data> ShuffleDependencyTrait for ShuffleDependency<K, V, C> {
     fn get_shuffle_id(&self) -> usize {
         self.shuffle_id
@@ -162,7 +166,7 @@ impl<K: Data + Eq + Hash, V: Data, C: Data> ShuffleDependencyTrait for ShuffleDe
         self.rdd_base.clone()
     }
 
-    fn do_shuffle_task(&self, rdd_base: Arc<dyn RddBase>, partition: usize) -> String {
+    async fn do_shuffle_task(&self, rdd_base: Arc<dyn RddBase>, partition: usize) -> String {
         log::debug!("doing shuffle_task for partition {}", partition);
         let split = rdd_base.splits()[partition].clone();
         let aggregator = self.aggregator.clone();
@@ -179,31 +183,35 @@ impl<K: Data + Eq + Hash, V: Data, C: Data> ShuffleDependencyTrait for ShuffleDe
         );
         log::debug!("split index {}", split.get_index());
 
-        let iter = if self.is_cogroup {
-            rdd_base.cogroup_iterator_any(split)
-        } else {
-            rdd_base.iterator_any(split.clone())
+        let mut func = |iter: &mut dyn Iterator<Item = Box<dyn AnyData>>| {
+            for (count, i) in iter.enumerate() {
+                let b = i.into_any().downcast::<(K, V)>().unwrap();
+                let (k, v) = *b;
+                if count == 0 {
+                    log::debug!(
+                        "iterator inside dependency map task after downcasting {:?} {:?}",
+                        k,
+                        v
+                    );
+                }
+                let bucket_id = partitioner.get_partition(&k);
+                let bucket = &mut buckets[bucket_id];
+                if let Some(old_v) = bucket.get_mut(&k) {
+                    let input = ((old_v.clone(), v),);
+                    let output = aggregator.merge_value.call(input);
+                    *old_v = output;
+                } else {
+                    bucket.insert(k, aggregator.create_combiner.call((v,)));
+                }
+            }
         };
 
-        for (count, i) in iter.unwrap().enumerate() {
-            let b = i.into_any().downcast::<(K, V)>().unwrap();
-            let (k, v) = *b;
-            if count == 0 {
-                log::debug!(
-                    "iterator inside dependency map task after downcasting {:?} {:?}",
-                    k,
-                    v
-                );
-            }
-            let bucket_id = partitioner.get_partition(&k);
-            let bucket = &mut buckets[bucket_id];
-            if let Some(old_v) = bucket.get_mut(&k) {
-                let input = ((old_v.clone(), v),);
-                let output = aggregator.merge_value.call(input);
-                *old_v = output;
-            } else {
-                bucket.insert(k, aggregator.create_combiner.call((v,)));
-            }
+        if self.is_cogroup {
+            let iter = rdd_base.cogroup_iterator_any(split).await.unwrap();
+            func(&mut *iter.lock());
+        } else {
+            let iter = rdd_base.iterator_any(split).await.unwrap();
+            func(&mut *iter.lock());
         }
 
         for (i, bucket) in buckets.into_iter().enumerate() {

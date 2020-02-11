@@ -14,6 +14,7 @@ use crate::serializable_traits::{Data, SerFunc};
 use crate::shuffle::ShuffleMapTask;
 use crate::stage::Stage;
 use crate::task::{TaskBase, TaskContext, TaskOption};
+use futures::stream::StreamExt;
 use log::{error, info};
 use threadpool::ThreadPool;
 
@@ -42,12 +43,17 @@ pub(crate) trait NativeScheduler {
         F: SerFunc((TaskContext, Box<dyn Iterator<Item = T>>)) -> U,
     {
         if jt.final_stage.parents.is_empty() && (jt.num_output_parts == 1) {
-            let split = (jt.final_rdd.splits()[jt.output_parts[0]]).clone();
-            let task_context = TaskContext::new(jt.final_stage.id, jt.output_parts[0], 0);
-            Ok(Some(vec![(&jt.func)((
-                task_context,
-                jt.final_rdd.iterator(split)?,
-            ))]))
+            let executor = &mut *env::Env::get().async_rt.lock();
+            executor.block_on(async {
+                let split = (jt.final_rdd.splits()[jt.output_parts[0]]).clone();
+                let task_context = TaskContext::new(jt.final_stage.id, jt.output_parts[0], 0);
+                let iter = jt.final_rdd.iterator(split).await?;
+                let iter: Vec<T> = iter.lock().into_iter().collect();
+                Ok(Some(vec![(&jt.func)((
+                    task_context,
+                    Box::new(iter.into_iter()),
+                ))]))
+            })
         } else {
             Ok(None)
         }

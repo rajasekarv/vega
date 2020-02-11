@@ -6,12 +6,13 @@ use crate::context::Context;
 use crate::dependency::{Dependency, OneToOneDependency};
 use crate::error::Result;
 use crate::partitioner::Partitioner;
-use crate::rdd::{ComputeResult, Rdd, RddBase, RddVals};
+use crate::rdd::{AnyDataStream, ComputeResult, Rdd, RddBase, RddVals};
 use crate::serializable_traits::{AnyData, Data};
 use crate::split::Split;
 use crate::utils::random::RandomSampler;
 use futures::stream::StreamExt;
 use log::info;
+use parking_lot::Mutex;
 use serde_derive::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize)]
@@ -90,36 +91,22 @@ impl<T: Data> RddBase for PartitionwiseSampledRdd<T> {
         }
     }
 
-    fn cogroup_iterator_any(
-        &self,
-        split: Box<dyn Split>,
-    ) -> Result<Box<dyn Iterator<Item = Box<dyn AnyData>>>> {
-        self.iterator_any(split)
+    async fn cogroup_iterator_any(&self, split: Box<dyn Split>) -> Result<AnyDataStream> {
+        self.iterator_any(split).await
     }
 
-    fn iterator_any(
-        &self,
-        split: Box<dyn Split>,
-    ) -> Result<Box<dyn Iterator<Item = Box<dyn AnyData>>>> {
+    async fn iterator_any(&self, split: Box<dyn Split>) -> Result<AnyDataStream> {
         log::debug!("inside PartitionwiseSampledRdd iterator_any");
-        Ok(Box::new(
-            self.iterator(split)?
-                .map(|x| Box::new(x) as Box<dyn AnyData>),
-        ))
+        super::iterator_any(self, split).await
     }
 }
 
-impl<T: Data, V: Data> RddBase for PartitionwiseSampledRdd<(T, V)> {
-    fn cogroup_iterator_any(
-        &self,
-        split: Box<dyn Split>,
-    ) -> Result<Box<dyn Iterator<Item = Box<dyn AnyData>>>> {
-        log::debug!("inside iterator_any maprdd",);
-        Ok(Box::new(self.iterator(split)?.map(|(k, v)| {
-            Box::new((k, Box::new(v) as Box<dyn AnyData>)) as Box<dyn AnyData>
-        })))
-    }
-}
+// impl<T: Data, V: Data> RddBase for PartitionwiseSampledRdd<(T, V)> {
+//     fn cogroup_iterator_any(&self, split: Box<dyn Split>) -> Result<AnyDataStream> {
+//         log::debug!("inside iterator_any maprdd",);
+//         super::cogroup_iterator_any(self, split)
+//     }
+// }
 
 #[async_trait::async_trait]
 impl<T: Data> Rdd for PartitionwiseSampledRdd<T> {
@@ -132,11 +119,11 @@ impl<T: Data> Rdd for PartitionwiseSampledRdd<T> {
         Arc::new(self.clone())
     }
 
-    async fn compute(&self, split: Box<dyn Split>) -> ComputeResult<Self::Item> {
+    async fn compute(&self, split: Box<dyn Split>) -> Result<ComputeResult<Self::Item>> {
+        let prev_res = self.prev.iterator(split).await?;
+        let prev_res = prev_res.lock().into_iter().collect::<Vec<_>>();
         let sampler_func = self.sampler.get_sampler();
-        let prev_res = self.prev.iterator(split)?.collect::<Vec<_>>().await;
-        Ok(Box::pin(futures::stream::iter(
-            sampler_func(Box::new(prev_res.into_iter())).into_iter(),
-        )))
+        let this_iter = sampler_func(Box::new(prev_res.into_iter()));
+        Ok(Arc::new(Mutex::new(this_iter.into_iter())))
     }
 }

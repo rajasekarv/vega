@@ -11,11 +11,12 @@ use crate::dependency::Dependency;
 use crate::env;
 use crate::error::{Error, Result};
 use crate::io::ReaderConfiguration;
-use crate::rdd::{ComputeResult, MapPartitionsRdd, MapperRdd, Rdd, RddBase};
+use crate::rdd::{AnyDataStream, ComputeResult, MapPartitionsRdd, MapperRdd, Rdd, RddBase};
 use crate::serializable_traits::{AnyData, Data, SerFunc};
 use crate::split::Split;
 use log::debug;
 use log::info;
+use parking_lot::Mutex;
 use rand::prelude::*;
 use serde_derive::{Deserialize, Serialize};
 use serde_traitobject::{Arc as SerArc, Box as SerBox};
@@ -316,19 +317,10 @@ macro_rules! impl_common_lfs_rddb_funcs {
         fn is_pinned(&self) -> bool {
             true
         }
-
-        default fn iterator_any(
-            &self,
-            split: Box<dyn Split>,
-        ) -> Result<Box<dyn Iterator<Item = Box<dyn AnyData>>>> {
-            Ok(Box::new(
-                self.iterator(split)?
-                .map(|x| Box::new(x) as Box<dyn AnyData>),
-            ))
-        }
     };
 }
 
+#[async_trait::async_trait]
 impl RddBase for LocalFsReader<BytesReader> {
     impl_common_lfs_rddb_funcs!();
 
@@ -350,8 +342,13 @@ impl RddBase for LocalFsReader<BytesReader> {
         }
         splits
     }
+
+    async fn iterator_any(&self, split: Box<dyn Split>) -> Result<AnyDataStream> {
+        crate::rdd::iterator_any(self, split).await
+    }
 }
 
+#[async_trait::async_trait]
 impl RddBase for LocalFsReader<FileReader> {
     impl_common_lfs_rddb_funcs!();
 
@@ -370,6 +367,10 @@ impl RddBase for LocalFsReader<FileReader> {
             }) as Box<dyn Split>)
         }
         splits
+    }
+
+    async fn iterator_any(&self, split: Box<dyn Split>) -> Result<AnyDataStream> {
+        crate::rdd::iterator_any(self, split).await
     }
 }
 
@@ -394,12 +395,12 @@ impl Rdd for LocalFsReader<BytesReader> {
 
     impl_common_lfs_rdd_funcs!();
 
-    async fn compute(&self, split: Box<dyn Split>) -> ComputeResult<Self::Item> {
+    async fn compute(&self, split: Box<dyn Split>) -> Result<ComputeResult<Self::Item>> {
         let split = split.downcast_ref::<BytesReader>().unwrap();
         let mut files_by_part = self.load_local_files().unwrap();
         let idx = split.idx;
         let host = split.host;
-        Ok(Box::pin(futures::stream::iter(
+        Ok(Arc::new(Mutex::new(
             files_by_part
                 .into_iter()
                 .map(move |files| BytesReader { files, host, idx }),
@@ -413,12 +414,12 @@ impl Rdd for LocalFsReader<FileReader> {
 
     impl_common_lfs_rdd_funcs!();
 
-    async fn compute(&self, split: Box<dyn Split>) -> ComputeResult<Self::Item> {
+    async fn compute(&self, split: Box<dyn Split>) -> Result<ComputeResult<Self::Item>> {
         let split = split.downcast_ref::<FileReader>().unwrap();
         let mut files_by_part = self.load_local_files()?;
         let idx = split.idx;
         let host = split.host;
-        Ok(Box::pin(futures::stream::iter(
+        Ok(Arc::new(Mutex::new(
             files_by_part
                 .into_iter()
                 .map(move |files| FileReader { files, host, idx }),

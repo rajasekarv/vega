@@ -5,11 +5,19 @@ use std::net::{Ipv4Addr, SocketAddr};
 use std::path::PathBuf;
 use std::sync::Arc;
 
+use self::config_vars::*;
+use crate::cache::BoundedMemoryCache;
+use crate::cache_tracker::CacheTracker;
+use crate::error::Error;
+use crate::hosts::Hosts;
+use crate::map_output_tracker::MapOutputTracker;
+use crate::shuffle::{ShuffleFetcher, ShuffleManager};
 use clap::{App, Arg, SubCommand};
 use log::LevelFilter as LogLevel;
 use once_cell::sync::{Lazy, OnceCell};
 use parking_lot::{Mutex, RwLock};
 use thiserror::Error;
+use tokio::runtime::Runtime;
 
 type ShuffleCache = Arc<RwLock<HashMap<(usize, usize, usize), Vec<u8>>>>;
 
@@ -24,6 +32,7 @@ pub(crate) struct Env {
     pub shuffle_manager: ShuffleManager,
     pub shuffle_fetcher: ShuffleFetcher,
     pub cache_tracker: CacheTracker,
+    pub async_rt: Mutex<Runtime>,
 }
 
 impl Env {
@@ -44,6 +53,13 @@ impl Env {
                 conf.local_ip,
                 &the_cache,
             ),
+            async_rt: Mutex::new(
+                tokio::runtime::Builder::new()
+                    .enable_all()
+                    .threaded_scheduler()
+                    .build()
+                    .unwrap(),
+            ),
         }
     }
 }
@@ -56,14 +72,6 @@ pub(crate) mod config_vars {
     pub const PORT: &str = "NS_PORT";
     pub const SHUFFLE_SERVICE_PORT: &str = "NS_SHUFFLE_SERVICE_PORT";
 }
-
-use crate::cache::BoundedMemoryCache;
-use crate::cache_tracker::CacheTracker;
-use crate::error::Error;
-use crate::hosts::Hosts;
-use crate::map_output_tracker::MapOutputTracker;
-use crate::shuffle::{ShuffleFetcher, ShuffleManager};
-use config_vars::*;
 
 #[derive(Clone, Copy)]
 pub enum DeploymentMode {

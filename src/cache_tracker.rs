@@ -5,6 +5,7 @@ use crate::serializable_traits::Data;
 use crate::serialized_data_capnp::serialized_data;
 use crate::split::Split;
 use capnp::serialize_packed;
+use futures::StreamExt;
 use parking_lot::RwLock;
 use serde_derive::{Deserialize, Serialize};
 use std::collections::LinkedList;
@@ -325,7 +326,7 @@ impl CacheTracker {
         }
     }
 
-    pub fn get_or_compute<T: Data>(
+    pub async fn get_or_compute<T: Data>(
         &self,
         rdd: Arc<dyn Rdd<Item = T>>,
         split: Box<dyn Split>,
@@ -347,7 +348,8 @@ impl CacheTracker {
 
             let mut res: Vec<T> = Vec::new();
             let mut lock = self.loading.write();
-            res = rdd.compute(split.clone()).unwrap().collect();
+            let mut computation = rdd.compute(split.clone()).await.unwrap();
+            res = computation.lock().into_iter().collect();
             let res_bytes = bincode::serialize(&res).unwrap();
             let put_response = self
                 .cache
