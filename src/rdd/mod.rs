@@ -18,3 +18,5 @@ pub mod rdd;
 pub use rdd::*;
 pub mod union_rdd;
 pub use union_rdd::*;
+pub mod zip_rdd;
+pub use zip_rdd::*;
