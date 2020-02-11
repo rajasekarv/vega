@@ -6,7 +6,7 @@ use crate::context::Context;
 use crate::dependency::{Dependency, OneToOneDependency};
 use crate::error::Result;
 use crate::partitioner::Partitioner;
-use crate::rdd::{ComputeResult, Rdd, RddBase, RddVals};
+use crate::rdd::{AnyDataStream, ComputeResult, Rdd, RddBase, RddVals};
 use crate::serializable_traits::{AnyData, Data};
 use crate::split::Split;
 use crate::utils::random::RandomSampler;
@@ -90,34 +90,20 @@ impl<T: Data> RddBase for PartitionwiseSampledRdd<T> {
         }
     }
 
-    fn cogroup_iterator_any(
-        &self,
-        split: Box<dyn Split>,
-    ) -> Result<Box<dyn Iterator<Item = Box<dyn AnyData>>>> {
+    default fn cogroup_iterator_any(&self, split: Box<dyn Split>) -> Result<AnyDataStream> {
         self.iterator_any(split)
     }
 
-    fn iterator_any(
-        &self,
-        split: Box<dyn Split>,
-    ) -> Result<Box<dyn Iterator<Item = Box<dyn AnyData>>>> {
+    default fn iterator_any(&self, split: Box<dyn Split>) -> Result<AnyDataStream> {
         log::debug!("inside PartitionwiseSampledRdd iterator_any");
-        Ok(Box::new(
-            self.iterator(split)?
-                .map(|x| Box::new(x) as Box<dyn AnyData>),
-        ))
+        super::iterator_any(self, split)
     }
 }
 
 impl<T: Data, V: Data> RddBase for PartitionwiseSampledRdd<(T, V)> {
-    fn cogroup_iterator_any(
-        &self,
-        split: Box<dyn Split>,
-    ) -> Result<Box<dyn Iterator<Item = Box<dyn AnyData>>>> {
+    fn cogroup_iterator_any(&self, split: Box<dyn Split>) -> Result<AnyDataStream> {
         log::debug!("inside iterator_any maprdd",);
-        Ok(Box::new(self.iterator(split)?.map(|(k, v)| {
-            Box::new((k, Box::new(v) as Box<dyn AnyData>)) as Box<dyn AnyData>
-        })))
+        super::cogroup_iterator_any(self, split)
     }
 }
 
@@ -132,11 +118,12 @@ impl<T: Data> Rdd for PartitionwiseSampledRdd<T> {
         Arc::new(self.clone())
     }
 
-    async fn compute(&self, split: Box<dyn Split>) -> ComputeResult<Self::Item> {
-        let sampler_func = self.sampler.get_sampler();
-        let prev_res = self.prev.iterator(split)?.collect::<Vec<_>>().await;
-        Ok(Box::pin(futures::stream::iter(
-            sampler_func(Box::new(prev_res.into_iter())).into_iter(),
-        )))
+    async fn compute(&self, split: Box<dyn Split>) -> Result<ComputeResult<Self::Item>> {
+        // let sampler_func = self.sampler.get_sampler();
+        // let prev_res = self.prev.iterator(split).await?.collect::<Vec<_>>().await;
+        // Ok(Box::pin(futures::stream::iter(
+        //     sampler_func(Box::new(prev_res.into_iter())).into_iter(),
+        // )))
+        todo!()
     }
 }

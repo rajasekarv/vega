@@ -10,7 +10,7 @@ use std::sync::Arc;
 use crate::context::Context;
 use crate::dependency::{Dependency, NarrowDependencyTrait};
 use crate::error::{Error, Result};
-use crate::rdd::{ComputeResult, Rdd, RddBase, RddVals};
+use crate::rdd::{AnyDataStream, ComputeResult, Rdd, RddBase, RddVals};
 use crate::serializable_traits::{AnyData, Data};
 use crate::split::Split;
 use crate::utils;
@@ -190,14 +190,8 @@ impl<T: Data> RddBase for CoalescedRdd<T> {
         }
     }
 
-    default fn iterator_any(
-        &self,
-        split: Box<dyn Split>,
-    ) -> Result<Box<dyn Iterator<Item = Box<dyn AnyData>>>> {
-        Ok(Box::new(
-            self.iterator(split)?
-                .map(|x| Box::new(x) as Box<dyn AnyData>),
-        ))
+    default fn iterator_any(&self, split: Box<dyn Split>) -> Result<AnyDataStream> {
+        super::iterator_any(self, split)
     }
 }
 
@@ -215,20 +209,21 @@ impl<T: Data> Rdd for CoalescedRdd<T> {
         Arc::new(self.clone()) as Arc<dyn RddBase>
     }
 
-    async fn compute(&self, split: Box<dyn Split>) -> ComputeResult<Self::Item> {
-        let split = CoalescedRddSplit::downcasting(split);
-        let mut iter = Vec::new();
-        for (_, p) in self
-            .parent
-            .splits()
-            .into_iter()
-            .enumerate()
-            .filter(|(i, _)| split.parent_indices.contains(i))
-        {
-            let it = self.parent.iterator(p)?;
-            iter.push(it);
-        }
-        Ok(Box::pin(futures::stream::iter(iter.into_iter()).flatten()))
+    async fn compute(&self, split: Box<dyn Split>) -> Result<ComputeResult<Self::Item>> {
+        // let split = CoalescedRddSplit::downcasting(split);
+        // let mut iter = Vec::new();
+        // for (_, p) in self
+        //     .parent
+        //     .splits()
+        //     .into_iter()
+        //     .enumerate()
+        //     .filter(|(i, _)| split.parent_indices.contains(i))
+        // {
+        //     let it = self.parent.iterator(p).await?;
+        //     iter.push(it);
+        // }
+        // Ok(Box::pin(futures::stream::iter(iter.into_iter()).flatten()))
+        todo!()
     }
 }
 

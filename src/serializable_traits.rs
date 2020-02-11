@@ -270,6 +270,7 @@ pub trait SerFunc<Args>:
     + Deserialize
 {
 }
+
 impl<Args, T> SerFunc<Args> for T where
     T: Fn<Args>
         + Send
@@ -287,6 +288,7 @@ pub trait Func<Args>:
     ops::Fn<Args> + Serialize + Deserialize + Send + Sync + 'static + dyn_clone::DynClone
 {
 }
+
 impl<T: ?Sized, Args> Func<Args> for T where
     T: ops::Fn<Args> + Serialize + Deserialize + Send + Sync + 'static + dyn_clone::DynClone
 {
@@ -314,6 +316,7 @@ impl<Args: 'static, Output: 'static> serde::ser::Serialize for dyn Func<Args, Ou
         serialize(self, serializer)
     }
 }
+
 impl<'de, Args: 'static, Output: 'static> serde::de::Deserialize<'de>
     for boxed::Box<dyn Func<Args, Output = Output> + 'static>
 {

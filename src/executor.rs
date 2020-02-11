@@ -2,12 +2,14 @@ use crate::serialized_data_capnp::serialized_data;
 use crate::task::TaskOption;
 use capnp::serialize_packed;
 use log::info;
+use std::future::Future;
 use std::net::TcpListener;
+use std::pin::Pin;
 use std::thread;
 use std::time::Instant;
 use threadpool::ThreadPool;
 
-pub struct Executor {
+pub(crate) struct Executor {
     port: u16,
 }
 
@@ -16,10 +18,11 @@ impl Executor {
         Executor { port }
     }
 
-    // Worker which spawns threads for received tasks, deserializes it and executes the task and send the result back to the master.
-    // Try to pin the threads to particular core of the machine to avoid unnecessary cache misses.
+    /// Worker which spawns threads for received tasks, deserializes it and executes the task and send the result back to the master.
+    ///
+    /// This will spawn it's own Tokio runtime to run tasks on.
     #[allow(clippy::drop_copy)]
-    pub fn worker(&self) {
+    pub fn worker(&self) -> Result<(), ()> {
         let listener = match TcpListener::bind(format!("0.0.0.0:{}", self.port,)) {
             Ok(s) => {
                 log::debug!("created server in executor for task {} ", self.port,);
@@ -27,20 +30,24 @@ impl Executor {
             }
             _ => {
                 log::debug!("unable to create server in executor for task {}", self.port);
-                return;
+                return Err(());
             }
         };
-        let server_port = self.port;
 
-        thread::spawn(move || {
-            //TODO change hardcoded value to number of cores in the system
-            let threads = num_cpus::get();
-            let thread_pool = ThreadPool::new(threads);
+        let server_port = self.port;
+        let parallelism = num_cpus::get();
+        let mut rt = tokio::runtime::Builder::new()
+            .enable_all()
+            .threaded_scheduler()
+            .core_threads(parallelism)
+            .build()
+            .unwrap();
+        let process_stream: Pin<Box<dyn Future<Output = Result<(), ()>>>> = Box::pin(async move {
             for stream in listener.incoming() {
                 match stream {
                     Err(_) => continue,
                     Ok(mut stream) => {
-                        thread_pool.execute(move || {
+                        async move {
                             // TODO reduce the redundant copies
                             let r = ::capnp::message::ReaderOptions {
                                 traversal_limit_in_words: std::u64::MAX,
@@ -61,15 +68,15 @@ impl Executor {
                                 task_data.get_msg().unwrap().len()
                             );
                             let start = Instant::now();
-                            //                            let local_dir_root = "/tmp";
-                            //                            let uuid = Uuid::new_v4();
-                            //                            let local_dir_uuid = uuid.to_string();
-                            //                            let local_dir_path =
-                            //                                format!("{}/spark-task-{}", local_dir_root, local_dir_uuid);
-                            //                            let local_dir = fs::create_dir_all(local_dir_path.clone()).unwrap();
-                            //                            let task_dir_path =
-                            //                                format!("{}/spark-task-{}/task", local_dir_root, local_dir_uuid);
-                            //                            let mut f = fs::File::create(task_dir_path.clone()).unwrap();
+                            // let local_dir_root = "/tmp";
+                            // let uuid = Uuid::new_v4();
+                            // let local_dir_uuid = uuid.to_string();
+                            // let local_dir_path =
+                            //     format!("{}/spark-task-{}", local_dir_root, local_dir_uuid);
+                            // let local_dir = fs::create_dir_all(local_dir_path.clone()).unwrap();
+                            // let task_dir_path =
+                            //     format!("{}/spark-task-{}/task", local_dir_root, local_dir_uuid);
+                            // let mut f = fs::File::create(task_dir_path.clone()).unwrap();
                             let msg = match task_data.get_msg() {
                                 Ok(s) => {
                                     log::debug!("got the task in executor",);
@@ -80,12 +87,11 @@ impl Executor {
                                     std::process::exit(0);
                                 }
                             };
-                            //                            f.write(msg);
-                            //                            let f = fs::File::open(task_dir_path.clone()).unwrap();
-                            //                            let mut f = fs::File::open(task_dir_path).unwrap();
-                            //                            let mut buffer = vec![0; msg.len()];
-
-                            //                            f.read(&mut buffer).unwrap();
+                            // f.write(msg);
+                            // let f = fs::File::open(task_dir_path.clone()).unwrap();
+                            // let mut f = fs::File::open(task_dir_path).unwrap();
+                            // let mut buffer = vec![0; msg.len()];
+                            // f.read(&mut buffer).unwrap();
                             let des_task: TaskOption = match bincode::deserialize(&msg) {
                                 Ok(s) => {
                                     log::debug!("serialized the task in executor",);
@@ -113,7 +119,7 @@ impl Executor {
                             let start = Instant::now();
                             log::debug!("executing the trait from server port {}", server_port);
                             //TODO change attempt id from 0 to proper value
-                            let result = des_task.run(0);
+                            let result = des_task.run(0).await;
 
                             log::debug!(
                                 "time taken in server for running:{} {}",
@@ -137,11 +143,15 @@ impl Executor {
                             log::debug!("sending data to master");
                             task_data.set_msg(&result);
                             serialize_packed::write_message(&mut stream, &message);
-                        });
+                        }
+                        .await;
                     }
                 }
             }
+            // This should be unreachable as long as the executor keeps running.
+            Err(())
         });
+        rt.block_on(process_stream)
     }
 
     // A thread listening for exit signal from master to end the whole slave process

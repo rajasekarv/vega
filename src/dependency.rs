@@ -3,6 +3,7 @@ use crate::env;
 use crate::partitioner::Partitioner;
 use crate::rdd::RddBase;
 use crate::serializable_traits::Data;
+use futures::{Stream, StreamExt};
 use log::info;
 use serde_derive::{Deserialize, Serialize};
 use serde_traitobject::{Deserialize, Serialize};
@@ -90,11 +91,12 @@ impl NarrowDependencyTrait for RangeDependency {
     }
 }
 
+#[async_trait::async_trait]
 pub trait ShuffleDependencyTrait: Serialize + Deserialize + Send + Sync {
     fn get_shuffle_id(&self) -> usize;
     fn get_rdd_base(&self) -> Arc<dyn RddBase>;
     fn is_shuffle(&self) -> bool;
-    fn do_shuffle_task(&self, rdd_base: Arc<dyn RddBase>, partition: usize) -> String;
+    async fn do_shuffle_task(&self, rdd_base: Arc<dyn RddBase>, partition: usize) -> String;
 }
 
 impl PartialOrd for dyn ShuffleDependencyTrait {
@@ -149,6 +151,7 @@ impl<K: Data, V: Data, C: Data> ShuffleDependency<K, V, C> {
     }
 }
 
+#[async_trait::async_trait]
 impl<K: Data + Eq + Hash, V: Data, C: Data> ShuffleDependencyTrait for ShuffleDependency<K, V, C> {
     fn get_shuffle_id(&self) -> usize {
         self.shuffle_id
@@ -162,7 +165,7 @@ impl<K: Data + Eq + Hash, V: Data, C: Data> ShuffleDependencyTrait for ShuffleDe
         self.rdd_base.clone()
     }
 
-    fn do_shuffle_task(&self, rdd_base: Arc<dyn RddBase>, partition: usize) -> String {
+    async fn do_shuffle_task(&self, rdd_base: Arc<dyn RddBase>, partition: usize) -> String {
         log::debug!("doing shuffle_task for partition {}", partition);
         let split = rdd_base.splits()[partition].clone();
         let aggregator = self.aggregator.clone();
@@ -179,13 +182,13 @@ impl<K: Data + Eq + Hash, V: Data, C: Data> ShuffleDependencyTrait for ShuffleDe
         );
         log::debug!("split index {}", split.get_index());
 
-        let iter = if self.is_cogroup {
-            rdd_base.cogroup_iterator_any(split)
+        let iter: std::pin::Pin<Box<dyn Stream<Item = _>>> = if self.is_cogroup {
+            rdd_base.cogroup_iterator_any(split).unwrap().await
         } else {
-            rdd_base.iterator_any(split.clone())
+            rdd_base.iterator_any(split.clone()).unwrap().await
         };
 
-        for (count, i) in iter.unwrap().enumerate() {
+        while let Some((count, i)) = iter.enumerate().next().await {
             let b = i.into_any().downcast::<(K, V)>().unwrap();
             let (k, v) = *b;
             if count == 0 {

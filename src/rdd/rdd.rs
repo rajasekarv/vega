@@ -19,7 +19,7 @@ use crate::task::TaskContext;
 use crate::utils;
 use crate::utils::random::{BernoulliSampler, PoissonSampler, RandomSampler};
 use fasthash::MetroHasher;
-use futures::{Stream, StreamExt};
+use futures::{FutureExt, Stream, StreamExt};
 use log::info;
 use rand::{Rng, SeedableRng};
 use serde_derive::{Deserialize, Serialize};
@@ -72,9 +72,56 @@ impl RddVals {
     }
 }
 
-pub type AsyncComputation<R> = Result<Pin<Box<dyn Stream<Item = R>>>>;
+pub type ComputeResult<R> = Pin<Box<dyn Stream<Item = R> + 'static>>;
+pub type AsyncComputation<R> = Pin<Box<dyn Future<Output = Result<ComputeResult<R>>> + 'static>>;
+pub type AnyDataStream = Pin<Box<dyn Future<Output = ComputeResult<Box<dyn AnyData>>> + 'static>>;
 
-pub type ComputeResult<R> = Result<Pin<Box<dyn Stream<Item = R>>>>;
+/// This is built as an orphan function because circular dependency between RddBase and Rdd.
+///
+/// Calls `iterator` from Rdd and downcasts to AnyData. All this while keeping the futures
+/// invariants for the compiler happy.
+#[inline]
+pub(crate) fn iterator_any<R: Rdd<Item = D>, D: Data>(
+    rdd: &R,
+    split: Box<dyn Split>,
+) -> Result<AnyDataStream> {
+    Ok(Box::pin(rdd.iterator(split).then(|stream| {
+        futures::future::ready(
+            Box::pin(stream.unwrap().map(|x| Box::new(x) as Box<dyn AnyData>))
+                as Pin<Box<dyn Stream<Item = _>>>,
+        )
+    })))
+}
+
+/// Specialized version of `iterator_any` where the serializable data is a touple of two elements.
+#[inline]
+fn iterator_any_tuple<R: Rdd<Item = (K, V)>, K: Data, V: Data>(
+    rdd: &R,
+    split: Box<dyn Split>,
+) -> Result<AnyDataStream> {
+    Ok(Box::pin(rdd.iterator(split).then(|stream| {
+        futures::future::ready(Box::pin(
+            stream
+                .unwrap()
+                .map(|(k, v)| Box::new((k, v)) as Box<dyn AnyData>),
+        ) as Pin<Box<dyn Stream<Item = _>>>)
+    })))
+}
+
+/// See `iterator_any`, ditto the same for co-grouped data.
+#[inline]
+pub(crate) fn cogroup_iterator_any<R: Rdd<Item = (K, V)>, K: Data, V: Data>(
+    rdd: &R,
+    split: Box<dyn Split>,
+) -> Result<AnyDataStream> {
+    Ok(Box::pin(rdd.iterator(split).then(|stream| {
+        futures::future::ready(Box::pin(
+            stream
+                .unwrap()
+                .map(|(k, v)| Box::new((k, Box::new(v) as Box<dyn AnyData>)) as Box<dyn AnyData>),
+        ) as Pin<Box<dyn Stream<Item = _>>>)
+    })))
+}
 
 // Due to the lack of HKTs in Rust, it is difficult to have collection of generic data with different types.
 // Required for storing multiple RDDs inside dependencies and other places like Tasks, etc.,
@@ -102,15 +149,9 @@ pub trait RddBase: Send + Sync + Serialize + Deserialize {
     }
 
     // Analyse whether this is required or not. It requires downcasting while executing tasks which could hurt performance.
-    fn iterator_any(
-        &self,
-        split: Box<dyn Split>,
-    ) -> Result<Box<dyn Iterator<Item = Box<dyn AnyData>>>>;
+    fn iterator_any(&self, split: Box<dyn Split>) -> Result<AnyDataStream>;
 
-    fn cogroup_iterator_any(
-        &self,
-        split: Box<dyn Split>,
-    ) -> Result<Box<dyn Iterator<Item = Box<dyn AnyData>>>> {
+    fn cogroup_iterator_any(&self, split: Box<dyn Split>) -> Result<AnyDataStream> {
         self.iterator_any(split)
     }
 
@@ -152,10 +193,7 @@ impl<I: Rdd + ?Sized> RddBase for serde_traitobject::Arc<I> {
     fn splits(&self) -> Vec<Box<dyn Split>> {
         (**self).get_rdd_base().splits()
     }
-    fn iterator_any(
-        &self,
-        split: Box<dyn Split>,
-    ) -> Result<Box<dyn Iterator<Item = Box<dyn AnyData>>>> {
+    fn iterator_any(&self, split: Box<dyn Split>) -> Result<AnyDataStream> {
         (**self).get_rdd_base().iterator_any(split)
     }
 }
@@ -172,7 +210,7 @@ impl<I: Rdd + ?Sized> Rdd for serde_traitobject::Arc<I> {
         (**self).get_rdd_base()
     }
 
-    async fn compute(&self, split: Box<dyn Split>) -> ComputeResult<Self::Item> {
+    async fn compute(&self, split: Box<dyn Split>) -> Result<ComputeResult<Self::Item>> {
         (**self).compute(split).await
     }
 }
@@ -186,11 +224,11 @@ pub trait Rdd: RddBase + 'static {
     fn get_rdd_base(&self) -> Arc<dyn RddBase>;
 
     /// Returns an asynchrnous computation task for a given partition.
-    async fn compute(&self, split: Box<dyn Split>) -> ComputeResult<Self::Item>;
+    async fn compute<'a>(&'a self, split: Box<dyn Split>) -> Result<ComputeResult<Self::Item>>;
 
     fn iterator(&self, split: Box<dyn Split>) -> AsyncComputation<Self::Item> {
-        let async_comp: AsyncComputation<Self::Item> = self.compute(split);
-        async_comp
+        let result = { self.compute(split) };
+        result
     }
 
     fn map<U: Data, F>(&self, f: F) -> SerArc<dyn Rdd<Item = U>>

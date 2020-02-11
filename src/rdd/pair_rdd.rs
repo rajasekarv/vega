@@ -9,7 +9,8 @@ use crate::dependency::{Dependency, OneToOneDependency};
 use crate::error::Result;
 use crate::partitioner::{HashPartitioner, Partitioner};
 use crate::rdd::{
-    co_grouped_rdd::CoGroupedRdd, shuffled_rdd::ShuffledRdd, ComputeResult, Rdd, RddBase, RddVals,
+    co_grouped_rdd::CoGroupedRdd, shuffled_rdd::ShuffledRdd, AnyDataStream, ComputeResult, Rdd,
+    RddBase, RddVals,
 };
 use crate::serializable_traits::{AnyData, Data, Func, SerFunc};
 use crate::split::Split;
@@ -256,25 +257,14 @@ where
     }
 
     // TODO Analyze the possible error in invariance here
-    fn iterator_any(
-        &self,
-        split: Box<dyn Split>,
-    ) -> Result<Box<dyn Iterator<Item = Box<dyn AnyData>>>> {
+    fn iterator_any(&self, split: Box<dyn Split>) -> Result<AnyDataStream> {
         log::debug!("inside iterator_any mapvaluesrdd",);
-        Ok(Box::new(
-            self.iterator(split)?
-                .map(|(k, v)| Box::new((k, v)) as Box<dyn AnyData>),
-        ))
+        super::iterator_any_tuple(self, split)
     }
 
-    fn cogroup_iterator_any(
-        &self,
-        split: Box<dyn Split>,
-    ) -> Result<Box<dyn Iterator<Item = Box<dyn AnyData>>>> {
+    fn cogroup_iterator_any(&self, split: Box<dyn Split>) -> Result<AnyDataStream> {
         log::debug!("inside iterator_any mapvaluesrdd",);
-        Ok(Box::new(self.iterator(split)?.map(|(k, v)| {
-            Box::new((k, Box::new(v) as Box<dyn AnyData>)) as Box<dyn AnyData>
-        })))
+        super::cogroup_iterator_any(self, split)
     }
 }
 
@@ -293,11 +283,15 @@ where
         Arc::new(self.clone())
     }
 
-    async fn compute(&self, split: Box<dyn Split>) -> ComputeResult<Self::Item> {
-        let f = self.f.clone();
-        Ok(Box::pin(
-            self.prev.iterator(split)?.map(move |(k, v)| (k, f(v))),
-        ))
+    async fn compute(&self, split: Box<dyn Split>) -> Result<ComputeResult<Self::Item>> {
+        // let f = self.f.clone();
+        // Ok(Box::pin(
+        //     self.prev
+        //         .iterator(split)
+        //         .await?
+        //         .map(move |(k, v)| (k, f(v))),
+        // ))
+        todo!()
     }
 }
 
@@ -373,24 +367,13 @@ where
         self.prev.number_of_splits()
     }
     // TODO Analyze the possible error in invariance here
-    fn iterator_any(
-        &self,
-        split: Box<dyn Split>,
-    ) -> Result<Box<dyn Iterator<Item = Box<dyn AnyData>>>> {
+    fn iterator_any(&self, split: Box<dyn Split>) -> Result<AnyDataStream> {
         log::debug!("inside iterator_any flatmapvaluesrdd",);
-        Ok(Box::new(
-            self.iterator(split)?
-                .map(|(k, v)| Box::new((k, v)) as Box<dyn AnyData>),
-        ))
+        super::iterator_any_tuple(self, split)
     }
-    fn cogroup_iterator_any(
-        &self,
-        split: Box<dyn Split>,
-    ) -> Result<Box<dyn Iterator<Item = Box<dyn AnyData>>>> {
+    fn cogroup_iterator_any(&self, split: Box<dyn Split>) -> Result<AnyDataStream> {
         log::debug!("inside iterator_any flatmapvaluesrdd",);
-        Ok(Box::new(self.iterator(split)?.map(|(k, v)| {
-            Box::new((k, Box::new(v) as Box<dyn AnyData>)) as Box<dyn AnyData>
-        })))
+        super::cogroup_iterator_any(self, split)
     }
 }
 
@@ -409,13 +392,14 @@ where
         Arc::new(self.clone())
     }
 
-    async fn compute(&self, split: Box<dyn Split>) -> ComputeResult<Self::Item> {
-        let f = self.f.clone();
-        let prev_iter = self.prev.iterator(split)?;
-        Ok(Box::pin(
-            prev_iter
-                .map(move |(k, v)| futures::stream::iter(f(v).map(move |x| (k.clone(), x))))
-                .flatten(),
-        ))
+    async fn compute(&self, split: Box<dyn Split>) -> Result<ComputeResult<Self::Item>> {
+        // let f = self.f.clone();
+        // let prev_iter = self.prev.iterator(split).await?;
+        // Ok(Box::pin(
+        //     prev_iter
+        //         .map(move |(k, v)| futures::stream::iter(f(v).map(move |x| (k.clone(), x))))
+        //         .flatten(),
+        // ))
+        todo!()
     }
 }

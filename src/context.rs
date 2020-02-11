@@ -181,6 +181,8 @@ impl Context {
                     );
                     executor.worker();
                     log::debug!("initiated executor worker exit");
+                    // FIXME: startup signal handling inside the worker initialization as
+                    // this is unreable as long as the async runtime keeps running
                     executor.exit_signal();
                     log::debug!("got executor end signal");
                     std::process::exit(0);

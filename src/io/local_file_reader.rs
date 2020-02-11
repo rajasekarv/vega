@@ -11,7 +11,7 @@ use crate::dependency::Dependency;
 use crate::env;
 use crate::error::{Error, Result};
 use crate::io::ReaderConfiguration;
-use crate::rdd::{ComputeResult, MapPartitionsRdd, MapperRdd, Rdd, RddBase};
+use crate::rdd::{AnyDataStream, ComputeResult, MapPartitionsRdd, MapperRdd, Rdd, RddBase};
 use crate::serializable_traits::{AnyData, Data, SerFunc};
 use crate::split::Split;
 use log::debug;
@@ -320,11 +320,8 @@ macro_rules! impl_common_lfs_rddb_funcs {
         default fn iterator_any(
             &self,
             split: Box<dyn Split>,
-        ) -> Result<Box<dyn Iterator<Item = Box<dyn AnyData>>>> {
-            Ok(Box::new(
-                self.iterator(split)?
-                .map(|x| Box::new(x) as Box<dyn AnyData>),
-            ))
+        ) -> Result<AnyDataStream> {
+            crate::rdd::iterator_any(self, split)
         }
     };
 }
@@ -394,7 +391,7 @@ impl Rdd for LocalFsReader<BytesReader> {
 
     impl_common_lfs_rdd_funcs!();
 
-    async fn compute(&self, split: Box<dyn Split>) -> ComputeResult<Self::Item> {
+    async fn compute(&self, split: Box<dyn Split>) -> Result<ComputeResult<Self::Item>> {
         let split = split.downcast_ref::<BytesReader>().unwrap();
         let mut files_by_part = self.load_local_files().unwrap();
         let idx = split.idx;
@@ -413,7 +410,7 @@ impl Rdd for LocalFsReader<FileReader> {
 
     impl_common_lfs_rdd_funcs!();
 
-    async fn compute(&self, split: Box<dyn Split>) -> ComputeResult<Self::Item> {
+    async fn compute(&self, split: Box<dyn Split>) -> Result<ComputeResult<Self::Item>> {
         let split = split.downcast_ref::<FileReader>().unwrap();
         let mut files_by_part = self.load_local_files()?;
         let idx = split.idx;

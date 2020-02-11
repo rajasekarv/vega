@@ -8,7 +8,7 @@ use crate::dependency::{Dependency, NarrowDependencyTrait, OneToOneDependency, R
 use crate::error::{Error, Result};
 use crate::partitioner::Partitioner;
 use crate::rdd::union_rdd::UnionVariants::{NonUniquePartitioner, PartitionerAware};
-use crate::rdd::{ComputeResult, Rdd, RddBase, RddVals};
+use crate::rdd::{AnyDataStream, ComputeResult, Rdd, RddBase, RddVals};
 use crate::serializable_traits::{AnyData, Data};
 use crate::split::Split;
 use futures::stream::{Stream, StreamExt};
@@ -290,15 +290,9 @@ impl<T: Data> RddBase for UnionRdd<T> {
         }
     }
 
-    fn iterator_any(
-        &self,
-        split: Box<dyn Split>,
-    ) -> Result<Box<dyn Iterator<Item = Box<dyn AnyData>>>> {
+    fn iterator_any(&self, split: Box<dyn Split>) -> Result<AnyDataStream> {
         log::debug!("inside iterator_any union_rdd",);
-        Ok(Box::new(
-            self.iterator(split)?
-                .map(|x| Box::new(x) as Box<dyn AnyData>),
-        ))
+        super::iterator_any(self, split)
     }
 
     fn partitioner(&self) -> Option<Box<dyn Partitioner>> {
@@ -321,28 +315,29 @@ impl<T: Data> Rdd for UnionRdd<T> {
         Arc::new(UnionRdd(self.0.clone())) as Arc<dyn Rdd<Item = T>>
     }
 
-    async fn compute(&self, split: Box<dyn Split>) -> ComputeResult<Self::Item> {
+    async fn compute(&self, split: Box<dyn Split>) -> Result<ComputeResult<Self::Item>> {
         let context = self.get_context();
-        match &self.0 {
-            NonUniquePartitioner { rdds, .. } => {
-                let part = &*split
-                    .downcast::<UnionSplit<T>>()
-                    .or(Err(Error::SplitDowncast("UnionSplit")))?;
-                let parent = (&rdds[part.parent_rdd_index]);
-                let iter = parent.iterator(part.parent_partition())?;
-                Ok(Box::pin(iter))
-            }
-            PartitionerAware { rdds, .. } => {
-                let split = split
-                    .downcast::<PartitionerAwareUnionSplit>()
-                    .or(Err(Error::SplitDowncast("PartitionerAwareUnionSplit")))?;
-                let mut iter = Vec::with_capacity(rdds.len());
-                for (rdd, p) in rdds.iter().zip(split.parents(&rdds)) {
-                    let res = rdd.iterator(p.clone())?;
-                    iter.push(res);
-                }
-                Ok(Box::pin(futures::stream::iter(iter.into_iter()).flatten()))
-            }
-        }
+        // match &self.0 {
+        //     NonUniquePartitioner { rdds, .. } => {
+        //         let part = &*split
+        //             .downcast::<UnionSplit<T>>()
+        //             .or(Err(Error::SplitDowncast("UnionSplit")))?;
+        //         let parent = (&rdds[part.parent_rdd_index]);
+        //         let iter = parent.iterator(part.parent_partition()).await?;
+        //         Ok(Box::pin(iter))
+        //     }
+        //     PartitionerAware { rdds, .. } => {
+        //         let split = split
+        //             .downcast::<PartitionerAwareUnionSplit>()
+        //             .or(Err(Error::SplitDowncast("PartitionerAwareUnionSplit")))?;
+        //         let mut iter = Vec::with_capacity(rdds.len());
+        //         for (rdd, p) in rdds.iter().zip(split.parents(&rdds)) {
+        //             let res = rdd.iterator(p.clone()).await?;
+        //             iter.push(res);
+        //         }
+        //         Ok(Box::pin(futures::stream::iter(iter.into_iter()).flatten()))
+        //     }
+        // }
+        todo!()
     }
 }

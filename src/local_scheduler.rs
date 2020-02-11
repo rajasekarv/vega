@@ -208,7 +208,7 @@ impl LocalScheduler {
             .pop_front()
     }
 
-    fn run_task<T: Data, U: Data, F>(
+    async fn run_task<T: Data, U: Data, F>(
         event_queues: Arc<Mutex<HashMap<usize, VecDeque<CompletionEvent>>>>,
         task: Vec<u8>,
         id_in_job: usize,
@@ -217,7 +217,7 @@ impl LocalScheduler {
         F: SerFunc((TaskContext, Box<dyn Iterator<Item = T>>)) -> U,
     {
         let des_task: TaskOption = bincode::deserialize(&task).unwrap();
-        let result = des_task.run(attempt_id);
+        let result = des_task.run(attempt_id).await;
         match des_task {
             TaskOption::ResultTask(tsk) => {
                 let result = match result {
@@ -288,9 +288,13 @@ impl NativeScheduler for LocalScheduler {
         let my_attempt_id = self.attempt_id.fetch_add(1, Ordering::SeqCst);
         let event_queues = self.event_queues.clone();
         let task = bincode::serialize(&task).unwrap();
-        thread_pool.execute(move || {
-            LocalScheduler::run_task::<T, U, F>(event_queues, task, id_in_job, my_attempt_id)
-        });
+
+        // send it to a socket where the executors are listening even in local mode
+        // so they run in async runtime threadpool
+        todo!()
+        // thread_pool.execute(move || {
+        //     LocalScheduler::run_task::<T, U, F>(event_queues, task, id_in_job, my_attempt_id)
+        // });
     }
 
     fn next_executor_server(&self, _rdd: &dyn TaskBase) -> SocketAddrV4 {
