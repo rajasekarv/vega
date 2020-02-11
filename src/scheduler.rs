@@ -43,19 +43,15 @@ pub(crate) trait NativeScheduler {
         F: SerFunc((TaskContext, Box<dyn Iterator<Item = T>>)) -> U,
     {
         if jt.final_stage.parents.is_empty() && (jt.num_output_parts == 1) {
-            let executor = env::Env::get().async_rt.get_mut();
+            let executor = &mut *env::Env::get().async_rt.lock();
             executor.block_on(async {
                 let split = (jt.final_rdd.splits()[jt.output_parts[0]]).clone();
                 let task_context = TaskContext::new(jt.final_stage.id, jt.output_parts[0], 0);
-                let result = jt
-                    .final_rdd
-                    .iterator(split)
-                    .await?
-                    .collect::<Vec<_>>()
-                    .await;
+                let iter = jt.final_rdd.iterator(split).await?;
+                let iter: Vec<T> = iter.lock().into_iter().collect();
                 Ok(Some(vec![(&jt.func)((
                     task_context,
-                    Box::new(result.into_iter()),
+                    Box::new(iter.into_iter()),
                 ))]))
             })
         } else {

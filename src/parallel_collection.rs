@@ -11,6 +11,7 @@ use crate::rdd::{AnyDataStream, ComputeResult, Rdd, RddBase, RddVals};
 use crate::serializable_traits::{AnyData, Data};
 use crate::split::Split;
 use log::info;
+use parking_lot::Mutex;
 use serde_derive::{Deserialize, Serialize};
 
 /// A collection of objects which can be sliced into partitions with a partitioning function.
@@ -145,13 +146,14 @@ impl<T: Data> ParallelCollection<T> {
     }
 }
 
-impl<K: Data, V: Data> RddBase for ParallelCollection<(K, V)> {
-    fn cogroup_iterator_any(&self, split: Box<dyn Split>) -> Result<AnyDataStream> {
-        log::debug!("inside iterator_any parallel collection",);
-        super::cogroup_iterator_any(self, split)
-    }
-}
+// impl<K: Data, V: Data> RddBase for ParallelCollection<(K, V)> {
+//     fn cogroup_iterator_any(&self, split: Box<dyn Split>) -> Result<AnyDataStream> {
+//         log::debug!("inside iterator_any parallel collection",);
+//         super::cogroup_iterator_any(self, split)
+//     }
+// }
 
+#[async_trait::async_trait]
 impl<T: Data> RddBase for ParallelCollection<T> {
     fn get_rdd_id(&self) -> usize {
         self.rdd_vals.vals.id
@@ -178,13 +180,13 @@ impl<T: Data> RddBase for ParallelCollection<T> {
         self.rdd_vals.splits_.len()
     }
 
-    default fn cogroup_iterator_any(&self, split: Box<dyn Split>) -> Result<AnyDataStream> {
-        self.iterator_any(split)
+    async fn cogroup_iterator_any(&self, split: Box<dyn Split>) -> Result<AnyDataStream> {
+        self.iterator_any(split).await
     }
 
-    default fn iterator_any(&self, split: Box<dyn Split>) -> Result<AnyDataStream> {
+    async fn iterator_any(&self, split: Box<dyn Split>) -> Result<AnyDataStream> {
         log::debug!("inside iterator_any parallel collection",);
-        crate::rdd::iterator_any(self, split)
+        crate::rdd::iterator_any(self, split).await
     }
 }
 
@@ -202,9 +204,9 @@ impl<T: Data> Rdd for ParallelCollection<T> {
     }
 
     async fn compute(&self, split: Box<dyn Split>) -> Result<ComputeResult<Self::Item>> {
-        if let Some(s) = split.downcast_ref::<ParallelCollectionSplit<T>>() {
-            let iter = s.iterator();
-            Ok(Box::pin(futures::stream::iter(iter)))
+        if let Some(split) = split.downcast_ref::<ParallelCollectionSplit<T>>() {
+            let iter = split.iterator();
+            Ok(Arc::new(Mutex::new(iter)))
         } else {
             panic!(
                 "Got split object from different concrete type other than ParallelCollectionSplit"

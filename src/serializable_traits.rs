@@ -1,4 +1,6 @@
-use serde_traitobject::{deserialize, serialize, Deserialize, Serialize};
+use serde_traitobject::{
+    deserialize, serialize, Any as SerAny, Arc as SerArc, Deserialize, Serialize,
+};
 use std::{
     any,
     borrow::{Borrow, BorrowMut},
@@ -20,6 +22,7 @@ pub trait Data:
     + 'static
 {
 }
+
 impl<
         T: Clone
             + any::Any
@@ -49,20 +52,33 @@ pub trait AnyData:
     fn into_any_send_sync(self: boxed::Box<Self>) -> boxed::Box<dyn any::Any + Send + Sync>;
 }
 
+pub(crate) fn from_arc(
+    inc: SerArc<dyn SerAny + Send + Sync>,
+) -> boxed::Box<dyn any::Any + Send + Sync> {
+    todo!()
+}
+
 dyn_clone::clone_trait_object!(AnyData);
 
-// Automatically implementing the Data trait for all types which implements the required traits
-impl<
-        T: dyn_clone::DynClone
-            + any::Any
-            + Send
-            + Sync
-            + fmt::Debug
-            + Serialize
-            + Deserialize
-            + 'static,
-    > AnyData for T
+pub trait AnySerializable:
+    dyn_clone::DynClone + any::Any + Send + Sync + fmt::Debug + Serialize + Deserialize + 'static
 {
+}
+
+impl<T> AnySerializable for T where
+    T: dyn_clone::DynClone
+        + any::Any
+        + Send
+        + Sync
+        + fmt::Debug
+        + Serialize
+        + Deserialize
+        + 'static
+{
+}
+
+// Automatically implementing the Data trait for all types which implements the required traits
+impl<T: AnySerializable> AnyData for T {
     fn as_any(&self) -> &dyn any::Any {
         self
     }
@@ -91,6 +107,7 @@ impl serde::ser::Serialize for boxed::Box<dyn AnyData + 'static> {
         serialize(&self, serializer)
     }
 }
+
 impl<'de> serde::de::Deserialize<'de> for boxed::Box<dyn AnyData + 'static> {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
@@ -99,6 +116,7 @@ impl<'de> serde::de::Deserialize<'de> for boxed::Box<dyn AnyData + 'static> {
         <Box<dyn AnyData + 'static>>::deserialize(deserializer).map(|x| x.0)
     }
 }
+
 impl serde::ser::Serialize for boxed::Box<dyn AnyData + Send + 'static> {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
@@ -107,6 +125,7 @@ impl serde::ser::Serialize for boxed::Box<dyn AnyData + Send + 'static> {
         serialize(&self, serializer)
     }
 }
+
 impl<'de> serde::de::Deserialize<'de> for boxed::Box<dyn AnyData + Send + 'static> {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
@@ -184,11 +203,7 @@ impl<T: ?Sized> From<boxed::Box<T>> for Box<T> {
         Self(t)
     }
 }
-// impl<T: ?Sized> Into<boxed::Box<T>> for Box<T> {
-// 	fn into(self) -> boxed::Box<T> {
-// 		self.0
-// 	}
-// }
+
 impl<T> From<T> for Box<T> {
     fn from(t: T) -> Self {
         Self(boxed::Box::new(t))

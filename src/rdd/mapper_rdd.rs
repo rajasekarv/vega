@@ -105,13 +105,13 @@ where
         self.prev.number_of_splits()
     }
 
-    default fn cogroup_iterator_any(&self, split: Box<dyn Split>) -> Result<AnyDataStream> {
-        self.iterator_any(split)
+    async fn cogroup_iterator_any(&self, split: Box<dyn Split>) -> Result<AnyDataStream> {
+        self.iterator_any(split).await
     }
 
-    default fn iterator_any(&self, split: Box<dyn Split>) -> Result<AnyDataStream> {
+    async fn iterator_any(&self, split: Box<dyn Split>) -> Result<AnyDataStream> {
         log::debug!("inside iterator_any maprdd",);
-        super::iterator_any(self, split)
+        super::iterator_any(self, split).await
     }
 
     fn is_pinned(&self) -> bool {
@@ -119,15 +119,15 @@ where
     }
 }
 
-impl<T: Data, V: Data, U: Data, F> RddBase for MapperRdd<T, (V, U), F>
-where
-    F: SerFunc(T) -> (V, U),
-{
-    fn cogroup_iterator_any(&self, split: Box<dyn Split>) -> Result<AnyDataStream> {
-        log::debug!("inside iterator_any maprdd",);
-        super::cogroup_iterator_any(self, split)
-    }
-}
+// impl<T: Data, V: Data, U: Data, F> RddBase for MapperRdd<T, (V, U), F>
+// where
+//     F: SerFunc(T) -> (V, U),
+// {
+//     fn cogroup_iterator_any(&self, split: Box<dyn Split>) -> Result<AnyDataStream> {
+//         log::debug!("inside iterator_any maprdd",);
+//         super::cogroup_iterator_any(self, split)
+//     }
+// }
 
 #[async_trait::async_trait]
 impl<T: Data, U: Data, F: 'static> Rdd for MapperRdd<T, U, F>
@@ -144,11 +144,13 @@ where
     }
 
     async fn compute(&self, split: Box<dyn Split>) -> Result<ComputeResult<Self::Item>> {
-        // use std::ops::Deref;
-        // let func = Arc::new(self.f.clone());
-        // let mut prev_iter = self.prev.iterator(split).await?;
-        // let this_iter = prev_iter.map(|e| func.deref()(e));
-        // Ok(Box::pin(this_iter))
-        todo!()
+        let func = self.f.clone();
+        let mut prev_iter = self.prev.iterator(split).await?;
+        let this_iter = prev_iter
+            .lock()
+            .into_iter()
+            .map(|e| func(e))
+            .collect::<Vec<_>>();
+        Ok(Arc::new(Mutex::new(this_iter.into_iter())))
     }
 }

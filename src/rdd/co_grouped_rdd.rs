@@ -20,6 +20,7 @@ use crate::shuffle::ShuffleFetcher;
 use crate::split::Split;
 use futures::stream::StreamExt;
 use log::info;
+use parking_lot::Mutex;
 use serde_derive::{Deserialize, Serialize};
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -189,8 +190,8 @@ impl<K: Data + Eq + Hash> RddBase for CoGroupedRdd<K> {
         Some(part)
     }
 
-    fn iterator_any(&self, split: Box<dyn Split>) -> Result<AnyDataStream> {
-        super::cogroup_iterator_any(self, split)
+    async fn iterator_any(&self, split: Box<dyn Split>) -> Result<AnyDataStream> {
+        super::cogroup_iterator_any(self, split).await
     }
 }
 
@@ -212,24 +213,26 @@ impl<K: Data + Eq + Hash> Rdd for CoGroupedRdd<K> {
                 match dep {
                     CoGroupSplitDep::NarrowCoGroupSplitDep { rdd, split } => {
                         log::debug!("inside iterator cogrouprdd  narrow dep");
-                        // rdd.iterator_any(split)
-                        //     .await
-                        //     .unwrap()
-                        //     .for_each(|i: Box<dyn AnyData>| {
-                        //         log::debug!(
-                        //             "inside iterator cogrouprdd  narrow dep iterator any {:?}",
-                        //             i
-                        //         );
-                        //         let b = i
-                        //             .into_any()
-                        //             .downcast::<(Box<dyn AnyData>, Box<dyn AnyData>)>()
-                        //             .unwrap();
-                        //         let (k, v) = *b;
-                        //         let k = *(k.into_any().downcast::<K>().unwrap());
-                        //         agg.entry(k)
-                        //             .or_insert_with(|| vec![Vec::new(); self.rdds.len()])[dep_num]
-                        //             .push(v)
-                        //     });
+                        rdd.iterator_any(split)
+                            .await
+                            .unwrap()
+                            .lock()
+                            .into_iter()
+                            .for_each(|i: Box<dyn AnyData>| {
+                                log::debug!(
+                                    "inside iterator cogrouprdd  narrow dep iterator any {:?}",
+                                    i
+                                );
+                                let b = i
+                                    .into_any()
+                                    .downcast::<(Box<dyn AnyData>, Box<dyn AnyData>)>()
+                                    .unwrap();
+                                let (k, v) = *b;
+                                let k = *(k.into_any().downcast::<K>().unwrap());
+                                agg.entry(k)
+                                    .or_insert_with(|| vec![Vec::new(); self.rdds.len()])[dep_num]
+                                    .push(v)
+                            });
                     }
                     CoGroupSplitDep::ShuffleCoGroupSplitDep { shuffle_id } => {
                         log::debug!("inside iterator cogrouprdd  shuffle dep agg {:?}", agg);
@@ -245,9 +248,7 @@ impl<K: Data + Eq + Hash> Rdd for CoGroupedRdd<K> {
                     }
                 }
             }
-            Ok(Box::pin(futures::stream::iter(
-                agg.into_iter().map(|(k, v)| (k, v)),
-            )))
+            Ok(Arc::new(Mutex::new(agg.into_iter().map(|(k, v)| (k, v)))))
         } else {
             panic!("Got split object from different concrete type other than CoGroupSplit")
         }

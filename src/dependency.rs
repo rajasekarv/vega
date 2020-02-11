@@ -2,7 +2,7 @@ use crate::aggregator::Aggregator;
 use crate::env;
 use crate::partitioner::Partitioner;
 use crate::rdd::RddBase;
-use crate::serializable_traits::Data;
+use crate::serializable_traits::{AnyData, Data};
 use futures::{Stream, StreamExt};
 use log::info;
 use serde_derive::{Deserialize, Serialize};
@@ -10,6 +10,7 @@ use serde_traitobject::{Deserialize, Serialize};
 use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::hash::Hash;
+use std::pin::Pin;
 use std::sync::Arc;
 
 // Revise if enum is good choice. Considering enum since down casting one trait object to another trait object is difficult.
@@ -182,31 +183,35 @@ impl<K: Data + Eq + Hash, V: Data, C: Data> ShuffleDependencyTrait for ShuffleDe
         );
         log::debug!("split index {}", split.get_index());
 
-        let iter: std::pin::Pin<Box<dyn Stream<Item = _>>> = if self.is_cogroup {
-            rdd_base.cogroup_iterator_any(split).unwrap().await
-        } else {
-            rdd_base.iterator_any(split.clone()).unwrap().await
+        let mut func = |iter: &mut dyn Iterator<Item = Box<dyn AnyData>>| {
+            for (count, i) in iter.enumerate() {
+                let b = i.into_any().downcast::<(K, V)>().unwrap();
+                let (k, v) = *b;
+                if count == 0 {
+                    log::debug!(
+                        "iterator inside dependency map task after downcasting {:?} {:?}",
+                        k,
+                        v
+                    );
+                }
+                let bucket_id = partitioner.get_partition(&k);
+                let bucket = &mut buckets[bucket_id];
+                if let Some(old_v) = bucket.get_mut(&k) {
+                    let input = ((old_v.clone(), v),);
+                    let output = aggregator.merge_value.call(input);
+                    *old_v = output;
+                } else {
+                    bucket.insert(k, aggregator.create_combiner.call((v,)));
+                }
+            }
         };
 
-        while let Some((count, i)) = iter.enumerate().next().await {
-            let b = i.into_any().downcast::<(K, V)>().unwrap();
-            let (k, v) = *b;
-            if count == 0 {
-                log::debug!(
-                    "iterator inside dependency map task after downcasting {:?} {:?}",
-                    k,
-                    v
-                );
-            }
-            let bucket_id = partitioner.get_partition(&k);
-            let bucket = &mut buckets[bucket_id];
-            if let Some(old_v) = bucket.get_mut(&k) {
-                let input = ((old_v.clone(), v),);
-                let output = aggregator.merge_value.call(input);
-                *old_v = output;
-            } else {
-                bucket.insert(k, aggregator.create_combiner.call((v,)));
-            }
+        if self.is_cogroup {
+            let iter = rdd_base.cogroup_iterator_any(split).await.unwrap();
+            func(&mut *iter.lock());
+        } else {
+            let iter = rdd_base.iterator_any(split).await.unwrap();
+            func(&mut *iter.lock());
         }
 
         for (i, bucket) in buckets.into_iter().enumerate() {

@@ -16,6 +16,7 @@ use crate::serializable_traits::{AnyData, Data, Func, SerFunc};
 use crate::split::Split;
 use futures::stream::StreamExt;
 use log::info;
+use parking_lot::Mutex;
 use serde_derive::{Deserialize, Serialize};
 use serde_traitobject::{Arc as SerArc, Deserialize, Serialize};
 
@@ -257,14 +258,14 @@ where
     }
 
     // TODO Analyze the possible error in invariance here
-    fn iterator_any(&self, split: Box<dyn Split>) -> Result<AnyDataStream> {
+    async fn iterator_any(&self, split: Box<dyn Split>) -> Result<AnyDataStream> {
         log::debug!("inside iterator_any mapvaluesrdd",);
-        super::iterator_any_tuple(self, split)
+        super::iterator_any_tuple(self, split).await
     }
 
-    fn cogroup_iterator_any(&self, split: Box<dyn Split>) -> Result<AnyDataStream> {
+    async fn cogroup_iterator_any(&self, split: Box<dyn Split>) -> Result<AnyDataStream> {
         log::debug!("inside iterator_any mapvaluesrdd",);
-        super::cogroup_iterator_any(self, split)
+        super::cogroup_iterator_any(self, split).await
     }
 }
 
@@ -284,14 +285,15 @@ where
     }
 
     async fn compute(&self, split: Box<dyn Split>) -> Result<ComputeResult<Self::Item>> {
-        // let f = self.f.clone();
-        // Ok(Box::pin(
-        //     self.prev
-        //         .iterator(split)
-        //         .await?
-        //         .map(move |(k, v)| (k, f(v))),
-        // ))
-        todo!()
+        let prev_iter = self.prev.iterator(split).await?;
+        let f = self.f.clone();
+        let mut prev_iter = prev_iter.lock();
+        Ok(Arc::new(Mutex::new(
+            prev_iter
+                .into_iter()
+                .map(move |(k, v)| (k, f(v)))
+                .collect::<Vec<_>>().into_iter(),
+        )))
     }
 }
 
@@ -347,6 +349,7 @@ where
     }
 }
 
+#[async_trait::async_trait]
 impl<K: Data, V: Data, U: Data, F> RddBase for FlatMappedValuesRdd<K, V, U, F>
 where
     F: SerFunc(V) -> Box<dyn Iterator<Item = U>>,
@@ -354,26 +357,32 @@ where
     fn get_rdd_id(&self) -> usize {
         self.vals.id
     }
+
     fn get_context(&self) -> Arc<Context> {
         self.vals.context.clone()
     }
+
     fn get_dependencies(&self) -> Vec<Dependency> {
         self.vals.dependencies.clone()
     }
+
     fn splits(&self) -> Vec<Box<dyn Split>> {
         self.prev.splits()
     }
+
     fn number_of_splits(&self) -> usize {
         self.prev.number_of_splits()
     }
+
     // TODO Analyze the possible error in invariance here
-    fn iterator_any(&self, split: Box<dyn Split>) -> Result<AnyDataStream> {
+    async fn iterator_any(&self, split: Box<dyn Split>) -> Result<AnyDataStream> {
         log::debug!("inside iterator_any flatmapvaluesrdd",);
-        super::iterator_any_tuple(self, split)
+        super::iterator_any_tuple(self, split).await
     }
-    fn cogroup_iterator_any(&self, split: Box<dyn Split>) -> Result<AnyDataStream> {
+
+    async fn cogroup_iterator_any(&self, split: Box<dyn Split>) -> Result<AnyDataStream> {
         log::debug!("inside iterator_any flatmapvaluesrdd",);
-        super::cogroup_iterator_any(self, split)
+        super::cogroup_iterator_any(self, split).await
     }
 }
 
@@ -393,13 +402,16 @@ where
     }
 
     async fn compute(&self, split: Box<dyn Split>) -> Result<ComputeResult<Self::Item>> {
-        // let f = self.f.clone();
-        // let prev_iter = self.prev.iterator(split).await?;
-        // Ok(Box::pin(
-        //     prev_iter
-        //         .map(move |(k, v)| futures::stream::iter(f(v).map(move |x| (k.clone(), x))))
-        //         .flatten(),
-        // ))
-        todo!()
+        let prev_iter = self.prev.iterator(split).await?;
+        let func = self.f.clone();
+        let mut prev_iter = prev_iter.lock();
+        Ok(Arc::new(Mutex::new(
+            prev_iter
+                .into_iter()
+                .map(move |(k, v)| func(v).map(move |x| (k.clone(), x)))
+                .flatten()
+                .collect::<Vec<_>>()
+                .into_iter(),
+        )))
     }
 }

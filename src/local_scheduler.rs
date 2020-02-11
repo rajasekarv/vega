@@ -31,6 +31,7 @@ use crate::stage::Stage;
 use crate::task::{TaskBase, TaskContext, TaskOption, TaskResult};
 use log::info;
 use parking_lot::Mutex;
+use serde_traitobject::Arc as SerArc;
 use threadpool::ThreadPool;
 
 #[derive(Clone, Default)]
@@ -230,7 +231,7 @@ impl LocalScheduler {
                         event_queues,
                         task_final,
                         TastEndReason::Success,
-                        result.into_any_send_sync(),
+                        crate::serializable_traits::from_arc(result),
                     );
                 }
             }
@@ -245,7 +246,7 @@ impl LocalScheduler {
                         event_queues,
                         task_final,
                         TastEndReason::Success,
-                        result.into_any_send_sync(),
+                        crate::serializable_traits::from_arc(result),
                     );
                 }
             }

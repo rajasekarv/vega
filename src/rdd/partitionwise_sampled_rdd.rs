@@ -12,6 +12,7 @@ use crate::split::Split;
 use crate::utils::random::RandomSampler;
 use futures::stream::StreamExt;
 use log::info;
+use parking_lot::Mutex;
 use serde_derive::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize)]
@@ -90,22 +91,22 @@ impl<T: Data> RddBase for PartitionwiseSampledRdd<T> {
         }
     }
 
-    default fn cogroup_iterator_any(&self, split: Box<dyn Split>) -> Result<AnyDataStream> {
-        self.iterator_any(split)
+    async fn cogroup_iterator_any(&self, split: Box<dyn Split>) -> Result<AnyDataStream> {
+        self.iterator_any(split).await
     }
 
-    default fn iterator_any(&self, split: Box<dyn Split>) -> Result<AnyDataStream> {
+    async fn iterator_any(&self, split: Box<dyn Split>) -> Result<AnyDataStream> {
         log::debug!("inside PartitionwiseSampledRdd iterator_any");
-        super::iterator_any(self, split)
+        super::iterator_any(self, split).await
     }
 }
 
-impl<T: Data, V: Data> RddBase for PartitionwiseSampledRdd<(T, V)> {
-    fn cogroup_iterator_any(&self, split: Box<dyn Split>) -> Result<AnyDataStream> {
-        log::debug!("inside iterator_any maprdd",);
-        super::cogroup_iterator_any(self, split)
-    }
-}
+// impl<T: Data, V: Data> RddBase for PartitionwiseSampledRdd<(T, V)> {
+//     fn cogroup_iterator_any(&self, split: Box<dyn Split>) -> Result<AnyDataStream> {
+//         log::debug!("inside iterator_any maprdd",);
+//         super::cogroup_iterator_any(self, split)
+//     }
+// }
 
 #[async_trait::async_trait]
 impl<T: Data> Rdd for PartitionwiseSampledRdd<T> {
@@ -119,11 +120,10 @@ impl<T: Data> Rdd for PartitionwiseSampledRdd<T> {
     }
 
     async fn compute(&self, split: Box<dyn Split>) -> Result<ComputeResult<Self::Item>> {
-        // let sampler_func = self.sampler.get_sampler();
-        // let prev_res = self.prev.iterator(split).await?.collect::<Vec<_>>().await;
-        // Ok(Box::pin(futures::stream::iter(
-        //     sampler_func(Box::new(prev_res.into_iter())).into_iter(),
-        // )))
-        todo!()
+        let prev_res = self.prev.iterator(split).await?;
+        let prev_res = prev_res.lock().into_iter().collect::<Vec<_>>();
+        let sampler_func = self.sampler.get_sampler();
+        let this_iter = sampler_func(Box::new(prev_res.into_iter()));
+        Ok(Arc::new(Mutex::new(this_iter.into_iter())))
     }
 }

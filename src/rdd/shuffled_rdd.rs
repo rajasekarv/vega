@@ -15,6 +15,7 @@ use crate::shuffle::ShuffleFetcher;
 use crate::split::Split;
 use futures::{FutureExt, Stream, StreamExt};
 use log::info;
+use parking_lot::Mutex;
 use serde_derive::{Deserialize, Serialize};
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -116,14 +117,14 @@ impl<K: Data + Eq + Hash, V: Data, C: Data> RddBase for ShuffledRdd<K, V, C> {
         Some(self.part.clone())
     }
 
-    fn iterator_any(&self, split: Box<dyn Split>) -> Result<AnyDataStream> {
+    async fn iterator_any(&self, split: Box<dyn Split>) -> Result<AnyDataStream> {
         log::debug!("inside iterator_any shuffledrdd",);
-        super::iterator_any_tuple(self, split)
+        super::iterator_any_tuple(self, split).await
     }
 
-    fn cogroup_iterator_any(&self, split: Box<dyn Split>) -> Result<AnyDataStream> {
+    async fn cogroup_iterator_any(&self, split: Box<dyn Split>) -> Result<AnyDataStream> {
         log::debug!("inside cogroup iterator_any shuffledrdd",);
-        super::cogroup_iterator_any(self, split)
+        super::cogroup_iterator_any(self, split).await
     }
 }
 
@@ -156,7 +157,7 @@ impl<K: Data + Eq + Hash, V: Data, C: Data> Rdd for ShuffledRdd<K, V, C> {
         let start = Instant::now();
         ShuffleFetcher::fetch(self.shuffle_id, split.get_index(), merge_pair).await;
         log::debug!("time taken for fetching {}", start.elapsed().as_millis());
-        Ok(Box::pin(futures::stream::iter(
+        Ok(Arc::new(Mutex::new(
             combiners.into_iter().map(|(k, v)| (k, v.unwrap())),
         )))
     }

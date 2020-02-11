@@ -11,6 +11,7 @@ use crate::serializable_traits::{AnyData, Data, Func, SerFunc};
 use crate::split::Split;
 use futures::stream::{Stream, StreamExt};
 use log::info;
+use parking_lot::Mutex;
 use serde_derive::{Deserialize, Serialize};
 use serde_traitobject::Arc as SerArc;
 
@@ -101,13 +102,13 @@ where
         self.prev.number_of_splits()
     }
 
-    default fn cogroup_iterator_any(&self, split: Box<dyn Split>) -> Result<AnyDataStream> {
-        self.iterator_any(split)
+    async fn cogroup_iterator_any(&self, split: Box<dyn Split>) -> Result<AnyDataStream> {
+        self.iterator_any(split).await
     }
 
-    fn iterator_any(&self, split: Box<dyn Split>) -> Result<AnyDataStream> {
+    async fn iterator_any(&self, split: Box<dyn Split>) -> Result<AnyDataStream> {
         log::debug!("inside iterator_any map_partitions_rdd",);
-        super::iterator_any(self, split)
+        super::iterator_any(self, split).await
     }
 
     fn is_pinned(&self) -> bool {
@@ -115,15 +116,15 @@ where
     }
 }
 
-impl<T: Data, V: Data, U: Data, F> RddBase for MapPartitionsRdd<T, (V, U), F>
-where
-    F: SerFunc(usize, ComputeIterator<T>) -> ComputeIterator<(V, U)>,
-{
-    fn cogroup_iterator_any(&self, split: Box<dyn Split>) -> Result<AnyDataStream> {
-        log::debug!("inside iterator_any map_partitions_rdd",);
-        super::cogroup_iterator_any(self, split)
-    }
-}
+// impl<T: Data, V: Data, U: Data, F> RddBase for MapPartitionsRdd<T, (V, U), F>
+// where
+//     F: SerFunc(usize, ComputeIterator<T>) -> ComputeIterator<(V, U)>,
+// {
+//     fn cogroup_iterator_any(&self, split: Box<dyn Split>) -> Result<AnyDataStream> {
+//         log::debug!("inside iterator_any map_partitions_rdd",);
+//         super::cogroup_iterator_any(self, split)
+//     }
+// }
 
 #[async_trait::async_trait]
 impl<T: Data, U: Data, F: 'static> Rdd for MapPartitionsRdd<T, U, F>
@@ -141,10 +142,10 @@ where
     }
 
     async fn compute(&self, split: Box<dyn Split>) -> Result<ComputeResult<Self::Item>> {
-        // let prev_res = self.prev.iterator(split).await?.collect::<Vec<_>>();
-        // let prev_res = Box::new(prev_res.await.into_iter());
-        // let f_result = (self.func)(split.get_index(), prev_res);
-        // Ok(f_result)
-        todo!()
+        let prev_res = self.prev.iterator(split.clone()).await?;
+        let prev_res = prev_res.lock().into_iter().collect::<Vec<_>>();
+        let f_result = (self.func)(split.get_index(), Box::new(prev_res.into_iter()));
+        let f_result = f_result.collect::<Vec<_>>().into_iter();
+        Ok(Arc::new(Mutex::new(f_result)))
     }
 }
