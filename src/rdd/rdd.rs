@@ -16,6 +16,7 @@ use crate::rdd::coalesced_rdd::CoalescedRdd;
 use crate::rdd::map_partitions_rdd::MapPartitionsRdd;
 use crate::rdd::pair_rdd::PairRdd;
 use crate::rdd::partitionwise_sampled_rdd::PartitionwiseSampledRdd;
+use crate::rdd::zip_rdd::ZippedPartitionsRdd;
 use crate::serializable_traits::{AnyData, Data, Func, SerFunc};
 use crate::split::Split;
 use crate::task::TaskContext;
@@ -665,6 +666,23 @@ pub trait Rdd: RddBase + 'static {
             Arc::new(self.clone()) as Arc<dyn Rdd<Item = Self::Item>>,
             other,
         ])?))
+    }
+
+    fn zip<S: Data>(
+        &self,
+        second: Arc<dyn Rdd<Item = S>>,
+    ) -> SerArc<dyn Rdd<Item = (Self::Item, S)>>
+        where
+            Self: Clone,
+    {
+        SerArc::new(
+            ZippedPartitionsRdd::<Self::Item, S>::new(
+                Arc::new(
+                    self.clone()
+                ) as Arc<dyn Rdd<Item = Self::Item>>,
+                second.clone()
+            )
+        )
     }
 }
 
