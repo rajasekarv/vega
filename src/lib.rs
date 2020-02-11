@@ -19,8 +19,6 @@
 extern crate downcast_rs;
 #[macro_use]
 extern crate serde_closure;
-use capnp;
-use log::{error, info};
 use serde_derive::{Deserialize, Serialize};
 use serde_traitobject::{Deserialize, Serialize};
 use serialized_data_capnp::serialized_data;
@@ -33,7 +31,9 @@ pub mod context;
 pub use context::Context;
 mod executor;
 pub mod partitioner;
+mod shuffle;
 pub use partitioner::*;
+#[path = "rdd/rdd.rs"]
 pub mod rdd;
 pub use rdd::*;
 pub mod io;
@@ -46,10 +46,6 @@ mod parallel_collection;
 pub use parallel_collection::*;
 mod cache;
 mod cache_tracker;
-mod shuffle_fetcher;
-mod shuffle_manager;
-pub mod shuffle_map_task;
-pub use shuffle_map_task::*;
 #[macro_use]
 mod scheduler;
 use scheduler::*;

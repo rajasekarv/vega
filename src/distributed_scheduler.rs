@@ -27,7 +27,7 @@ use crate::result_task::ResultTask;
 use crate::scheduler::*;
 use crate::serializable_traits::{Data, SerFunc};
 use crate::serialized_data_capnp::serialized_data;
-use crate::shuffle_map_task::ShuffleMapTask;
+use crate::shuffle::ShuffleMapTask;
 use crate::stage::Stage;
 use crate::task::{TaskBase, TaskContext, TaskOption, TaskResult};
 use capnp::serialize_packed;
@@ -265,7 +265,7 @@ impl NativeScheduler for DistributedScheduler {
             log::debug!("inside submit task");
             let my_attempt_id = self.attempt_id.fetch_add(1, Ordering::SeqCst);
             let event_queues = self.event_queues.clone();
-            let event_queues_clone = event_queues.clone();
+            let event_queues_clone = event_queues;
             thread_pool.execute(move || {
                 while let Err(_) = TcpStream::connect(&target_executor) {
                     continue;
@@ -353,7 +353,7 @@ impl NativeScheduler for DistributedScheduler {
         } else {
             // seek and pick the selected host
             let servers = &mut *self.server_uris.lock();
-            let location: Ipv4Addr = task.preferred_locations()[0].into();
+            let location: Ipv4Addr = task.preferred_locations()[0];
             if let Some((pos, _)) = servers
                 .iter()
                 .enumerate()

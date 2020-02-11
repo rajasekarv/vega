@@ -10,7 +10,6 @@ use crate::serialized_data_capnp::serialized_data;
 use capnp::serialize_packed;
 use log::error;
 use simplelog::*;
-use toml;
 use uuid::Uuid;
 
 use crate::distributed_scheduler::DistributedScheduler;
