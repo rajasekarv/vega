@@ -397,20 +397,13 @@ fn test_union_with_unique_partitioner() {
 #[test]
 fn test_zip() {
     let sc = CONTEXT.clone();
-    let col1 = vec![
-        1,
-        2,
-        3,
-        4,
-        5
-    ];
-
+    let col1 = vec![1, 2, 3, 4, 5];
     let col2 = vec![
         "5a".to_string(),
         "4b".to_string(),
         "3c".to_string(),
         "2d".to_string(),
-        "1a".to_string()
+        "1a".to_string(),
     ];
 
     let first = sc.parallelize(col1, 3);
@@ -422,8 +415,7 @@ fn test_zip() {
         (2, "4b".to_string()),
         (3, "3c".to_string()),
         (4, "2d".to_string()),
-        (5, "1a".to_string())
+        (5, "1a".to_string()),
     ];
     assert_eq!(res, expected);
-
 }

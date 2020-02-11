@@ -36,6 +36,8 @@ pub mod shuffled_rdd;
 pub use shuffled_rdd::*;
 pub mod map_partitions_rdd;
 pub use map_partitions_rdd::*;
+pub mod zip_rdd;
+pub use zip_rdd::*;
 pub mod union_rdd;
 pub use union_rdd::*;
 

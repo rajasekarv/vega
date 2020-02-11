@@ -91,23 +91,13 @@ impl ShuffleManager {
     pub(super) fn start_server(port: Option<u16>) -> Result<String> {
         let bind_ip = env::Configuration::get().local_ip;
         let port = if let Some(bind_port) = port {
-            let mut rt = tokio::runtime::Builder::new()
-                .enable_all()
-                .threaded_scheduler()
-                .build()
-                .map_err(|_| ShuffleManagerError::FailedToStart)?;
-            ShuffleManager::launch_async_runtime(rt, bind_ip, bind_port)?;
+            ShuffleManager::launch_async_server(bind_ip, bind_port)?;
             bind_port
         } else {
             let mut port = 0;
             for retry in 0..10 {
                 let bind_port = get_dynamic_port();
-                let mut rt = tokio::runtime::Builder::new()
-                    .enable_all()
-                    .threaded_scheduler()
-                    .build()
-                    .map_err(|_| ShuffleManagerError::FailedToStart)?;
-                if let Ok(server) = ShuffleManager::launch_async_runtime(rt, bind_ip, bind_port) {
+                if let Ok(server) = ShuffleManager::launch_async_server(bind_ip, bind_port) {
                     port = bind_port;
                     break;
                 } else if retry == 9 {
@@ -235,7 +225,7 @@ enum ShuffleResponse {
 }
 
 impl ShuffleService {
-    fn response_type(&self, uri: &hyper::Uri) -> Result<ShuffleResponse> {
+    fn response_type(&self, uri: &Uri) -> Result<ShuffleResponse> {
         let parts: Vec<_> = uri.path().split('/').collect();
         match parts.as_slice() {
             [_, endpoint] if *endpoint == "status" => Ok(ShuffleResponse::Status(StatusCode::OK)),
@@ -248,7 +238,7 @@ impl ShuffleService {
         }
     }
 
-    fn get_cached_data(&self, uri: &hyper::Uri, parts: &[&str]) -> Result<Vec<u8>> {
+    fn get_cached_data(&self, uri: &Uri, parts: &[&str]) -> Result<Vec<u8>> {
         // the path is: .../{shuffleid}/{inputid}/{reduceid}
         let parts: Vec<_> = match parts
             .iter()
