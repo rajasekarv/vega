@@ -680,7 +680,7 @@ pub trait Rdd: RddBase + 'static {
                 Arc::new(
                     self.clone()
                 ) as Arc<dyn Rdd<Item = Self::Item>>,
-                second.clone()
+                second
             )
         )
     }

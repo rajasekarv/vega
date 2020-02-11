@@ -1,7 +1,6 @@
 use native_spark::io::*;
 use native_spark::partitioner::HashPartitioner;
 use native_spark::rdd::CoGroupedRdd;
-use native_spark::rdd::zip_rdd::ZippedPartitionsRdd;
 use native_spark::*;
 use serde_traitobject::Arc as SerArc;
 use std::fs::{create_dir_all, File};
