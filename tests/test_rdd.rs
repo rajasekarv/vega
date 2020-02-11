@@ -395,3 +395,37 @@ fn test_union_with_unique_partitioner() {
     let res = rdd0.union(rdd1.get_rdd()).unwrap().collect().unwrap();
     assert_eq!(res.len(), 8);
 }
+
+#[test]
+fn test_zip() {
+    let sc = CONTEXT.clone();
+    let col1 = vec![
+        1,
+        2,
+        3,
+        4,
+        5
+    ];
+
+    let col2 = vec![
+        "5a".to_string(),
+        "4b".to_string(),
+        "3c".to_string(),
+        "2d".to_string(),
+        "1a".to_string()
+    ];
+
+    let first = sc.parallelize(col1, 3);
+    let second = sc.parallelize(col2, 3);
+    let res = first.zip(Arc::new(second)).collect().unwrap();
+
+    let expected = vec![
+        (1, "5a".to_string()),
+        (2, "4b".to_string()),
+        (3, "3c".to_string()),
+        (4, "2d".to_string()),
+        (5, "1a".to_string())
+    ];
+    assert_eq!(res, expected);
+
+}
