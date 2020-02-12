@@ -28,7 +28,6 @@ use serde_traitobject::{Arc as SerArc, Deserialize, Serialize};
 
 pub mod parallel_collection_rdd;
 pub use parallel_collection_rdd::*;
-pub mod cartesian_rdd;
 mod cartesian_rdd;
 mod flatmap_rdd;
 pub use flatmap_rdd::*;
