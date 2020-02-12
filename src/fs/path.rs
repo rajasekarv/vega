@@ -2,7 +2,7 @@ use crate::error::Result;
 use once_cell::sync::Lazy;
 use regex::Regex;
 use std::convert::{TryFrom, TryInto};
-use uriparse::{URI, Query, Fragment, Authority};
+use uriparse::{Authority, Fragment, Query, URI};
 
 pub const SEPARATOR: char = '/';
 pub const SEPARATOR_CHAR: char = '/';
@@ -12,7 +12,7 @@ pub static WINDOWS: Lazy<bool> = Lazy::new(|| if cfg!(windows) { true } else { f
 static HAS_URI_SCHEME: Lazy<Regex> = Lazy::new(|| Regex::new("[a-zA-Z][a-zA-Z0-9+-.]+:").unwrap());
 static HAS_DRIVE_LETTER_SPECIFIER: Lazy<Regex> = Lazy::new(|| Regex::new("^/?[a-zA-Z]:").unwrap());
 
-#[derive(Eq, PartialEq,  Debug)]
+#[derive(Eq, PartialEq, Debug)]
 pub struct Path {
     url: URI<'static>,
 }
@@ -31,7 +31,7 @@ impl Path {
         if Self::has_windows_drive(&path_string) && !path_string.starts_with('/') {
             path_string = format!("/{:?}", path_string);
         }
-        let mut scheme= None;
+        let mut scheme = None;
         let mut authority = None;
         let mut index = 0;
 
@@ -44,31 +44,43 @@ impl Path {
         }
 
         if path_string.get(index..).unwrap().starts_with("//") && path_string.len() - index > 2 {
-            let next_slash = path_string[index+2..].find('/').map(|fi| index +2 +fi).unwrap();
+            let next_slash = path_string[index + 2..]
+                .find('/')
+                .map(|fi| index + 2 + fi)
+                .unwrap();
             let auth_end = if next_slash > 0 {
                 next_slash
             } else {
                 path_string.len()
             };
-            authority = Some(path_string.get(index +2..auth_end).unwrap());
+            authority = Some(path_string.get(index + 2..auth_end).unwrap());
             index = auth_end;
         }
 
-        let path = path_string.get(index .. path_string.len());
+        let path = path_string.get(index..path_string.len());
 
         if scheme.is_none() {
             scheme = Some("file");
         }
         let path = Self::normalize_path(scheme.unwrap().to_string(), path.unwrap().to_string());
-        let mut url = URI::from_parts(scheme.unwrap(),None::<Authority>,  path.as_str(), None::<Query>, None::<Fragment>).unwrap();
+        let mut url = URI::from_parts(
+            scheme.unwrap(),
+            None::<Authority>,
+            path.as_str(),
+            None::<Query>,
+            None::<Fragment>,
+        )
+        .unwrap();
         url.normalize();
 
-        Path { url: url.into_owned() }
+        Path {
+            url: url.into_owned(),
+        }
     }
 
-    pub fn from_scheme_auth_path(scheme: &str, auth: Option<&str>, path: &str ) -> Self {
+    pub fn from_scheme_auth_path(scheme: &str, auth: Option<&str>, path: &str) -> Self {
         let mut path = path.to_string();
-        if path.len() ==0 {
+        if path.len() == 0 {
             panic!("cannot creeate path from empty string");
         }
         if Self::has_windows_drive(&path) && path.chars().next().unwrap() != '/' {
@@ -80,7 +92,8 @@ impl Path {
         }
 
         path = Self::normalize_path(scheme.to_string(), path);
-        let mut url = URI::from_parts(scheme,auth,  path.as_str(), None::<Query>, None::<Fragment>).unwrap();
+        let mut url =
+            URI::from_parts(scheme, auth, path.as_str(), None::<Query>, None::<Fragment>).unwrap();
         Path::from_url(url.into_owned())
     }
 
@@ -89,17 +102,25 @@ impl Path {
     }
 
     pub fn merge_paths(path1: Path, path2: Path) -> Path {
-        let mut path2 =  path2.to_url().path().to_string();
-        path2 = path2.get(Self::start_position_without_windows_drive(&path2) .. ).unwrap().into();
+        let mut path2 = path2.to_url().path().to_string();
+        path2 = path2
+            .get(Self::start_position_without_windows_drive(&path2)..)
+            .unwrap()
+            .into();
         let scheme = path1.to_url().scheme().to_string();
         let auth = path1.to_url().authority().map(|x| x.to_string());
         let path = path1.to_url().path().to_string();
-        Path::from_scheme_auth_path(scheme.as_str(), auth.as_deref() , path.as_str() )
+        Path::from_scheme_auth_path(scheme.as_str(), auth.as_deref(), path.as_str())
     }
 
     pub fn is_url_path_absolute(&self) -> bool {
         let start = Self::start_position_without_windows_drive(&self.url.path().to_string());
-        self.url.path().to_string().get(start..).unwrap().starts_with(SEPARATOR)
+        self.url
+            .path()
+            .to_string()
+            .get(start..)
+            .unwrap()
+            .starts_with(SEPARATOR)
     }
 
     pub fn is_absolute(&self) -> bool {
@@ -125,26 +146,30 @@ impl Path {
     pub fn get_name(&self) -> Option<String> {
         let path = self.url.path();
         let mut slash = path.to_string().rfind(SEPARATOR).map_or(0, |i| i + 1);
-        path.to_string().get(slash ..).map(|x| x.to_owned())
+        path.to_string().get(slash..).map(|x| x.to_owned())
     }
 
     pub fn get_parent(&self) -> Option<Path> {
         let path = self.url.path();
         let last_slash = path.to_string().rfind(SEPARATOR);
         let start = Self::start_position_without_windows_drive(&path.to_string());
-        if (path.to_string().len() == start) || (last_slash? == start && path.to_string().len() == start + 1) {
+        if (path.to_string().len() == start)
+            || (last_slash? == start && path.to_string().len() == start + 1)
+        {
             return None;
         }
         let parent_path = if last_slash.is_none() {
             CUR_DIR.to_string()
         } else {
-            path.to_string().get(
-                0..if last_slash? == start {
-                    start + 1
-                } else {
-                    last_slash?
-                },
-            ).map(|x| x.to_string())?
+            path.to_string()
+                .get(
+                    0..if last_slash? == start {
+                        start + 1
+                    } else {
+                        last_slash?
+                    },
+                )
+                .map(|x| x.to_string())?
         };
         let mut parent = self.url.clone();
         parent.set_path(parent_path.as_str());
@@ -156,14 +181,14 @@ impl Path {
     }
 
     fn normalize_path(scheme: String, mut path: String) -> String {
-        path = path.replace("//","/");
+        path = path.replace("//", "/");
         if (*WINDOWS && (Self::has_windows_drive(&path) || scheme.eq("file"))) {
-            path = path.replace("\\","/");
+            path = path.replace("\\", "/");
         }
 
         let min_len = Self::start_position_without_windows_drive(&path) + 1;
         if (path.len() > min_len) && path.ends_with(SEPARATOR) {
-            path = path.get(0 .. path.len() - 1).unwrap().to_string();
+            path = path.get(0..path.len() - 1).unwrap().to_string();
         }
         path
     }
@@ -210,7 +235,9 @@ mod tests {
     fn parent() {
         assert_eq!(
             Path::from_path_string("/foo"),
-            Path::from_path_string("file:///foo/bar").get_parent().unwrap()
+            Path::from_path_string("file:///foo/bar")
+                .get_parent()
+                .unwrap()
         );
         assert_eq!(
             Path::from_path_string("foo"),

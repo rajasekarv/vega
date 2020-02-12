@@ -84,7 +84,10 @@ impl<T: Data> Clone for ParallelCollection<T> {
 }
 
 impl<T: Data> ParallelCollection<T> {
-    pub fn new(context: Arc<Context>, data: Vec<T>, num_slices: usize) -> Self {
+    pub fn new<I>(context: Arc<Context>, data: I, num_slices: usize) -> Self
+    where
+        I: IntoIterator<Item = T>,
+    {
         ParallelCollection {
             rdd_vals: Arc::new(ParallelCollectionVals {
                 vals: Arc::new(RddVals::new(context.clone())),

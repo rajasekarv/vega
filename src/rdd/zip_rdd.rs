@@ -1,10 +1,10 @@
 use std::cmp::min;
 use std::marker::PhantomData;
 use std::net::Ipv4Addr;
-use std::sync::{Arc};
+use std::sync::Arc;
 
-use serde_derive::{Deserialize, Serialize};
 use crate::serializable_traits::{AnyData, Data, Func, SerFunc};
+use serde_derive::{Deserialize, Serialize};
 
 use crate::context::Context;
 use crate::dependency::{Dependency, OneToOneDependency};
@@ -47,7 +47,7 @@ impl<F: Data, S: Data> Clone for ZippedPartitionsRdd<F, S> {
             first: self.first.clone(),
             second: self.second.clone(),
             vals: self.vals.clone(),
-            _marker_t: PhantomData
+            _marker_t: PhantomData,
         }
     }
 }
@@ -66,25 +66,22 @@ impl<F: Data, S: Data> RddBase for ZippedPartitionsRdd<F, S> {
     }
 
     fn splits(&self) -> Vec<Box<dyn Split>> {
-        let mut arr = Vec::with_capacity(
-            min(self.first.number_of_splits(), self.second.number_of_splits())
-        );
+        let mut arr = Vec::with_capacity(min(
+            self.first.number_of_splits(),
+            self.second.number_of_splits(),
+        ));
 
         for (fst, sec) in self.first.splits().iter().zip(self.second.splits().iter()) {
             let fst_idx = fst.get_index();
             let sec_idx = sec.get_index();
 
-            arr.push(
-                Box::new(
-                    ZippedPartitionsSplit {
-                        fst_idx,
-                        sec_idx,
-                        idx: fst_idx,
-                        fst_split: fst.clone(),
-                        sec_split: sec.clone()
-                    }
-                ) as Box<dyn Split>
-            )
+            arr.push(Box::new(ZippedPartitionsSplit {
+                fst_idx,
+                sec_idx,
+                idx: fst_idx,
+                fst_split: fst.clone(),
+                sec_split: sec.clone(),
+            }) as Box<dyn Split>)
         }
         arr
     }
@@ -129,11 +126,7 @@ impl<F: Data, S: Data> Rdd for ZippedPartitionsRdd<F, S> {
 
         let fst_iter = self.first.iterator(current_split.fst_split.clone())?;
         let sec_iter = self.second.iterator(current_split.sec_split.clone())?;
-        Ok(
-            Box::new(
-                fst_iter.zip(sec_iter)
-            )
-        )
+        Ok(Box::new(fst_iter.zip(sec_iter)))
     }
 
     fn iterator(&self, split: Box<dyn Split>) -> Result<Box<dyn Iterator<Item = Self::Item>>> {
@@ -142,10 +135,7 @@ impl<F: Data, S: Data> Rdd for ZippedPartitionsRdd<F, S> {
 }
 
 impl<F: Data, S: Data> ZippedPartitionsRdd<F, S> {
-    pub fn new(
-        first: Arc<dyn Rdd<Item = F>>,
-        second: Arc<dyn Rdd<Item = S>>
-    ) -> Self {
+    pub fn new(first: Arc<dyn Rdd<Item = F>>, second: Arc<dyn Rdd<Item = S>>) -> Self {
         let mut vals = RddVals::new(first.get_context());
         vals.dependencies
             .push(Dependency::NarrowDependency(Arc::new(
@@ -157,7 +147,7 @@ impl<F: Data, S: Data> ZippedPartitionsRdd<F, S> {
             first,
             second,
             vals,
-            _marker_t: PhantomData
+            _marker_t: PhantomData,
         }
     }
 }

@@ -685,17 +685,13 @@ pub trait Rdd: RddBase + 'static {
         &self,
         second: Arc<dyn Rdd<Item = S>>,
     ) -> SerArc<dyn Rdd<Item = (Self::Item, S)>>
-        where
-            Self: Clone,
+    where
+        Self: Clone,
     {
-        SerArc::new(
-            ZippedPartitionsRdd::<Self::Item, S>::new(
-                Arc::new(
-                    self.clone()
-                ) as Arc<dyn Rdd<Item = Self::Item>>,
-                second
-            )
-        )
+        SerArc::new(ZippedPartitionsRdd::<Self::Item, S>::new(
+            Arc::new(self.clone()) as Arc<dyn Rdd<Item = Self::Item>>,
+            second,
+        ))
     }
 }
 
