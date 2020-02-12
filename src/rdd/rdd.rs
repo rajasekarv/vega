@@ -22,6 +22,8 @@ use rand::{Rng, SeedableRng};
 use serde_derive::{Deserialize, Serialize};
 use serde_traitobject::{Arc as SerArc, Deserialize, Serialize};
 
+pub mod parallel_collection_rdd;
+pub use parallel_collection_rdd::*;
 pub mod cartesian_rdd;
 pub use cartesian_rdd::*;
 pub mod co_grouped_rdd;

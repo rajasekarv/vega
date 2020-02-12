@@ -42,8 +42,6 @@ mod dependency;
 pub use dependency::*;
 pub mod split;
 pub use split::*;
-mod parallel_collection_rdd;
-pub use parallel_collection_rdd::*;
 mod cache;
 mod cache_tracker;
 #[macro_use]
