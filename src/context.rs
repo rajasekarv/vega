@@ -17,7 +17,7 @@ use crate::error::{Error, Result};
 use crate::executor::Executor;
 use crate::io::ReaderConfiguration;
 use crate::local_scheduler::LocalScheduler;
-use crate::parallel_collection::ParallelCollection;
+use crate::parallel_collection_rdd::ParallelCollection;
 use crate::rdd::union_rdd::UnionRdd;
 use crate::rdd::{Rdd, RddBase};
 use crate::scheduler::NativeScheduler;
