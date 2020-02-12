@@ -17,7 +17,7 @@ use crate::error::{Error, Result};
 use crate::executor::Executor;
 use crate::io::ReaderConfiguration;
 use crate::local_scheduler::LocalScheduler;
-use crate::parallel_collection::ParallelCollection;
+use crate::parallel_collection_rdd::ParallelCollection;
 use crate::rdd::union_rdd::UnionRdd;
 use crate::rdd::{Rdd, RddBase};
 use crate::scheduler::NativeScheduler;
@@ -240,20 +240,26 @@ impl Context {
     // TODO change this to accept any iterator
     // &Arc<Self> is an unstable feature. used here just to keep the user end context usage same as before.
     // Can be removed if sc.clone() API seems ok.
-    pub fn make_rdd<T: Data>(
+    pub fn make_rdd<T: Data, I>(
         self: &Arc<Self>,
-        seq: Vec<T>,
+        seq: I,
         num_slices: usize,
-    ) -> serde_traitobject::Arc<dyn Rdd<Item = T>> {
+    ) -> serde_traitobject::Arc<dyn Rdd<Item = T>>
+    where
+        I: IntoIterator<Item = T>,
+    {
         //let num_slices = seq.len() / num_slices;
         self.parallelize(seq, num_slices)
     }
 
-    pub fn parallelize<T: Data>(
+    pub fn parallelize<T: Data, I>(
         self: &Arc<Self>,
-        seq: Vec<T>,
+        seq: I,
         num_slices: usize,
-    ) -> serde_traitobject::Arc<dyn Rdd<Item = T>> {
+    ) -> serde_traitobject::Arc<dyn Rdd<Item = T>>
+    where
+        I: IntoIterator<Item = T>,
+    {
         serde_traitobject::Arc::new(ParallelCollection::new(self.clone(), seq, num_slices))
     }
 

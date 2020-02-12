@@ -42,8 +42,6 @@ mod dependency;
 pub use dependency::*;
 pub mod split;
 pub use split::*;
-mod parallel_collection;
-pub use parallel_collection::*;
 mod cache;
 mod cache_tracker;
 #[macro_use]
@@ -67,3 +65,4 @@ pub use error::*;
 mod hosts;
 pub mod utils;
 pub use utils::*;
+pub mod fs;

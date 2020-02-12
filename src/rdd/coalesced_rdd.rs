@@ -537,7 +537,10 @@ impl DefaultPartitionCoalescer {
                 Some(*nxt_replica),
                 part_cnt.fetch_add(1, SyncOrd::SeqCst),
             ))));
-            self.add_part_to_pgroup(dyn_clone::clone_box(&**nxt_part).into(), &mut *pgroup.lock());
+            self.add_part_to_pgroup(
+                dyn_clone::clone_box(&**nxt_part).into(),
+                &mut *pgroup.lock(),
+            );
             self.group_hash
                 .entry(*nxt_replica)
                 .or_insert_with(Vec::new)

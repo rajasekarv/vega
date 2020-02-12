@@ -22,6 +22,8 @@ use rand::{Rng, SeedableRng};
 use serde_derive::{Deserialize, Serialize};
 use serde_traitobject::{Arc as SerArc, Deserialize, Serialize};
 
+pub mod parallel_collection_rdd;
+pub use parallel_collection_rdd::*;
 pub mod cartesian_rdd;
 pub use cartesian_rdd::*;
 pub mod co_grouped_rdd;
@@ -685,17 +687,13 @@ pub trait Rdd: RddBase + 'static {
         &self,
         second: Arc<dyn Rdd<Item = S>>,
     ) -> SerArc<dyn Rdd<Item = (Self::Item, S)>>
-        where
-            Self: Clone,
+    where
+        Self: Clone,
     {
-        SerArc::new(
-            ZippedPartitionsRdd::<Self::Item, S>::new(
-                Arc::new(
-                    self.clone()
-                ) as Arc<dyn Rdd<Item = Self::Item>>,
-                second
-            )
-        )
+        SerArc::new(ZippedPartitionsRdd::<Self::Item, S>::new(
+            Arc::new(self.clone()) as Arc<dyn Rdd<Item = Self::Item>>,
+            second,
+        ))
     }
 }
 
