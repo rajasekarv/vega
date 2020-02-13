@@ -695,6 +695,59 @@ pub trait Rdd: RddBase + 'static {
             second,
         ))
     }
+
+    fn intersection<T>(
+        &self,
+        other: Arc<T>,
+        num_splits: usize,
+    ) -> SerArc<dyn Rdd<Item=Self::Item>>
+        where
+            Self: Clone,
+            Self::Item: Data + Eq + Hash,
+            T: Rdd<Item=Self::Item> + Sized,
+    {
+        let other = other.map(
+            Box::new(Fn!(
+                    |x: Self::Item| -> (Self::Item, Option<Self::Item>){
+                        (x, None)
+                    }
+                )
+            )
+        ).clone();
+        self.map(
+            Box::new(Fn!(
+                    |x| -> (Self::Item, Option<Self::Item>){
+                        (x, None)
+                    }
+                )
+            )
+        ).cogroup(
+            other,
+            Box::new(HashPartitioner::<Self::Item>::new(num_splits)) as Box<dyn Partitioner>
+        ).map(
+            Box::new(
+                Fn!(
+                    |(x, (v1, v2)): (Self::Item, (Vec::<Option<Self::Item>>, Vec::<Option<Self::Item>>))| -> Option<Self::Item> {
+                        if v1.len() >= 1 && v2.len() >= 1 {
+                            Some(x)
+                        } else {
+                            None
+                        }
+                    }
+                )
+            )
+        ).map_partitions(
+            Box::new(
+                Fn!(
+                    |iter: Box<dyn Iterator<Item=Option<Self::Item>>>| -> Box<dyn Iterator<Item=Self::Item>> {
+                        Box::new(
+                            iter.filter(|x| x.is_some()).map(|x| x.unwrap())
+                        ) as Box<dyn Iterator<Item=Self::Item>>
+                    }
+                )
+            )
+        )
+    }
 }
 
 #[derive(Serialize, Deserialize)]
