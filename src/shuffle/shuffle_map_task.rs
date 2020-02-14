@@ -84,11 +84,11 @@ impl TaskBase for ShuffleMapTask {
 
 #[async_trait::async_trait]
 impl Task for ShuffleMapTask {
-    async fn run(&self, id: usize) -> SerArc<dyn SerAny + Send + Sync> {
-        SerArc::new(
+    async fn run(&self, id: usize) -> SerBox<dyn SerAny + Send + Sync> {
+        SerBox::new(
             self.dep
                 .do_shuffle_task(self.rdd.clone(), self.partition)
                 .await,
-        ) as SerArc<dyn SerAny + Send + Sync>
+        ) as SerBox<dyn SerAny + Send + Sync>
     }
 }

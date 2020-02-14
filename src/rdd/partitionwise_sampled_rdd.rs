@@ -101,6 +101,7 @@ impl<T: Data> RddBase for PartitionwiseSampledRdd<T> {
     }
 }
 
+// FIXME: add specialized version
 // impl<T: Data, V: Data> RddBase for PartitionwiseSampledRdd<(T, V)> {
 //     fn cogroup_iterator_any(&self, split: Box<dyn Split>) -> Result<AnyDataStream> {
 //         log::debug!("inside iterator_any maprdd",);

@@ -320,7 +320,7 @@ impl NativeScheduler for DistributedScheduler {
                                 TastEndReason::Success,
                                 // Can break in future. But actually not needed for distributed scheduler since task runs on different processes.
                                 // Currently using this because local scheduler needs it. It can be solved by refactoring tasks differently for local and distributed scheduler
-                                crate::serializable_traits::from_arc(result),
+                                result.into_any_send_sync(),
                             );
                         }
                     }
@@ -335,7 +335,7 @@ impl NativeScheduler for DistributedScheduler {
                                 event_queues_clone,
                                 task_final,
                                 TastEndReason::Success,
-                                crate::serializable_traits::from_arc(result),
+                                result.into_any_send_sync(),
                             );
                         }
                     }

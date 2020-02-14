@@ -94,10 +94,6 @@ impl<F: Data, S: Data> RddBase for ZippedPartitionsRdd<F, S> {
     async fn iterator_any(&self, split: Box<dyn Split>) -> Result<AnyDataStream> {
         super::iterator_any(self, split).await
     }
-
-    async fn cogroup_iterator_any(&self, split: Box<dyn Split>) -> Result<AnyDataStream> {
-        self.iterator_any(split).await
-    }
 }
 
 #[async_trait::async_trait]

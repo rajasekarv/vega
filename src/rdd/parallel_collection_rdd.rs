@@ -149,13 +149,6 @@ impl<T: Data> ParallelCollection<T> {
     }
 }
 
-// impl<K: Data, V: Data> RddBase for ParallelCollection<(K, V)> {
-//     fn cogroup_iterator_any(&self, split: Box<dyn Split>) -> Result<AnyDataStream> {
-//         log::debug!("inside iterator_any parallel collection",);
-//         super::cogroup_iterator_any(self, split)
-//     }
-// }
-
 #[async_trait::async_trait]
 impl<T: Data> RddBase for ParallelCollection<T> {
     fn get_rdd_id(&self) -> usize {
@@ -192,6 +185,15 @@ impl<T: Data> RddBase for ParallelCollection<T> {
         crate::rdd::iterator_any(self, split).await
     }
 }
+
+// FIXME: add specialized version
+// #[async_trait::async_trait]
+// impl<K: Data, V: Data> RddBase for ParallelCollection<(K, V)> {
+//     async fn cogroup_iterator_any(&self, split: Box<dyn Split>) -> Result<AnyDataStream> {
+//         log::debug!("inside iterator_any parallel collection",);
+//         crate::rdd::cogroup_iterator_any(self, split).await
+//     }
+// }
 
 #[async_trait::async_trait]
 impl<T: Data> Rdd for ParallelCollection<T> {

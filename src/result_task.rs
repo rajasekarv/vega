@@ -158,7 +158,7 @@ where
         + Deserialize
         + Clone,
 {
-    async fn run(&self, id: usize) -> SerArc<dyn SerAny + Send + Sync> {
+    async fn run(&self, id: usize) -> SerBox<dyn SerAny + Send + Sync> {
         let split = self.rdd.splits()[self.partition].clone();
         let context = TaskContext::new(self.stage_id, self.partition, id);
         let result: Vec<T> = {
@@ -166,7 +166,7 @@ where
             let mut l = iterator.lock();
             l.into_iter().collect()
         };
-        SerArc::new((self.func)((context, Box::new(result.into_iter()))))
-            as SerArc<dyn SerAny + Send + Sync>
+        SerBox::new((self.func)((context, Box::new(result.into_iter()))))
+            as SerBox<dyn SerAny + Send + Sync>
     }
 }

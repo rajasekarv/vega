@@ -102,6 +102,7 @@ where
     }
 }
 
+// FIXME: add specialized version
 // impl<T: Data, V: Data, U: Data, F: 'static> RddBase for FlatMapperRdd<T, (V, U), F>
 // where
 //     F: SerFunc(T) -> Box<dyn Iterator<Item = (V, U)>>,

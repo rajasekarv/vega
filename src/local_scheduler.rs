@@ -231,7 +231,7 @@ impl LocalScheduler {
                         event_queues,
                         task_final,
                         TastEndReason::Success,
-                        crate::serializable_traits::from_arc(result),
+                        result.into_any_send_sync(),
                     );
                 }
             }
@@ -246,7 +246,7 @@ impl LocalScheduler {
                         event_queues,
                         task_final,
                         TastEndReason::Success,
-                        crate::serializable_traits::from_arc(result),
+                        result.into_any_send_sync(),
                     );
                 }
             }
@@ -290,12 +290,11 @@ impl NativeScheduler for LocalScheduler {
         let event_queues = self.event_queues.clone();
         let task = bincode::serialize(&task).unwrap();
 
-        // send it to a socket where the executors are listening even in local mode
-        // so they run in async runtime threadpool
-        todo!()
-        // thread_pool.execute(move || {
-        //     LocalScheduler::run_task::<T, U, F>(event_queues, task, id_in_job, my_attempt_id)
-        // });
+        // run in async executor
+        let executor = &mut *env::Env::get().async_rt.lock();
+        executor.block_on(async {
+            LocalScheduler::run_task::<T, U, F>(event_queues, task, id_in_job, my_attempt_id).await
+        });
     }
 
     fn next_executor_server(&self, _rdd: &dyn TaskBase) -> SocketAddrV4 {

@@ -93,10 +93,14 @@ pub(crate) async fn iterator_any<R: Rdd<Item = D>, D: Data>(
     rdd: &R,
     split: Box<dyn Split>,
 ) -> Result<AnyDataStream> {
-    // Ok(Box::pin(rdd.iterator(split).then(|stream| {
-    //     futures::future::ready(stream.unwrap().map(|x| Box::new(x) as Box<dyn AnyData>))
-    // })) as Pin<Box<dyn Future<Output = _>>>)
-    todo!()
+    let it = rdd.iterator(split).await?;
+    let mut it = it.lock();
+    Ok(Arc::new(Mutex::new(
+        it.into_iter()
+            .collect::<Vec<_>>()
+            .into_iter()
+            .map(|x| Box::new(x) as Box<dyn AnyData>),
+    )))
 }
 
 /// Specialized version of `iterator_any` where the serializable data is a touple of two elements.
@@ -105,14 +109,14 @@ async fn iterator_any_tuple<R: Rdd<Item = (K, V)>, K: Data, V: Data>(
     rdd: &R,
     split: Box<dyn Split>,
 ) -> Result<AnyDataStream> {
-    // Ok(Box::pin(rdd.iterator(split).then(|stream| {
-    //     Box::pin(
-    //         stream
-    //             .unwrap()
-    //             .map(|(k, v)| Box::new((k, v)) as Box<dyn AnyData>),
-    //     ) as Pin<Box<dyn Iterator<Item = _>>>
-    // })))
-    todo!()
+    let it = rdd.iterator(split).await?;
+    let mut it = it.lock();
+    Ok(Arc::new(Mutex::new(
+        it.into_iter()
+            .collect::<Vec<_>>()
+            .into_iter()
+            .map(|(k, v)| Box::new((k, v)) as Box<dyn AnyData>),
+    )))
 }
 
 /// See `iterator_any`, ditto the same for co-grouped data.
@@ -121,14 +125,14 @@ pub(crate) async fn cogroup_iterator_any<R: Rdd<Item = (K, V)>, K: Data, V: Data
     rdd: &R,
     split: Box<dyn Split>,
 ) -> Result<AnyDataStream> {
-    // Ok(Box::pin(rdd.iterator(split).then(|stream| {
-    //     Box::pin(
-    //         stream
-    //             .unwrap()
-    //             .map(|(k, v)| Box::new((k, Box::new(v) as Box<dyn AnyData>)) as Box<dyn AnyData>),
-    //     ) as Pin<Box<dyn Iterator<Item = _>>>
-    // })))
-    todo!()
+    let it = rdd.iterator(split).await?;
+    let mut it = it.lock();
+    Ok(Arc::new(Mutex::new(
+        it.into_iter()
+            .collect::<Vec<_>>()
+            .into_iter()
+            .map(|(k, v)| Box::new((k, Box::new(v) as Box<dyn AnyData>)) as Box<dyn AnyData>),
+    )))
 }
 
 // Due to the lack of HKTs in Rust, it is difficult to have collection of generic data with different types.

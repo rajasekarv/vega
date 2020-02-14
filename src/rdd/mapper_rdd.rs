@@ -119,6 +119,7 @@ where
     }
 }
 
+// FIXME: add specialized version
 // impl<T: Data, V: Data, U: Data, F> RddBase for MapperRdd<T, (V, U), F>
 // where
 //     F: SerFunc(T) -> (V, U),

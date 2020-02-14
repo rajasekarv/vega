@@ -52,12 +52,6 @@ pub trait AnyData:
     fn into_any_send_sync(self: boxed::Box<Self>) -> boxed::Box<dyn any::Any + Send + Sync>;
 }
 
-pub(crate) fn from_arc(
-    inc: SerArc<dyn SerAny + Send + Sync>,
-) -> boxed::Box<dyn any::Any + Send + Sync> {
-    todo!()
-}
-
 dyn_clone::clone_trait_object!(AnyData);
 
 pub trait AnySerializable:

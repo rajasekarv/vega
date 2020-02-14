@@ -116,6 +116,7 @@ where
     }
 }
 
+// FIXME: add specialized version
 // impl<T: Data, V: Data, U: Data, F> RddBase for MapPartitionsRdd<T, (V, U), F>
 // where
 //     F: SerFunc(usize, ComputeIterator<T>) -> ComputeIterator<(V, U)>,
