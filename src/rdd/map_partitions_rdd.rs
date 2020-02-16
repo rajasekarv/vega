@@ -9,7 +9,6 @@ use crate::error::{Error, Result};
 use crate::rdd::{ComputeResult, DataIter, Rdd, RddBase, RddVals};
 use crate::serializable_traits::{AnyData, Data, Func, SerFunc};
 use crate::split::Split;
-use futures::stream::{Stream, StreamExt};
 use log::info;
 use parking_lot::Mutex;
 use serde_derive::{Deserialize, Serialize};

@@ -11,7 +11,6 @@ use crate::rdd::union_rdd::UnionVariants::{NonUniquePartitioner, PartitionerAwar
 use crate::rdd::{ComputeResult, DataIter, Rdd, RddBase, RddVals};
 use crate::serializable_traits::{AnyData, Data};
 use crate::split::Split;
-use futures::stream::{Stream, StreamExt};
 use itertools::{Itertools, MinMaxResult};
 use log::debug;
 use parking_lot::Mutex;
@@ -227,7 +226,7 @@ impl<T: Data> RddBase for UnionRdd<T> {
 
                 let split = &*split
                     .downcast::<PartitionerAwareUnionSplit>()
-                    .or(Err(Error::SplitDowncast("UnionSplit")))
+                    .or(Err(Error::DowncastFailure("UnionSplit")))
                     .unwrap();
 
                 let locations =
@@ -321,7 +320,7 @@ impl<T: Data> Rdd for UnionRdd<T> {
             NonUniquePartitioner { rdds, .. } => {
                 let part = &*split
                     .downcast::<UnionSplit<T>>()
-                    .or(Err(Error::SplitDowncast("UnionSplit")))?;
+                    .or(Err(Error::DowncastFailure("UnionSplit")))?;
                 let parent = (&rdds[part.parent_rdd_index]);
                 let iter = parent.iterator(part.parent_partition()).await?;
                 Ok(iter)
@@ -329,7 +328,7 @@ impl<T: Data> Rdd for UnionRdd<T> {
             PartitionerAware { rdds, .. } => {
                 let split = split
                     .downcast::<PartitionerAwareUnionSplit>()
-                    .or(Err(Error::SplitDowncast("PartitionerAwareUnionSplit")))?;
+                    .or(Err(Error::DowncastFailure("PartitionerAwareUnionSplit")))?;
                 let mut iter = Vec::with_capacity(rdds.len());
                 for (rdd, p) in rdds.iter().zip(split.parents(&rdds)) {
                     let res = rdd.iterator(p.clone()).await?;

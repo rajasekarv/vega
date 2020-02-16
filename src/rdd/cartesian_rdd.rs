@@ -126,7 +126,7 @@ impl<T: Data, U: Data> Rdd for CartesianRdd<T, U> {
     async fn compute(&self, split: Box<dyn Split>) -> Result<ComputeResult<Self::Item>> {
         let current_split = split
             .downcast::<CartesianSplit>()
-            .or(Err(Error::SplitDowncast("CartesianSplit")))?;
+            .or(Err(Error::DowncastFailure("CartesianSplit")))?;
         let iter1 = self.rdd1.iterator(current_split.s1).await?;
         let iter2 = self
             .rdd2

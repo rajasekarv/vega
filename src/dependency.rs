@@ -3,7 +3,6 @@ use crate::env;
 use crate::partitioner::Partitioner;
 use crate::rdd::RddBase;
 use crate::serializable_traits::{AnyData, Data};
-use futures::{Stream, StreamExt};
 use log::info;
 use parking_lot::Mutex;
 use serde_derive::{Deserialize, Serialize};

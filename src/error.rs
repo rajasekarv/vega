@@ -53,7 +53,7 @@ pub enum Error {
         path: PathBuf,
     },
 
-    #[error("failed to convetr {} to a String", .0.display())]
+    #[error("failed to convert {} to a String", .0.display())]
     PathToString(PathBuf),
 
     #[error("failed to parse slave address {0}")]
@@ -65,8 +65,8 @@ pub enum Error {
     #[error("shuffle server related failure")]
     ShuffleError(#[from] crate::shuffle::ShuffleError),
 
-    #[error("got split object from different concrete type other than {0}")]
-    SplitDowncast(&'static str),
+    #[error("failure while downcasting an object to a concrete type: {0}")]
+    DowncastFailure(&'static str),
 
     #[error("operation not supported: {0}")]
     UnsupportedOperation(&'static str),

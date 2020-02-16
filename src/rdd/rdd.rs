@@ -20,7 +20,6 @@ use crate::task::TaskContext;
 use crate::utils;
 use crate::utils::random::{BernoulliSampler, PoissonSampler, RandomSampler};
 use fasthash::MetroHasher;
-use futures::{FutureExt, Stream, StreamExt};
 use log::info;
 use parking_lot::Mutex;
 use rand::{Rng, SeedableRng};

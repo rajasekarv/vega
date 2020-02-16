@@ -13,7 +13,6 @@ use crate::rdd::{ComputeResult, DataIter, Rdd, RddBase, RddVals};
 use crate::serializable_traits::{AnyData, Data};
 use crate::shuffle::ShuffleFetcher;
 use crate::split::Split;
-use futures::{FutureExt, Stream, StreamExt};
 use log::info;
 use parking_lot::Mutex;
 use serde_derive::{Deserialize, Serialize};

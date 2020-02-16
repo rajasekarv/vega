@@ -12,13 +12,13 @@ use crate::dependency::{
     Dependency, NarrowDependencyTrait, OneToOneDependency, ShuffleDependency,
     ShuffleDependencyTrait,
 };
-use crate::error::Result;
+use crate::error::{Error, Result};
 use crate::partitioner::Partitioner;
 use crate::rdd::{ComputeResult, DataIter, Rdd, RddBase, RddVals};
 use crate::serializable_traits::{AnyData, Data};
-use crate::shuffle::ShuffleFetcher;
+use crate::shuffle::{ShuffleError, ShuffleFetcher};
 use crate::split::Split;
-use futures::{future, Future, Stream, StreamExt};
+use futures::{future, FutureExt, TryFutureExt};
 use log::info;
 use parking_lot::Mutex;
 use serde_derive::{Deserialize, Serialize};
@@ -206,31 +206,45 @@ impl<K: Data + Eq + Hash> Rdd for CoGroupedRdd<K> {
 
     async fn compute(&self, split: Box<dyn Split>) -> Result<ComputeResult<Self::Item>> {
         type CoGroupedByKey<K> = Arc<Mutex<HashMap<K, Vec<Vec<Box<dyn AnyData>>>>>>;
-
-        if let Ok(split) = split.downcast::<CoGroupSplit>() {
-            let mut agg: CoGroupedByKey<K> = Arc::new(Mutex::new(HashMap::new()));
+        let mut agg: CoGroupedByKey<K> = Arc::new(Mutex::new(HashMap::new()));
+        let split = split
+            .downcast::<CoGroupSplit>()
+            .or(Err(Error::DowncastFailure("CoGroupSplit")))?;
+        {
             let num_rdds = self.rdds.len();
 
             let agg_clone = agg.clone();
-            let downcast_fn = move |dep_num: usize, i: Box<dyn AnyData>| {
+            let downcast_fn = move |dep_num: usize, i: Box<dyn AnyData>| -> Result<()> {
                 log::debug!("inside iterator cogrouprdd narrow dep iterator any {:?}", i);
                 let (k, v) = *i
                     .into_any()
                     .downcast::<(Box<dyn AnyData>, Box<dyn AnyData>)>()
-                    .unwrap();
-                let k = *(k.into_any().downcast::<K>().unwrap());
+                    .or(Err(Error::DowncastFailure("unknowable")))?;
+                let k = *(k
+                    .into_any()
+                    .downcast::<K>()
+                    .or(Err(Error::DowncastFailure("unknowable")))?);
                 let mut t = agg_clone.lock();
                 t.entry(k).or_insert_with(|| vec![Vec::new(); num_rdds])[dep_num].push(v);
+                Ok(())
             };
 
             let split_idx = split.get_index();
+            let mut tasks = Vec::with_capacity(split.deps.len());
             for (dep_num, dep) in split.deps.into_iter().enumerate() {
                 match dep {
                     NarrowCoGroupSplitDep { rdd, split } => {
-                        let iter = rdd.iterator_any(split).await;
-                        iter.for_each(|element| {
-                            downcast_fn(dep_num, element);
-                        });
+                        let downcast_fn = downcast_fn.clone();
+                        let dep_num = dep_num;
+                        let iter =
+                            tokio::spawn(rdd.iterator_any(split).map(move |iter| {
+                                iter.map(move |element| -> Result<()> {
+                                    downcast_fn(dep_num, element)?;
+                                    Ok(())
+                                })
+                                .fold(Ok(()), |curr, res| if res.is_err() { res } else { curr })
+                            }));
+                        tasks.push(iter);
                     }
                     ShuffleCoGroupSplitDep { shuffle_id } => {
                         log::debug!("inside iterator cogrouprdd  shuffle dep agg {:?}", agg);
@@ -247,10 +261,14 @@ impl<K: Data + Eq + Hash> Rdd for CoGroupedRdd<K> {
                     }
                 }
             }
-            let mut agg = Arc::try_unwrap(agg).unwrap().into_inner();
-            Ok(Box::new(agg.into_iter().map(|(k, v)| (k, v))))
-        } else {
-            panic!("Got split object from different concrete type other than CoGroupSplit")
+            let task_results = future::join_all(tasks.into_iter())
+                .await
+                .into_iter()
+                .flatten()
+                .collect::<Result<Vec<_>>>()?;
+            // guarantee that extra refs to agg are dropped here
         }
+        let mut agg = Arc::try_unwrap(agg).unwrap().into_inner();
+        Ok(Box::new(agg.into_iter().map(|(k, v)| (k, v))))
     }
 }
