@@ -7,7 +7,7 @@ use crate::context::Context;
 use crate::dependency::{Dependency, OneToOneDependency};
 use crate::error::{Error, Result};
 use crate::partitioner::{HashPartitioner, Partitioner};
-use crate::rdd::{AnyDataStream, ComputeResult, Rdd, RddBase, RddVals};
+use crate::rdd::{ComputeResult, DataIter, Rdd, RddBase, RddVals};
 use crate::serializable_traits::{AnyData, Data, Func, SerFunc};
 use crate::split::Split;
 use parking_lot::Mutex;
@@ -52,7 +52,6 @@ impl<F: Data, S: Data> Clone for ZippedPartitionsRdd<F, S> {
     }
 }
 
-#[async_trait::async_trait]
 impl<F: Data, S: Data> RddBase for ZippedPartitionsRdd<F, S> {
     fn get_rdd_id(&self) -> usize {
         self.vals.id
@@ -91,8 +90,8 @@ impl<F: Data, S: Data> RddBase for ZippedPartitionsRdd<F, S> {
         self.splits().len()
     }
 
-    async fn iterator_any(&self, split: Box<dyn Split>) -> Result<AnyDataStream> {
-        super::iterator_any(self, split).await
+    fn iterator_any(&self, split: Box<dyn Split>) -> DataIter {
+        super::iterator_any(self.get_rdd(), split)
     }
 }
 

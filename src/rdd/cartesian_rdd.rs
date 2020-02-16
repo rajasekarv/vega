@@ -5,7 +5,7 @@ use std::sync::Arc;
 use crate::context::Context;
 use crate::dependency::Dependency;
 use crate::error::{Error, Result};
-use crate::rdd::{AnyDataStream, ComputeResult, Rdd, RddBase, RddVals};
+use crate::rdd::{ComputeResult, DataIter, Rdd, RddBase, RddVals};
 use crate::serializable_traits::{AnyData, Data};
 use crate::split::Split;
 use itertools::{iproduct, Itertools};
@@ -72,7 +72,6 @@ impl<T: Data, U: Data> Clone for CartesianRdd<T, U> {
     }
 }
 
-#[async_trait::async_trait]
 impl<T: Data, U: Data> RddBase for CartesianRdd<T, U> {
     fn get_rdd_id(&self) -> usize {
         self.vals.id
@@ -105,8 +104,8 @@ impl<T: Data, U: Data> RddBase for CartesianRdd<T, U> {
         array
     }
 
-    async fn iterator_any(&self, split: Box<dyn Split>) -> Result<AnyDataStream> {
-        super::iterator_any(self, split).await
+    fn iterator_any(&self, split: Box<dyn Split>) -> DataIter {
+        super::iterator_any(self.get_rdd(), split)
     }
 }
 

@@ -8,7 +8,7 @@ use crate::dependency::{Dependency, NarrowDependencyTrait, OneToOneDependency, R
 use crate::error::{Error, Result};
 use crate::partitioner::Partitioner;
 use crate::rdd::union_rdd::UnionVariants::{NonUniquePartitioner, PartitionerAware};
-use crate::rdd::{AnyDataStream, ComputeResult, Rdd, RddBase, RddVals};
+use crate::rdd::{DataIter, ComputeResult, Rdd, RddBase, RddVals};
 use crate::serializable_traits::{AnyData, Data};
 use crate::split::Split;
 use futures::stream::{Stream, StreamExt};
@@ -194,7 +194,6 @@ impl<T: Data> UnionVariants<T> {
     }
 }
 
-#[async_trait::async_trait]
 impl<T: Data> RddBase for UnionRdd<T> {
     fn get_rdd_id(&self) -> usize {
         match &self.0 {
@@ -292,9 +291,9 @@ impl<T: Data> RddBase for UnionRdd<T> {
         }
     }
 
-    async fn iterator_any(&self, split: Box<dyn Split>) -> Result<AnyDataStream> {
+    fn iterator_any(&self, split: Box<dyn Split>) -> DataIter {
         log::debug!("inside iterator_any union_rdd",);
-        super::iterator_any(self, split).await
+        super::iterator_any(self.get_rdd(), split)
     }
 
     fn partitioner(&self) -> Option<Box<dyn Partitioner>> {

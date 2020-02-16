@@ -11,7 +11,7 @@ use std::sync::Arc;
 use crate::context::Context;
 use crate::dependency::{Dependency, OneToOneDependency};
 use crate::error::{Error, Result};
-use crate::rdd::{AnyDataStream, AsyncComputation, ComputeResult, Rdd, RddBase, RddVals};
+use crate::rdd::{ComputeResult, DataIter, Rdd, RddBase, RddVals};
 use crate::serializable_traits::{AnyData, Data, Func, SerFunc};
 use crate::split::Split;
 use crate::utils;
@@ -76,7 +76,6 @@ where
     }
 }
 
-#[async_trait::async_trait]
 impl<T: Data, U: Data, F> RddBase for MapperRdd<T, U, F>
 where
     F: SerFunc(T) -> U,
@@ -105,13 +104,13 @@ where
         self.prev.number_of_splits()
     }
 
-    async fn cogroup_iterator_any(&self, split: Box<dyn Split>) -> Result<AnyDataStream> {
-        self.iterator_any(split).await
+    default fn cogroup_iterator_any(&self, split: Box<dyn Split>) -> DataIter {
+        self.iterator_any(split)
     }
 
-    async fn iterator_any(&self, split: Box<dyn Split>) -> Result<AnyDataStream> {
+    fn iterator_any(&self, split: Box<dyn Split>) -> DataIter {
         log::debug!("inside iterator_any maprdd",);
-        super::iterator_any(self, split).await
+        super::iterator_any(self.get_rdd(), split)
     }
 
     fn is_pinned(&self) -> bool {
@@ -119,16 +118,15 @@ where
     }
 }
 
-// FIXME: add specialized version
-// impl<T: Data, V: Data, U: Data, F> RddBase for MapperRdd<T, (V, U), F>
-// where
-//     F: SerFunc(T) -> (V, U),
-// {
-//     fn cogroup_iterator_any(&self, split: Box<dyn Split>) -> Result<AnyDataStream> {
-//         log::debug!("inside iterator_any maprdd",);
-//         super::cogroup_iterator_any(self, split)
-//     }
-// }
+impl<T: Data, V: Data, U: Data, F> RddBase for MapperRdd<T, (V, U), F>
+where
+    F: SerFunc(T) -> (V, U),
+{
+    fn cogroup_iterator_any(&self, split: Box<dyn Split>) -> DataIter {
+        log::debug!("inside iterator_any maprdd",);
+        super::cogroup_iterator_any(self.get_rdd(), split)
+    }
+}
 
 #[async_trait::async_trait]
 impl<T: Data, U: Data, F: 'static> Rdd for MapperRdd<T, U, F>

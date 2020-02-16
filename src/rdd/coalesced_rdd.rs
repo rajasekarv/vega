@@ -10,7 +10,7 @@ use std::sync::Arc;
 use crate::context::Context;
 use crate::dependency::{Dependency, NarrowDependencyTrait};
 use crate::error::{Error, Result};
-use crate::rdd::{AnyDataStream, ComputeResult, Rdd, RddBase, RddVals};
+use crate::rdd::{ComputeResult, DataIter, Rdd, RddBase, RddVals};
 use crate::serializable_traits::{AnyData, Data};
 use crate::split::Split;
 use crate::utils;
@@ -143,7 +143,6 @@ impl<T: Data> CoalescedRdd<T> {
     }
 }
 
-#[async_trait::async_trait]
 impl<T: Data> RddBase for CoalescedRdd<T> {
     fn splits(&self) -> Vec<Box<dyn Split>> {
         let mut partition_coalescer = DefaultPartitionCoalescer::default();
@@ -191,8 +190,8 @@ impl<T: Data> RddBase for CoalescedRdd<T> {
         }
     }
 
-    async fn iterator_any(&self, split: Box<dyn Split>) -> Result<AnyDataStream> {
-        super::iterator_any(self, split).await
+    fn iterator_any(&self, split: Box<dyn Split>) -> DataIter {
+        super::iterator_any(self.get_rdd(), split)
     }
 }
 

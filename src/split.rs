@@ -7,7 +7,7 @@ pub struct SplitStruct {
     index: usize,
 }
 
-pub trait Split: DowncastSync + dyn_clone::DynClone + Serialize + Deserialize {
+pub trait Split: DowncastSync + dyn_clone::DynClone + Serialize + Deserialize + Send {
     fn get_index(&self) -> usize;
 }
 

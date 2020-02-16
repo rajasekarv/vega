@@ -5,6 +5,7 @@ use crate::rdd::RddBase;
 use crate::serializable_traits::{AnyData, Data};
 use futures::{Stream, StreamExt};
 use log::info;
+use parking_lot::Mutex;
 use serde_derive::{Deserialize, Serialize};
 use serde_traitobject::{Deserialize, Serialize};
 use std::cmp::Ordering;
@@ -169,11 +170,11 @@ impl<K: Data + Eq + Hash, V: Data, C: Data> ShuffleDependencyTrait for ShuffleDe
     async fn do_shuffle_task(&self, rdd_base: Arc<dyn RddBase>, partition: usize) -> String {
         log::debug!("doing shuffle_task for partition {}", partition);
         let split = rdd_base.splits()[partition].clone();
-        let aggregator = self.aggregator.clone();
+        let aggregator = &self.aggregator;
         let num_output_splits = self.partitioner.get_num_of_partitions();
         log::debug!("is cogroup rdd{}", self.is_cogroup);
         log::debug!("num of output splits{}", num_output_splits);
-        let partitioner = self.partitioner.clone();
+        let partitioner = &self.partitioner;
         let mut buckets: Vec<HashMap<K, C>> = (0..num_output_splits)
             .map(|_| HashMap::new())
             .collect::<Vec<_>>();
@@ -183,7 +184,7 @@ impl<K: Data + Eq + Hash, V: Data, C: Data> ShuffleDependencyTrait for ShuffleDe
         );
         log::debug!("split index {}", split.get_index());
 
-        let mut func = |iter: &mut dyn Iterator<Item = Box<dyn AnyData>>| {
+        let mut add_to_buckets = |iter: Box<dyn Iterator<Item = Box<dyn AnyData>>>| {
             for (count, i) in iter.enumerate() {
                 let b = i.into_any().downcast::<(K, V)>().unwrap();
                 let (k, v) = *b;
@@ -207,11 +208,11 @@ impl<K: Data + Eq + Hash, V: Data, C: Data> ShuffleDependencyTrait for ShuffleDe
         };
 
         if self.is_cogroup {
-            let iter = rdd_base.cogroup_iterator_any(split).await.unwrap();
-            func(&mut *iter.lock());
+            let iter = rdd_base.cogroup_iterator_any(split).await;
+            add_to_buckets(iter);
         } else {
-            let iter = rdd_base.iterator_any(split).await.unwrap();
-            func(&mut *iter.lock());
+            let iter = rdd_base.iterator_any(split).await;
+            add_to_buckets(iter);
         }
 
         for (i, bucket) in buckets.into_iter().enumerate() {

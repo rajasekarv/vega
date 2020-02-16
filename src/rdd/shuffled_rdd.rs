@@ -9,7 +9,7 @@ use crate::context::Context;
 use crate::dependency::{Dependency, ShuffleDependency};
 use crate::error::{Error, Result};
 use crate::partitioner::Partitioner;
-use crate::rdd::{AnyDataStream, ComputeResult, Rdd, RddBase, RddVals};
+use crate::rdd::{ComputeResult, DataIter, Rdd, RddBase, RddVals};
 use crate::serializable_traits::{AnyData, Data};
 use crate::shuffle::ShuffleFetcher;
 use crate::split::Split;
@@ -89,7 +89,6 @@ impl<K: Data + Eq + Hash, V: Data, C: Data> ShuffledRdd<K, V, C> {
     }
 }
 
-#[async_trait::async_trait]
 impl<K: Data + Eq + Hash, V: Data, C: Data> RddBase for ShuffledRdd<K, V, C> {
     fn get_rdd_id(&self) -> usize {
         self.vals.id
@@ -117,14 +116,14 @@ impl<K: Data + Eq + Hash, V: Data, C: Data> RddBase for ShuffledRdd<K, V, C> {
         Some(self.part.clone())
     }
 
-    async fn iterator_any(&self, split: Box<dyn Split>) -> Result<AnyDataStream> {
+    fn iterator_any(&self, split: Box<dyn Split>) -> DataIter {
         log::debug!("inside iterator_any shuffledrdd",);
-        super::iterator_any_tuple(self, split).await
+        super::iterator_any_tuple(self.get_rdd(), split)
     }
 
-    async fn cogroup_iterator_any(&self, split: Box<dyn Split>) -> Result<AnyDataStream> {
+    fn cogroup_iterator_any(&self, split: Box<dyn Split>) -> DataIter {
         log::debug!("inside cogroup iterator_any shuffledrdd",);
-        super::cogroup_iterator_any(self, split).await
+        super::cogroup_iterator_any(self.get_rdd(), split)
     }
 }
 

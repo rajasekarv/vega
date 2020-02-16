@@ -9,7 +9,7 @@ use crate::dependency::{Dependency, OneToOneDependency};
 use crate::error::Result;
 use crate::partitioner::{HashPartitioner, Partitioner};
 use crate::rdd::{
-    co_grouped_rdd::CoGroupedRdd, shuffled_rdd::ShuffledRdd, AnyDataStream, ComputeResult, Rdd,
+    co_grouped_rdd::CoGroupedRdd, shuffled_rdd::ShuffledRdd, DataIter, ComputeResult, Rdd,
     RddBase, RddVals,
 };
 use crate::serializable_traits::{AnyData, Data, Func, SerFunc};
@@ -189,9 +189,6 @@ where
     prev: Arc<dyn Rdd<Item = (K, V)>>,
     vals: Arc<RddVals>,
     f: F,
-    _marker_t: PhantomData<K>, // phantom data is necessary because of type parameter T
-    _marker_v: PhantomData<V>,
-    _marker_u: PhantomData<U>,
 }
 
 impl<K: Data, V: Data, U: Data, F> Clone for MappedValuesRdd<K, V, U, F>
@@ -203,9 +200,6 @@ where
             prev: self.prev.clone(),
             vals: self.vals.clone(),
             f: self.f.clone(),
-            _marker_t: PhantomData,
-            _marker_v: PhantomData,
-            _marker_u: PhantomData,
         }
     }
 }
@@ -221,18 +215,10 @@ where
                 OneToOneDependency::new(prev.get_rdd_base()),
             )));
         let vals = Arc::new(vals);
-        MappedValuesRdd {
-            prev,
-            vals,
-            f,
-            _marker_t: PhantomData,
-            _marker_v: PhantomData,
-            _marker_u: PhantomData,
-        }
+        MappedValuesRdd { prev, vals, f }
     }
 }
 
-#[async_trait::async_trait]
 impl<K: Data, V: Data, U: Data, F> RddBase for MappedValuesRdd<K, V, U, F>
 where
     F: SerFunc(V) -> U,
@@ -257,19 +243,18 @@ where
         self.prev.number_of_splits()
     }
 
-    // TODO Analyze the possible error in invariance here
-    async fn iterator_any(&self, split: Box<dyn Split>) -> Result<AnyDataStream> {
+    fn iterator_any(&self, split: Box<dyn Split>) -> DataIter {
         log::debug!("inside iterator_any mapvaluesrdd",);
-        super::iterator_any_tuple(self, split).await
+        super::iterator_any_tuple(self.get_rdd(), split)
     }
 
-    async fn cogroup_iterator_any(&self, split: Box<dyn Split>) -> Result<AnyDataStream> {
+    fn cogroup_iterator_any(&self, split: Box<dyn Split>) -> DataIter {
         log::debug!("inside iterator_any mapvaluesrdd",);
-        super::cogroup_iterator_any(self, split).await
+        super::cogroup_iterator_any(self.get_rdd(), split)
     }
 }
 
-#[async_trait::async_trait()]
+#[async_trait::async_trait]
 impl<K: Data, V: Data, U: Data, F> Rdd for MappedValuesRdd<K, V, U, F>
 where
     F: SerFunc(V) -> U,
@@ -292,7 +277,8 @@ where
             prev_iter
                 .into_iter()
                 .map(move |(k, v)| (k, f(v)))
-                .collect::<Vec<_>>().into_iter(),
+                .collect::<Vec<_>>()
+                .into_iter(),
         )))
     }
 }
@@ -306,9 +292,6 @@ where
     prev: Arc<dyn Rdd<Item = (K, V)>>,
     vals: Arc<RddVals>,
     f: F,
-    _marker_t: PhantomData<K>, // phantom data is necessary because of type parameter T
-    _marker_v: PhantomData<V>,
-    _marker_u: PhantomData<U>,
 }
 
 impl<K: Data, V: Data, U: Data, F> Clone for FlatMappedValuesRdd<K, V, U, F>
@@ -320,9 +303,6 @@ where
             prev: self.prev.clone(),
             vals: self.vals.clone(),
             f: self.f.clone(),
-            _marker_t: PhantomData,
-            _marker_v: PhantomData,
-            _marker_u: PhantomData,
         }
     }
 }
@@ -338,18 +318,10 @@ where
                 OneToOneDependency::new(prev.get_rdd_base()),
             )));
         let vals = Arc::new(vals);
-        FlatMappedValuesRdd {
-            prev,
-            vals,
-            f,
-            _marker_t: PhantomData,
-            _marker_v: PhantomData,
-            _marker_u: PhantomData,
-        }
+        FlatMappedValuesRdd { prev, vals, f }
     }
 }
 
-#[async_trait::async_trait]
 impl<K: Data, V: Data, U: Data, F> RddBase for FlatMappedValuesRdd<K, V, U, F>
 where
     F: SerFunc(V) -> Box<dyn Iterator<Item = U>>,
@@ -374,15 +346,14 @@ where
         self.prev.number_of_splits()
     }
 
-    // TODO Analyze the possible error in invariance here
-    async fn iterator_any(&self, split: Box<dyn Split>) -> Result<AnyDataStream> {
+    fn iterator_any(&self, split: Box<dyn Split>) -> DataIter {
         log::debug!("inside iterator_any flatmapvaluesrdd",);
-        super::iterator_any_tuple(self, split).await
+        super::iterator_any_tuple(self.get_rdd(), split)
     }
 
-    async fn cogroup_iterator_any(&self, split: Box<dyn Split>) -> Result<AnyDataStream> {
+    fn cogroup_iterator_any(&self, split: Box<dyn Split>) -> DataIter {
         log::debug!("inside iterator_any flatmapvaluesrdd",);
-        super::cogroup_iterator_any(self, split).await
+        super::cogroup_iterator_any(self.get_rdd(), split)
     }
 }
 

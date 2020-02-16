@@ -11,7 +11,7 @@ use crate::dependency::Dependency;
 use crate::env;
 use crate::error::{Error, Result};
 use crate::io::ReaderConfiguration;
-use crate::rdd::{AnyDataStream, ComputeResult, MapPartitionsRdd, MapperRdd, Rdd, RddBase};
+use crate::rdd::{ComputeResult, DataIter, MapPartitionsRdd, MapperRdd, Rdd, RddBase};
 use crate::serializable_traits::{AnyData, Data, SerFunc};
 use crate::split::Split;
 use log::debug;
@@ -320,7 +320,6 @@ macro_rules! impl_common_lfs_rddb_funcs {
     };
 }
 
-#[async_trait::async_trait]
 impl RddBase for LocalFsReader<BytesReader> {
     impl_common_lfs_rddb_funcs!();
 
@@ -343,12 +342,11 @@ impl RddBase for LocalFsReader<BytesReader> {
         splits
     }
 
-    async fn iterator_any(&self, split: Box<dyn Split>) -> Result<AnyDataStream> {
-        crate::rdd::iterator_any(self, split).await
+    fn iterator_any(&self, split: Box<dyn Split>) -> DataIter {
+        crate::rdd::iterator_any(self.get_rdd(), split)
     }
 }
 
-#[async_trait::async_trait]
 impl RddBase for LocalFsReader<FileReader> {
     impl_common_lfs_rddb_funcs!();
 
@@ -369,8 +367,8 @@ impl RddBase for LocalFsReader<FileReader> {
         splits
     }
 
-    async fn iterator_any(&self, split: Box<dyn Split>) -> Result<AnyDataStream> {
-        crate::rdd::iterator_any(self, split).await
+    fn iterator_any(&self, split: Box<dyn Split>) -> DataIter {
+        crate::rdd::iterator_any(self.get_rdd(), split)
     }
 }
 

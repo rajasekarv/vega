@@ -6,7 +6,7 @@ use crate::context::Context;
 use crate::dependency::{Dependency, OneToOneDependency};
 use crate::error::Result;
 use crate::partitioner::Partitioner;
-use crate::rdd::{AnyDataStream, ComputeResult, Rdd, RddBase, RddVals};
+use crate::rdd::{DataIter, ComputeResult, Rdd, RddBase, RddVals};
 use crate::serializable_traits::{AnyData, Data};
 use crate::split::Split;
 use crate::utils::random::RandomSampler;
@@ -61,7 +61,6 @@ impl<T: Data> Clone for PartitionwiseSampledRdd<T> {
     }
 }
 
-#[async_trait::async_trait]
 impl<T: Data> RddBase for PartitionwiseSampledRdd<T> {
     fn get_rdd_id(&self) -> usize {
         self.vals.id
@@ -91,23 +90,22 @@ impl<T: Data> RddBase for PartitionwiseSampledRdd<T> {
         }
     }
 
-    async fn cogroup_iterator_any(&self, split: Box<dyn Split>) -> Result<AnyDataStream> {
-        self.iterator_any(split).await
+    default fn cogroup_iterator_any(&self, split: Box<dyn Split>) -> DataIter {
+        self.iterator_any(split)
     }
 
-    async fn iterator_any(&self, split: Box<dyn Split>) -> Result<AnyDataStream> {
+    fn iterator_any(&self, split: Box<dyn Split>) -> DataIter {
         log::debug!("inside PartitionwiseSampledRdd iterator_any");
-        super::iterator_any(self, split).await
+        super::iterator_any(self.get_rdd(), split)
     }
 }
 
-// FIXME: add specialized version
-// impl<T: Data, V: Data> RddBase for PartitionwiseSampledRdd<(T, V)> {
-//     fn cogroup_iterator_any(&self, split: Box<dyn Split>) -> Result<AnyDataStream> {
-//         log::debug!("inside iterator_any maprdd",);
-//         super::cogroup_iterator_any(self, split)
-//     }
-// }
+impl<T: Data, V: Data> RddBase for PartitionwiseSampledRdd<(T, V)> {
+    fn cogroup_iterator_any(&self, split: Box<dyn Split>) -> DataIter {
+        log::debug!("inside iterator_any maprdd",);
+        super::cogroup_iterator_any(self.get_rdd(), split)
+    }
+}
 
 #[async_trait::async_trait]
 impl<T: Data> Rdd for PartitionwiseSampledRdd<T> {

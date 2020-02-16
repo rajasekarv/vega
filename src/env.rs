@@ -35,6 +35,16 @@ pub(crate) struct Env {
     pub async_rt: Mutex<Runtime>,
 }
 
+/// Builds an async executor for executing DAG tasks according to env,
+/// machine properties and schedulling mode.
+pub(crate) fn build_async_executor() -> Runtime {
+    tokio::runtime::Builder::new()
+        .enable_all()
+        .threaded_scheduler()
+        .build()
+        .unwrap()
+}
+
 impl Env {
     pub fn get() -> &'static Env {
         ENV.get_or_init(Self::new)
@@ -53,13 +63,7 @@ impl Env {
                 conf.local_ip,
                 &the_cache,
             ),
-            async_rt: Mutex::new(
-                tokio::runtime::Builder::new()
-                    .enable_all()
-                    .threaded_scheduler()
-                    .build()
-                    .unwrap(),
-            ),
+            async_rt: Mutex::new(build_async_executor()),
         }
     }
 }
@@ -73,7 +77,7 @@ pub(crate) mod config_vars {
     pub const SHUFFLE_SERVICE_PORT: &str = "NS_SHUFFLE_SERVICE_PORT";
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq)]
 pub enum DeploymentMode {
     Distributed,
     Local,
