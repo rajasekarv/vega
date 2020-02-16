@@ -159,11 +159,6 @@ where
         + Clone,
 {
     async fn run(&self, id: usize) -> SerBox<dyn SerAny + Send + Sync> {
-        // let split = self.rdd.splits()[self.partition].clone();
-        // let context = TaskContext::new(self.stage_id, self.partition, id);
-        // let result: Box<dyn Iterator<Item = T>> = self.rdd.iterator(split).await.unwrap();
-        // SerBox::new(self.func.call((contex, result))) as SerBox<dyn SerAny + Send + Sync>
-
         let split = self.rdd.splits()[self.partition].clone();
         let context = TaskContext::new(self.stage_id, self.partition, id);
         serde_traitobject::Box::new((self.func)((

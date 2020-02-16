@@ -129,58 +129,62 @@ impl LocalScheduler {
 
         self.event_queues.lock().insert(jt.run_id, VecDeque::new());
 
-        self.submit_stage(jt.final_stage.clone(), jt.clone());
-        log::debug!(
-            "pending stages and tasks {:?}",
-            jt.pending_tasks
-                .borrow()
-                .iter()
-                .map(|(k, v)| (k.id, v.iter().map(|x| x.get_task_id()).collect::<Vec<_>>()))
-                .collect::<Vec<_>>()
-        );
-
-        while num_finished != jt.num_output_parts {
-            let event_option = self.wait_for_event(jt.run_id, self.poll_timeout);
-            let start = Instant::now();
-
-            if let Some(mut evt) = event_option {
-                log::debug!("event starting");
-                let stage = self.stage_cache.lock()[&evt.task.get_stage_id()].clone();
-                log::debug!(
-                    "removing stage task from pending tasks {} {}",
-                    stage.id,
-                    evt.task.get_task_id()
-                );
+        // run in async executor
+        let executor = &mut *env::Env::get().async_rt.lock();
+        executor.block_on(async {
+            self.submit_stage(jt.final_stage.clone(), jt.clone());
+            log::debug!(
+                "pending stages and tasks {:?}",
                 jt.pending_tasks
-                    .borrow_mut()
-                    .get_mut(&stage)
-                    .unwrap()
-                    .remove(&evt.task);
-                use super::dag_scheduler::TastEndReason::*;
-                match evt.reason {
-                    Success => {
-                        self.on_event_success(evt, &mut results, &mut num_finished, jt.clone())
-                    }
-                    FetchFailed(failed_vals) => {
-                        self.on_event_failure(jt.clone(), failed_vals, evt.task.get_stage_id());
-                        fetch_failure_duration = start.elapsed();
-                    }
-                    _ => {
-                        //TODO error handling
-                    }
-                }
-            }
+                    .borrow()
+                    .iter()
+                    .map(|(k, v)| (k.id, v.iter().map(|x| x.get_task_id()).collect::<Vec<_>>()))
+                    .collect::<Vec<_>>()
+            );
 
-            if !jt.failed.borrow().is_empty()
-                && fetch_failure_duration.as_millis() > self.resubmit_timeout
-            {
-                self.update_cache_locs();
-                for stage in jt.failed.borrow().iter() {
-                    self.submit_stage(stage.clone(), jt.clone());
+            while num_finished != jt.num_output_parts {
+                let event_option = self.wait_for_event(jt.run_id, self.poll_timeout);
+                let start = Instant::now();
+
+                if let Some(mut evt) = event_option {
+                    log::debug!("event starting");
+                    let stage = self.stage_cache.lock()[&evt.task.get_stage_id()].clone();
+                    log::debug!(
+                        "removing stage task from pending tasks {} {}",
+                        stage.id,
+                        evt.task.get_task_id()
+                    );
+                    jt.pending_tasks
+                        .borrow_mut()
+                        .get_mut(&stage)
+                        .unwrap()
+                        .remove(&evt.task);
+                    use super::dag_scheduler::TastEndReason::*;
+                    match evt.reason {
+                        Success => {
+                            self.on_event_success(evt, &mut results, &mut num_finished, jt.clone())
+                        }
+                        FetchFailed(failed_vals) => {
+                            self.on_event_failure(jt.clone(), failed_vals, evt.task.get_stage_id());
+                            fetch_failure_duration = start.elapsed();
+                        }
+                        _ => {
+                            //TODO error handling
+                        }
+                    }
                 }
-                jt.failed.borrow_mut().clear();
+
+                if !jt.failed.borrow().is_empty()
+                    && fetch_failure_duration.as_millis() > self.resubmit_timeout
+                {
+                    self.update_cache_locs();
+                    for stage in jt.failed.borrow().iter() {
+                        self.submit_stage(stage.clone(), jt.clone());
+                    }
+                    jt.failed.borrow_mut().clear();
+                }
             }
-        }
+        });
 
         self.event_queues.lock().remove(&jt.run_id);
 
@@ -290,10 +294,8 @@ impl NativeScheduler for LocalScheduler {
         let event_queues = self.event_queues.clone();
         let task = bincode::serialize(&task).unwrap();
 
-        // run in async executor
-        let executor = &mut *env::Env::get().async_rt.lock();
-        executor.block_on(async {
-            LocalScheduler::run_task::<T, U, F>(event_queues, task, id_in_job, my_attempt_id).await
+        tokio::spawn(async move {
+            LocalScheduler::run_task::<T, U, F>(event_queues, task, id_in_job, my_attempt_id).await;
         });
     }
 
