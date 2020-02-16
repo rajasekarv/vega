@@ -118,12 +118,12 @@ impl<K: Data + Eq + Hash, V: Data, C: Data> RddBase for ShuffledRdd<K, V, C> {
 
     fn iterator_any(&self, split: Box<dyn Split>) -> DataIter {
         log::debug!("inside iterator_any shuffledrdd",);
-        super::iterator_any_tuple(self.get_rdd(), split)
+        super::_iterator_any_tuple(self.get_rdd(), split)
     }
 
     fn cogroup_iterator_any(&self, split: Box<dyn Split>) -> DataIter {
         log::debug!("inside cogroup iterator_any shuffledrdd",);
-        super::cogroup_iterator_any(self.get_rdd(), split)
+        super::_cogroup_iterator_any(self.get_rdd(), split)
     }
 }
 

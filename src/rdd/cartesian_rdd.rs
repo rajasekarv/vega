@@ -105,7 +105,7 @@ impl<T: Data, U: Data> RddBase for CartesianRdd<T, U> {
     }
 
     fn iterator_any(&self, split: Box<dyn Split>) -> DataIter {
-        super::iterator_any(self.get_rdd(), split)
+        super::_iterator_any(self.get_rdd(), split)
     }
 }
 

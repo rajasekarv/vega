@@ -189,7 +189,7 @@ impl<K: Data + Eq + Hash> RddBase for CoGroupedRdd<K> {
     }
 
     fn iterator_any(&self, split: Box<dyn Split>) -> DataIter {
-        super::cogroup_iterator_any(self.get_rdd(), split)
+        super::_cogroup_iterator_any(self.get_rdd(), split)
     }
 }
 

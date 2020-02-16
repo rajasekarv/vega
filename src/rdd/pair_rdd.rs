@@ -245,12 +245,12 @@ where
 
     fn iterator_any(&self, split: Box<dyn Split>) -> DataIter {
         log::debug!("inside iterator_any mapvaluesrdd",);
-        super::iterator_any_tuple(self.get_rdd(), split)
+        super::_iterator_any_tuple(self.get_rdd(), split)
     }
 
     fn cogroup_iterator_any(&self, split: Box<dyn Split>) -> DataIter {
         log::debug!("inside iterator_any mapvaluesrdd",);
-        super::cogroup_iterator_any(self.get_rdd(), split)
+        super::_cogroup_iterator_any(self.get_rdd(), split)
     }
 }
 
@@ -272,9 +272,7 @@ where
     async fn compute(&self, split: Box<dyn Split>) -> Result<ComputeResult<Self::Item>> {
         let prev_iter = self.prev.iterator(split).await?;
         let func = self.f.clone();
-        Ok(Box::new(
-            prev_iter.into_iter().map(move |(k, v)| (k, func(v))),
-        ))
+        Ok(Box::new(prev_iter.map(move |(k, v)| (k, func(v)))))
     }
 }
 
@@ -343,12 +341,12 @@ where
 
     fn iterator_any(&self, split: Box<dyn Split>) -> DataIter {
         log::debug!("inside iterator_any flatmapvaluesrdd",);
-        super::iterator_any_tuple(self.get_rdd(), split)
+        super::_iterator_any_tuple(self.get_rdd(), split)
     }
 
     fn cogroup_iterator_any(&self, split: Box<dyn Split>) -> DataIter {
         log::debug!("inside iterator_any flatmapvaluesrdd",);
-        super::cogroup_iterator_any(self.get_rdd(), split)
+        super::_cogroup_iterator_any(self.get_rdd(), split)
     }
 }
 
@@ -372,7 +370,6 @@ where
         let func = self.f.clone();
         Ok(Box::new(
             prev_iter
-                .into_iter()
                 .map(move |(k, v)| func(v).map(move |x| (k.clone(), x)))
                 .flatten(),
         ))

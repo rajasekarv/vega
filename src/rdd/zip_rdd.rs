@@ -91,7 +91,7 @@ impl<F: Data, S: Data> RddBase for ZippedPartitionsRdd<F, S> {
     }
 
     fn iterator_any(&self, split: Box<dyn Split>) -> DataIter {
-        super::iterator_any(self.get_rdd(), split)
+        super::_iterator_any(self.get_rdd(), split)
     }
 }
 

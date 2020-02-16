@@ -347,7 +347,7 @@ impl RddBase for LocalFsReader<BytesReader> {
     }
 
     fn iterator_any(&self, split: Box<dyn Split>) -> DataIter {
-        crate::rdd::iterator_any(self.get_rdd(), split)
+        crate::rdd::_iterator_any(self.get_rdd(), split)
     }
 }
 
@@ -372,7 +372,7 @@ impl RddBase for LocalFsReader<FileReader> {
     }
 
     fn iterator_any(&self, split: Box<dyn Split>) -> DataIter {
-        crate::rdd::iterator_any(self.get_rdd(), split)
+        crate::rdd::_iterator_any(self.get_rdd(), split)
     }
 }
 

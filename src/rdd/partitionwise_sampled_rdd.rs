@@ -96,14 +96,14 @@ impl<T: Data> RddBase for PartitionwiseSampledRdd<T> {
 
     fn iterator_any(&self, split: Box<dyn Split>) -> DataIter {
         log::debug!("inside PartitionwiseSampledRdd iterator_any");
-        super::iterator_any(self.get_rdd(), split)
+        super::_iterator_any(self.get_rdd(), split)
     }
 }
 
 impl<T: Data, V: Data> RddBase for PartitionwiseSampledRdd<(T, V)> {
     fn cogroup_iterator_any(&self, split: Box<dyn Split>) -> DataIter {
         log::debug!("inside iterator_any maprdd",);
-        super::cogroup_iterator_any(self.get_rdd(), split)
+        super::_cogroup_iterator_any(self.get_rdd(), split)
     }
 }
 

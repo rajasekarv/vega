@@ -16,7 +16,7 @@ pub(crate) use shuffle_fetcher::ShuffleFetcher;
 pub(crate) use shuffle_manager::ShuffleManager;
 pub(crate) use shuffle_map_task::ShuffleMapTask;
 
-pub(crate) type Result<T> = StdResult<T, ShuffleError>;
+pub(self) type Result<T> = StdResult<T, ShuffleError>;
 
 #[derive(Debug, Error)]
 pub enum ShuffleError {

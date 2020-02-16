@@ -293,7 +293,7 @@ impl<T: Data> RddBase for UnionRdd<T> {
 
     fn iterator_any(&self, split: Box<dyn Split>) -> DataIter {
         log::debug!("inside iterator_any union_rdd",);
-        super::iterator_any(self.get_rdd(), split)
+        super::_iterator_any(self.get_rdd(), split)
     }
 
     fn partitioner(&self) -> Option<Box<dyn Partitioner>> {

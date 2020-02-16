@@ -7,8 +7,9 @@ use std::task::{Context, Poll};
 use std::thread;
 use std::time::Duration;
 
+use super::Result;
+use super::StdResult;
 use crate::env;
-use crate::error::StdResult;
 use crate::shuffle::*;
 use crossbeam::channel as cb_channel;
 use futures::future;
@@ -22,8 +23,6 @@ use serde_derive::{Deserialize, Serialize};
 use thiserror::Error;
 use tokio::time::delay_for;
 use uuid::Uuid;
-
-pub(crate) type Result<T> = StdResult<T, ShuffleError>;
 
 /// Creates directories and files required for storing shuffle data.
 /// It also creates the file server required for serving files via HTTP request.

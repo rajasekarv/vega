@@ -110,7 +110,7 @@ where
 
     fn iterator_any(&self, split: Box<dyn Split>) -> DataIter {
         log::debug!("inside iterator_any maprdd",);
-        super::iterator_any(self.get_rdd(), split)
+        super::_iterator_any(self.get_rdd(), split)
     }
 
     fn is_pinned(&self) -> bool {
@@ -124,7 +124,7 @@ where
 {
     fn cogroup_iterator_any(&self, split: Box<dyn Split>) -> DataIter {
         log::debug!("inside iterator_any maprdd",);
-        super::cogroup_iterator_any(self.get_rdd(), split)
+        super::_cogroup_iterator_any(self.get_rdd(), split)
     }
 }
 

@@ -87,7 +87,7 @@ type InternalDataIter = Box<dyn Iterator<Item = Box<dyn AnyData>>>;
 ///
 /// Calls `iterator` from Rdd and downcasts to AnyData. All this while keeping the futures
 /// invariants for the compiler happy.
-pub(crate) fn iterator_any<D: Data>(
+pub(crate) fn _iterator_any<D: Data>(
     rdd: Arc<dyn Rdd<Item = D>>,
     split: Box<dyn Split>,
 ) -> DataIter {
@@ -98,7 +98,7 @@ pub(crate) fn iterator_any<D: Data>(
 }
 
 /// Specialized version of `iterator_any` where the serializable data is a touple of two elements.
-fn iterator_any_tuple<K: Data, V: Data>(
+fn _iterator_any_tuple<K: Data, V: Data>(
     rdd: Arc<dyn Rdd<Item = (K, V)>>,
     split: Box<dyn Split>,
 ) -> DataIter {
@@ -109,7 +109,7 @@ fn iterator_any_tuple<K: Data, V: Data>(
 }
 
 /// See `iterator_any`, ditto the same for co-grouped data.
-pub(crate) fn cogroup_iterator_any<K: Data, V: Data>(
+pub(crate) fn _cogroup_iterator_any<K: Data, V: Data>(
     rdd: Arc<dyn Rdd<Item = (K, V)>>,
     split: Box<dyn Split>,
 ) -> DataIter {
