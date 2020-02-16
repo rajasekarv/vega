@@ -9,8 +9,8 @@ use crate::dependency::{Dependency, OneToOneDependency};
 use crate::error::Result;
 use crate::partitioner::{HashPartitioner, Partitioner};
 use crate::rdd::{
-    co_grouped_rdd::CoGroupedRdd, shuffled_rdd::ShuffledRdd, DataIter, ComputeResult, Rdd,
-    RddBase, RddVals,
+    co_grouped_rdd::CoGroupedRdd, shuffled_rdd::ShuffledRdd, ComputeResult, DataIter, Rdd, RddBase,
+    RddVals,
 };
 use crate::serializable_traits::{AnyData, Data, Func, SerFunc};
 use crate::split::Split;
@@ -95,12 +95,12 @@ pub trait PairRdd<K: Data + Eq + Hash, V: Data>: Rdd<Item = (K, V)> + Send + Syn
         SerArc::new(MappedValuesRdd::new(self.get_rdd(), f))
     }
 
-    fn flat_map_values<U: Data, F: SerFunc(V) -> Box<dyn Iterator<Item = U>> + Clone>(
+    fn flat_map_values<U: Data, F: SerFunc(V) -> Box<dyn Iterator<Item = U> + Send> + Clone>(
         &self,
         f: F,
     ) -> SerArc<dyn Rdd<Item = (K, U)>>
     where
-        F: SerFunc(V) -> Box<dyn Iterator<Item = U>> + Clone,
+        F: SerFunc(V) -> Box<dyn Iterator<Item = U> + Send> + Clone,
         Self: Sized,
     {
         SerArc::new(FlatMappedValuesRdd::new(self.get_rdd(), f))
@@ -116,7 +116,7 @@ pub trait PairRdd<K: Data + Eq + Hash, V: Data>: Rdd<Item = (K, V)> + Send + Syn
             let combine = vs
                 .into_iter()
                 .flat_map(move |v| ws.clone().into_iter().map(move |w| (v.clone(), w)));
-            Box::new(combine) as Box<dyn Iterator<Item = (V, W)>>
+            Box::new(combine) as Box<dyn Iterator<Item = (V, W)> + Send>
         });
         self.cogroup(
             other,
@@ -169,7 +169,7 @@ pub trait PairRdd<K: Data + Eq + Hash, V: Data>: Rdd<Item = (K, V)> + Send + Syn
         // Flatten the results of the combined partitions
         let flattener = Fn!(|grouped: (K, Vec<V>)| {
             let (key, values) = grouped;
-            let iter: Box<dyn Iterator<Item = _>> = Box::new(values.into_iter());
+            let iter: Box<dyn Iterator<Item = _> + Send> = Box::new(values.into_iter());
             iter
         });
         shuffle_steep.flat_map(flattener)
@@ -271,22 +271,17 @@ where
 
     async fn compute(&self, split: Box<dyn Split>) -> Result<ComputeResult<Self::Item>> {
         let prev_iter = self.prev.iterator(split).await?;
-        let f = self.f.clone();
-        let mut prev_iter = prev_iter.lock();
-        Ok(Arc::new(Mutex::new(
-            prev_iter
-                .into_iter()
-                .map(move |(k, v)| (k, f(v)))
-                .collect::<Vec<_>>()
-                .into_iter(),
-        )))
+        let func = self.f.clone();
+        Ok(Box::new(
+            prev_iter.into_iter().map(move |(k, v)| (k, func(v))),
+        ))
     }
 }
 
 #[derive(Serialize, Deserialize)]
 pub struct FlatMappedValuesRdd<K: Data, V: Data, U: Data, F>
 where
-    F: Func(V) -> Box<dyn Iterator<Item = U>> + Clone,
+    F: Func(V) -> Box<dyn Iterator<Item = U> + Send> + Clone,
 {
     #[serde(with = "serde_traitobject")]
     prev: Arc<dyn Rdd<Item = (K, V)>>,
@@ -296,7 +291,7 @@ where
 
 impl<K: Data, V: Data, U: Data, F> Clone for FlatMappedValuesRdd<K, V, U, F>
 where
-    F: Func(V) -> Box<dyn Iterator<Item = U>> + Clone,
+    F: Func(V) -> Box<dyn Iterator<Item = U> + Send> + Clone,
 {
     fn clone(&self) -> Self {
         FlatMappedValuesRdd {
@@ -309,7 +304,7 @@ where
 
 impl<K: Data, V: Data, U: Data, F> FlatMappedValuesRdd<K, V, U, F>
 where
-    F: Func(V) -> Box<dyn Iterator<Item = U>> + Clone,
+    F: Func(V) -> Box<dyn Iterator<Item = U> + Send> + Clone,
 {
     fn new(prev: Arc<dyn Rdd<Item = (K, V)>>, f: F) -> Self {
         let mut vals = RddVals::new(prev.get_context());
@@ -324,7 +319,7 @@ where
 
 impl<K: Data, V: Data, U: Data, F> RddBase for FlatMappedValuesRdd<K, V, U, F>
 where
-    F: SerFunc(V) -> Box<dyn Iterator<Item = U>>,
+    F: SerFunc(V) -> Box<dyn Iterator<Item = U> + Send>,
 {
     fn get_rdd_id(&self) -> usize {
         self.vals.id
@@ -360,7 +355,7 @@ where
 #[async_trait::async_trait]
 impl<K: Data, V: Data, U: Data, F> Rdd for FlatMappedValuesRdd<K, V, U, F>
 where
-    F: SerFunc(V) -> Box<dyn Iterator<Item = U>>,
+    F: SerFunc(V) -> Box<dyn Iterator<Item = U> + Send>,
 {
     type Item = (K, U);
 
@@ -375,14 +370,11 @@ where
     async fn compute(&self, split: Box<dyn Split>) -> Result<ComputeResult<Self::Item>> {
         let prev_iter = self.prev.iterator(split).await?;
         let func = self.f.clone();
-        let mut prev_iter = prev_iter.lock();
-        Ok(Arc::new(Mutex::new(
+        Ok(Box::new(
             prev_iter
                 .into_iter()
                 .map(move |(k, v)| func(v).map(move |x| (k.clone(), x)))
-                .flatten()
-                .collect::<Vec<_>>()
-                .into_iter(),
-        )))
+                .flatten(),
+        ))
     }
 }

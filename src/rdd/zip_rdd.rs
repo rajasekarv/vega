@@ -111,24 +111,12 @@ impl<F: Data, S: Data> Rdd for ZippedPartitionsRdd<F, S> {
         let current_split = split
             .downcast::<ZippedPartitionsSplit>()
             .or(Err(Error::SplitDowncast("ZippedPartitionsSplit")))?;
-
-        let fst_iter: Vec<_> = {
-            let it = self.first.iterator(current_split.fst_split.clone()).await?;
-            let mut it = it.lock();
-            it.into_iter().collect()
-        };
-
-        let sec_iter: Vec<_> = {
-            let it = self
-                .second
-                .iterator(current_split.sec_split.clone())
-                .await?;
-            let mut it = it.lock();
-            it.into_iter().collect()
-        };
-        Ok(Arc::new(Mutex::new(
-            fst_iter.into_iter().zip(sec_iter.into_iter()),
-        )))
+        let fst_iter = self.first.iterator(current_split.fst_split.clone()).await?;
+        let sec_iter = self
+            .second
+            .iterator(current_split.sec_split.clone())
+            .await?;
+        Ok(Box::new(fst_iter.zip(sec_iter)))
     }
 }
 

@@ -19,7 +19,7 @@ fn main() -> Result<()> {
         .read_source(LocalFsReaderConfig::new("./parquet_file_dir"), deserializer)
         .flat_map(Fn!(
             |iter: Vec<((i32, String, i64), (i64, f64))>| Box::new(iter.into_iter())
-                as Box<dyn Iterator<Item = _>>
+                as Box<dyn Iterator<Item = _> + Send>
         ));
     let sum = files.reduce_by_key(Fn!(|((vl, cl), (vr, cr))| (vl + vr, cl + cr)), 1);
     let avg = sum.map(Fn!(|(k, (v, c))| (k, v as f64 / c)));

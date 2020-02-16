@@ -117,30 +117,32 @@ impl ShuffleManager {
 
     fn launch_async_server(bind_ip: Ipv4Addr, bind_port: u16) -> Result<()> {
         let (s, r) = cb_channel::bounded::<Result<()>>(1);
-        thread::spawn(move || {
-            match tokio::runtime::Builder::new()
-                .enable_all()
-                .threaded_scheduler()
-                .build()
-                .map_err(|_| ShuffleError::AsyncRuntimeError)
-            {
-                Err(err) => {
-                    s.send(Err(err));
-                }
-                Ok(mut rt) => {
-                    if let Err(err) = rt.block_on(async move {
-                        let bind_addr = SocketAddr::from((bind_ip, bind_port));
-                        Server::try_bind(&bind_addr.clone())
-                            .map_err(|_| ShuffleError::FreePortNotFound(bind_port))?
-                            .serve(ShuffleSvcMaker)
-                            .await
-                            .map_err(|_| ShuffleError::FailedToStart)
-                    }) {
+        thread::Builder::new()
+            .name(format!("{}_shuffle_server", env::THREAD_PREFIX))
+            .spawn(move || {
+                match tokio::runtime::Builder::new()
+                    .enable_all()
+                    .threaded_scheduler()
+                    .build()
+                    .map_err(|_| ShuffleError::AsyncRuntimeError)
+                {
+                    Err(err) => {
                         s.send(Err(err));
-                    };
+                    }
+                    Ok(mut rt) => {
+                        if let Err(err) = rt.block_on(async move {
+                            let bind_addr = SocketAddr::from((bind_ip, bind_port));
+                            Server::try_bind(&bind_addr.clone())
+                                .map_err(|_| ShuffleError::FreePortNotFound(bind_port))?
+                                .serve(ShuffleSvcMaker)
+                                .await
+                                .map_err(|_| ShuffleError::FailedToStart)
+                        }) {
+                            s.send(Err(err));
+                        };
+                    }
                 }
-            }
-        });
+            });
         cb_channel::select! {
             recv(r) -> msg => { msg.map_err(|_| ShuffleError::FailedToStart)??; }
             // wait a prudential time to check that initialization is ok and the move on
@@ -160,32 +162,34 @@ impl ShuffleManager {
         let (send_main, rcv_child) = cb_channel::unbounded::<()>();
         let uri_str = format!("{}/status", server_uri);
         let status_uri = Uri::try_from(&uri_str)?;
-        thread::spawn(|| -> Result<()> {
-            let mut rt = tokio::runtime::Builder::new()
-                .enable_all()
-                .basic_scheduler()
-                .core_threads(1)
-                .thread_stack_size(1024)
-                .build()
-                .map_err(|_| ShuffleError::AsyncRuntimeError)?;
-            let future: std::pin::Pin<Box<dyn Future<Output = Result<()>>>> =
-                Box::pin(async move {
-                    let client = Client::builder().http2_only(true).build_http::<Body>();
-                    // loop forever waiting for requests to send
-                    loop {
-                        let res = client.get(status_uri.clone()).await?;
-                        // dispatch all queued requests responses
-                        while let Ok(()) = rcv_child.recv() {
-                            send_child.send(Ok(res.status()));
+        thread::Builder::new()
+            .name(format!("{}_shuffle_server_hc", env::THREAD_PREFIX))
+            .spawn(|| -> Result<()> {
+                let mut rt = tokio::runtime::Builder::new()
+                    .enable_all()
+                    .basic_scheduler()
+                    .core_threads(1)
+                    .thread_stack_size(1024)
+                    .build()
+                    .map_err(|_| ShuffleError::AsyncRuntimeError)?;
+                let future: std::pin::Pin<Box<dyn Future<Output = Result<()>>>> =
+                    Box::pin(async move {
+                        let client = Client::builder().http2_only(true).build_http::<Body>();
+                        // loop forever waiting for requests to send
+                        loop {
+                            let res = client.get(status_uri.clone()).await?;
+                            // dispatch all queued requests responses
+                            while let Ok(()) = rcv_child.recv() {
+                                send_child.send(Ok(res.status()));
+                            }
+                            // sleep for a while before checking again if there are status requests
+                            delay_for(Duration::from_millis(25)).await
                         }
-                        // sleep for a while before checking again if there are status requests
-                        delay_for(Duration::from_millis(25)).await
-                    }
-                    Ok(())
-                });
-            rt.block_on(future);
-            Err(ShuffleError::AsyncRuntimeError)
-        });
+                        Ok(())
+                    });
+                rt.block_on(future);
+                Err(ShuffleError::AsyncRuntimeError)
+            });
         Ok((send_main, rcv_main))
     }
 

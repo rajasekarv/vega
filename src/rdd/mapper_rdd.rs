@@ -145,11 +145,7 @@ where
     async fn compute(&self, split: Box<dyn Split>) -> Result<ComputeResult<Self::Item>> {
         let func = self.f.clone();
         let mut prev_iter = self.prev.iterator(split).await?;
-        let this_iter = prev_iter
-            .lock()
-            .into_iter()
-            .map(|e| func(e))
-            .collect::<Vec<_>>();
-        Ok(Arc::new(Mutex::new(this_iter.into_iter())))
+        let this_iter = Box::new(prev_iter.map(move |e| func(e)));
+        Ok(this_iter)
     }
 }

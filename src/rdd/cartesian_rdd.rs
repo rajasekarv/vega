@@ -127,22 +127,12 @@ impl<T: Data, U: Data> Rdd for CartesianRdd<T, U> {
         let current_split = split
             .downcast::<CartesianSplit>()
             .or(Err(Error::SplitDowncast("CartesianSplit")))?;
-        let iter1: Vec<_> = self
-            .rdd1
-            .iterator(current_split.s1)
-            .await?
-            .lock()
-            .into_iter()
-            .collect();
-        let iter2: Vec<_> = self
+        let iter1 = self.rdd1.iterator(current_split.s1).await?;
+        let iter2 = self
             .rdd2
             .iterator(current_split.s2)
             .await?
-            .lock()
-            .into_iter()
-            .collect();
-        Ok(Arc::new(Mutex::new(
-            iter1.into_iter().cartesian_product(iter2.into_iter()),
-        )))
+            .collect::<Vec<_>>();
+        Ok(Box::new(iter1.cartesian_product(iter2)))
     }
 }

@@ -79,7 +79,7 @@ impl RddVals {
     }
 }
 
-pub type ComputeResult<R> = Arc<Mutex<dyn Iterator<Item = R>>>;
+pub type ComputeResult<R> = Box<dyn Iterator<Item = R> + Send>;
 pub type DataIter = Pin<Box<dyn futures::Future<Output = InternalDataIter> + Send>>;
 type InternalDataIter = Box<dyn Iterator<Item = Box<dyn AnyData>>>;
 
@@ -93,13 +93,7 @@ pub(crate) fn iterator_any<D: Data>(
 ) -> DataIter {
     Box::pin(async move {
         let it = rdd.iterator(split).await.unwrap();
-        let mut it = it.lock();
-        Box::new(
-            it.into_iter()
-                .collect::<Vec<_>>()
-                .into_iter()
-                .map(|x| Box::new(x) as Box<dyn AnyData>),
-        ) as InternalDataIter
+        Box::new(it.map(|x| Box::new(x) as Box<dyn AnyData>)) as InternalDataIter
     })
 }
 
@@ -110,13 +104,7 @@ fn iterator_any_tuple<K: Data, V: Data>(
 ) -> DataIter {
     Box::pin(async move {
         let it = rdd.iterator(split).await.unwrap();
-        let mut it = it.lock();
-        Box::new(
-            it.into_iter()
-                .collect::<Vec<_>>()
-                .into_iter()
-                .map(|(k, v)| Box::new((k, v)) as Box<dyn AnyData>),
-        ) as InternalDataIter
+        Box::new(it.map(|(k, v)| Box::new((k, v)) as Box<dyn AnyData>)) as InternalDataIter
     })
 }
 
@@ -127,12 +115,8 @@ pub(crate) fn cogroup_iterator_any<K: Data, V: Data>(
 ) -> DataIter {
     Box::pin(async move {
         let it = rdd.iterator(split).await.unwrap();
-        let mut it = it.lock();
         Box::new(
-            it.into_iter()
-                .collect::<Vec<_>>()
-                .into_iter()
-                .map(|(k, v)| Box::new((k, Box::new(v) as Box<dyn AnyData>)) as Box<dyn AnyData>),
+            it.map(|(k, v)| Box::new((k, Box::new(v) as Box<dyn AnyData>)) as Box<dyn AnyData>),
         ) as InternalDataIter
     })
 }
@@ -252,31 +236,36 @@ pub trait Rdd: RddBase + 'static {
         SerArc::new(MapperRdd::new(self.get_rdd(), f))
     }
 
-    fn flat_map<U: Data, F>(&self, f: F) -> SerArc<dyn Rdd<Item = U>>
+    fn flat_map<U: Data, F>(&self, f: F) -> SerArc<dyn Rdd<Item = U> + Send>
     where
-        F: SerFunc(Self::Item) -> Box<dyn Iterator<Item = U>>,
+        F: SerFunc(Self::Item) -> Box<dyn Iterator<Item = U> + Send>,
         Self: Sized,
     {
         SerArc::new(FlatMapperRdd::new(self.get_rdd(), f))
     }
 
     /// Return a new RDD by applying a function to each partition of this RDD.
-    fn map_partitions<U: Data, F>(&self, func: F) -> SerArc<dyn Rdd<Item = U>>
+    fn map_partitions<U: Data, F>(&self, func: F) -> SerArc<dyn Rdd<Item = U> + Send>
     where
-        F: SerFunc(Box<dyn Iterator<Item = Self::Item>>) -> Box<dyn Iterator<Item = U>>,
+        F: SerFunc(
+            Box<dyn Iterator<Item = Self::Item> + Send>,
+        ) -> Box<dyn Iterator<Item = U> + Send>,
         Self: Sized,
     {
         let ignore_idx = Fn!(move |_index: usize,
-                                   items: Box<dyn Iterator<Item = Self::Item>>|
-              -> Box<dyn Iterator<Item = _>> { (func)(items) });
+                                   items: Box<dyn Iterator<Item = Self::Item> + Send>|
+              -> Box<dyn Iterator<Item = _> + Send> { (func)(items) });
         SerArc::new(MapPartitionsRdd::new(self.get_rdd(), ignore_idx))
     }
 
     /// Return a new RDD by applying a function to each partition of this RDD,
     /// while tracking the index of the original partition.
-    fn map_partitions_with_index<U: Data, F>(&self, f: F) -> SerArc<dyn Rdd<Item = U>>
+    fn map_partitions_with_index<U: Data, F>(&self, f: F) -> SerArc<dyn Rdd<Item = U> + Send>
     where
-        F: SerFunc(usize, Box<dyn Iterator<Item = Self::Item>>) -> Box<dyn Iterator<Item = U>>,
+        F: SerFunc(
+            usize,
+            Box<dyn Iterator<Item = Self::Item> + Send>,
+        ) -> Box<dyn Iterator<Item = U> + Send>,
         Self: Sized,
     {
         SerArc::new(MapPartitionsRdd::new(self.get_rdd(), f))
@@ -289,10 +278,10 @@ pub trait Rdd: RddBase + 'static {
         Self: Sized,
     {
         let func = Fn!(
-            |_index: usize, iter: Box<dyn Iterator<Item = Self::Item>>| Box::new(std::iter::once(
-                iter.collect::<Vec<_>>()
-            ))
-                as Box<Iterator<Item = Vec<Self::Item>>>
+            |_index: usize, iter: Box<dyn Iterator<Item = Self::Item> + Send>| Box::new(
+                std::iter::once(iter.collect::<Vec<_>>())
+            )
+                as Box<dyn Iterator<Item = Vec<Self::Item>> + Send>
         );
         SerArc::new(MapPartitionsRdd::new(self.get_rdd(), Box::new(func)))
     }
@@ -436,20 +425,21 @@ pub trait Rdd: RddBase + 'static {
         if shuffle {
             // Distributes elements evenly across output partitions, starting from a random partition.
             use std::hash::Hasher;
-            let distributed_partition = Fn!(
-                move |index: usize, items: Box<dyn Iterator<Item = Self::Item>>| {
-                    let mut hasher = MetroHasher::default();
-                    index.hash(&mut hasher);
-                    let mut rand = utils::random::get_default_rng_from_seed(hasher.finish());
-                    let mut position = rand.gen_range(0, num_partitions);
-                    Box::new(items.map(move |t| {
-                        // Note that the hash code of the key will just be the key itself.
-                        // The HashPartitioner will mod it with the number of total partitions.
-                        position += 1;
-                        (position, t)
-                    })) as Box<dyn Iterator<Item = (usize, Self::Item)>>
-                }
-            );
+            let distributed_partition = Fn!(move |index: usize,
+                                                  items: Box<
+                dyn Iterator<Item = Self::Item> + Send,
+            >| {
+                let mut hasher = MetroHasher::default();
+                index.hash(&mut hasher);
+                let mut rand = utils::random::get_default_rng_from_seed(hasher.finish());
+                let mut position = rand.gen_range(0, num_partitions);
+                Box::new(items.map(move |t| {
+                    // Note that the hash code of the key will just be the key itself.
+                    // The HashPartitioner will mod it with the number of total partitions.
+                    position += 1;
+                    (position, t)
+                })) as Box<dyn Iterator<Item = (usize, Self::Item)> + Send>
+            });
 
             let map_steep: SerArc<dyn Rdd<Item = (usize, Self::Item)>> =
                 SerArc::new(MapPartitionsRdd::new(self.get_rdd(), distributed_partition));

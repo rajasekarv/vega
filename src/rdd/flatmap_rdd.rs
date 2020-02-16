@@ -11,7 +11,7 @@ use std::sync::Arc;
 use crate::context::Context;
 use crate::dependency::{Dependency, OneToOneDependency};
 use crate::error::{Error, Result};
-use crate::rdd::{DataIter, ComputeResult, Rdd, RddBase, RddVals};
+use crate::rdd::{ComputeResult, DataIter, Rdd, RddBase, RddVals};
 use crate::serializable_traits::{AnyData, Data, Func, SerFunc};
 use crate::split::Split;
 use crate::utils;
@@ -24,32 +24,30 @@ use serde_traitobject::{Arc as SerArc, Box as SerBox, Deserialize, Serialize};
 #[derive(Serialize, Deserialize)]
 pub struct FlatMapperRdd<T: Data, U: Data, F>
 where
-    F: Func(T) -> Box<dyn Iterator<Item = U>> + Clone,
+    F: Func(T) -> Box<dyn Iterator<Item = U> + Send> + Clone,
 {
     #[serde(with = "serde_traitobject")]
     prev: Arc<dyn Rdd<Item = T>>,
     vals: Arc<RddVals>,
     func: F,
-    _marker_t: PhantomData<T>, // phantom data is necessary because of type parameter T
 }
 
 impl<T: Data, U: Data, F> Clone for FlatMapperRdd<T, U, F>
 where
-    F: Func(T) -> Box<dyn Iterator<Item = U>> + Clone,
+    F: Func(T) -> Box<dyn Iterator<Item = U> + Send> + Clone,
 {
     fn clone(&self) -> Self {
         FlatMapperRdd {
             prev: self.prev.clone(),
             vals: self.vals.clone(),
             func: self.func.clone(),
-            _marker_t: PhantomData,
         }
     }
 }
 
 impl<T: Data, U: Data, F> FlatMapperRdd<T, U, F>
 where
-    F: SerFunc(T) -> Box<dyn Iterator<Item = U>>,
+    F: SerFunc(T) -> Box<dyn Iterator<Item = U> + Send>,
 {
     pub(crate) fn new(prev: Arc<dyn Rdd<Item = T>>, func: F) -> Self {
         let mut vals = RddVals::new(prev.get_context());
@@ -58,18 +56,13 @@ where
                 OneToOneDependency::new(prev.get_rdd_base()),
             )));
         let vals = Arc::new(vals);
-        FlatMapperRdd {
-            prev,
-            vals,
-            func,
-            _marker_t: PhantomData,
-        }
+        FlatMapperRdd { prev, vals, func }
     }
 }
 
 impl<T: Data, U: Data, F> RddBase for FlatMapperRdd<T, U, F>
 where
-    F: SerFunc(T) -> Box<dyn Iterator<Item = U>>,
+    F: SerFunc(T) -> Box<dyn Iterator<Item = U> + Send>,
 {
     fn get_rdd_id(&self) -> usize {
         self.vals.id
@@ -103,7 +96,7 @@ where
 
 impl<T: Data, V: Data, U: Data, F: 'static> RddBase for FlatMapperRdd<T, (V, U), F>
 where
-    F: SerFunc(T) -> Box<dyn Iterator<Item = (V, U)>>,
+    F: SerFunc(T) -> Box<dyn Iterator<Item = (V, U)> + Send>,
 {
     fn cogroup_iterator_any(&self, split: Box<dyn Split>) -> DataIter {
         log::debug!("inside iterator_any flatmaprdd",);
@@ -114,7 +107,7 @@ where
 #[async_trait::async_trait]
 impl<T: Data, U: Data, F: 'static> Rdd for FlatMapperRdd<T, U, F>
 where
-    F: SerFunc(T) -> Box<dyn Iterator<Item = U>>,
+    F: SerFunc(T) -> Box<dyn Iterator<Item = U> + Send>,
 {
     type Item = U;
 
@@ -129,12 +122,7 @@ where
     async fn compute(&self, split: Box<dyn Split>) -> Result<ComputeResult<Self::Item>> {
         let func = self.func.clone();
         let prev_res = self.prev.iterator(split).await?;
-        let mut prev_res = prev_res.lock();
-        let this_iter = prev_res
-            .into_iter()
-            .map(move |e| func(e))
-            .flatten()
-            .collect::<Vec<_>>();
-        Ok(Arc::new(Mutex::new(this_iter.into_iter())))
+        let this_iter = prev_res.map(move |e| func(e)).flatten();
+        Ok(Box::new(this_iter))
     }
 }

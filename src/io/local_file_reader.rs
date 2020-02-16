@@ -67,13 +67,17 @@ impl ReaderConfiguration<Vec<u8>> for LocalFsReaderConfig {
     {
         let reader = LocalFsReader::<BytesReader>::new(self, context);
         let read_files = Fn!(
-            |part: usize, readers: Box<dyn Iterator<Item = BytesReader>>| {
+            |part: usize, readers: Box<dyn Iterator<Item = BytesReader> + Send>| {
                 Box::new(readers.into_iter().map(|file| file.into_iter()).flatten())
-                    as Box<dyn Iterator<Item = _>>
+                    as Box<dyn Iterator<Item = _> + Send>
             }
         );
         let files_per_executor = Arc::new(
-            MapPartitionsRdd::new(Arc::new(reader) as Arc<dyn Rdd<Item = _>>, read_files).pin(),
+            MapPartitionsRdd::new(
+                Arc::new(reader) as Arc<dyn Rdd<Item = _> + Send>,
+                read_files,
+            )
+            .pin(),
         );
         SerArc::new(MapperRdd::new(files_per_executor, decoder).pin())
     }
@@ -87,9 +91,9 @@ impl ReaderConfiguration<PathBuf> for LocalFsReaderConfig {
     {
         let reader = LocalFsReader::<FileReader>::new(self, context);
         let read_files = Fn!(
-            |part: usize, readers: Box<dyn Iterator<Item = FileReader>>| {
+            |part: usize, readers: Box<dyn Iterator<Item = FileReader> + Send>| {
                 Box::new(readers.map(|reader| reader.into_iter()).flatten())
-                    as Box<dyn Iterator<Item = _>>
+                    as Box<dyn Iterator<Item = _> + Send>
             }
         );
         let files_per_executor = Arc::new(
@@ -398,11 +402,11 @@ impl Rdd for LocalFsReader<BytesReader> {
         let mut files_by_part = self.load_local_files().unwrap();
         let idx = split.idx;
         let host = split.host;
-        Ok(Arc::new(Mutex::new(
+        Ok(Box::new(
             files_by_part
                 .into_iter()
                 .map(move |files| BytesReader { files, host, idx }),
-        )))
+        ))
     }
 }
 
@@ -417,11 +421,11 @@ impl Rdd for LocalFsReader<FileReader> {
         let mut files_by_part = self.load_local_files()?;
         let idx = split.idx;
         let host = split.host;
-        Ok(Arc::new(Mutex::new(
+        Ok(Box::new(
             files_by_part
                 .into_iter()
                 .map(move |files| FileReader { files, host, idx }),
-        )))
+        ))
     }
 }
 

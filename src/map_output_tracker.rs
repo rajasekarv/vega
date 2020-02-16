@@ -1,14 +1,15 @@
-use crate::serialized_data_capnp::serialized_data;
-use log::info;
-use serde_derive::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::net::{IpAddr, Ipv4Addr, SocketAddr, TcpListener, TcpStream};
 use std::sync::Arc;
 use std::thread;
 use std::time;
 
+use crate::env;
+use crate::serialized_data_capnp::serialized_data;
 use capnp::serialize_packed;
+use log::info;
 use parking_lot::{Mutex, RwLock};
+use serde_derive::{Deserialize, Serialize};
 
 pub enum MapOutputTrackerMessage {
     //contains shuffle_id
@@ -96,7 +97,9 @@ impl MapOutputTracker {
             log::debug!("mapoutput tracker server starting");
             let master_addr = self.master_addr;
             let server_uris = self.server_uris.clone();
-            thread::spawn(move || {
+            thread::Builder::new()
+                .name(format!("{}_map_output_tracker", env::THREAD_PREFIX))
+            .spawn(move || {
                 let listener = TcpListener::bind(master_addr).unwrap();
                 log::debug!("mapoutput tracker server started");
                 for stream in listener.incoming() {

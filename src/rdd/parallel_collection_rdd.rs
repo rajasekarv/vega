@@ -52,7 +52,7 @@ impl<T: Data> ParallelCollectionSplit<T> {
         }
     }
 
-    fn iterator(&self) -> Box<dyn Iterator<Item = T>> {
+    fn iterator(&self) -> Box<dyn Iterator<Item = T> + Send> {
         let data = self.values.clone();
         let len = data.len();
         Box::new((0..len).map(move |i| data[i].clone()))
@@ -204,7 +204,7 @@ impl<T: Data> Rdd for ParallelCollection<T> {
     async fn compute(&self, split: Box<dyn Split>) -> Result<ComputeResult<Self::Item>> {
         if let Some(split) = split.downcast_ref::<ParallelCollectionSplit<T>>() {
             let iter = split.iterator();
-            Ok(Arc::new(Mutex::new(iter)))
+            Ok(iter)
         } else {
             panic!(
                 "Got split object from different concrete type other than ParallelCollectionSplit"

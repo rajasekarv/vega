@@ -8,7 +8,7 @@ use crate::dependency::{Dependency, NarrowDependencyTrait, OneToOneDependency, R
 use crate::error::{Error, Result};
 use crate::partitioner::Partitioner;
 use crate::rdd::union_rdd::UnionVariants::{NonUniquePartitioner, PartitionerAware};
-use crate::rdd::{DataIter, ComputeResult, Rdd, RddBase, RddVals};
+use crate::rdd::{ComputeResult, DataIter, Rdd, RddBase, RddVals};
 use crate::serializable_traits::{AnyData, Data};
 use crate::split::Split;
 use futures::stream::{Stream, StreamExt};
@@ -333,9 +333,9 @@ impl<T: Data> Rdd for UnionRdd<T> {
                 let mut iter = Vec::with_capacity(rdds.len());
                 for (rdd, p) in rdds.iter().zip(split.parents(&rdds)) {
                     let res = rdd.iterator(p.clone()).await?;
-                    iter.push(res.lock().into_iter().collect::<Vec<_>>());
+                    iter.push(res);
                 }
-                Ok(Arc::new(Mutex::new(iter.into_iter().flatten())))
+                Ok(Box::new(iter.into_iter().flatten()))
             }
         }
     }

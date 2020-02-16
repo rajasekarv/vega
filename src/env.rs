@@ -21,6 +21,16 @@ use tokio::runtime::Runtime;
 
 type ShuffleCache = Arc<RwLock<HashMap<(usize, usize, usize), Vec<u8>>>>;
 
+pub(crate) mod config_vars {
+    pub const DEPLOYMENT_MODE: &str = "NS_DEPLOYMENT_MODE";
+    pub const LOCAL_DIR: &str = "NS_LOCAL_DIR";
+    pub const LOCAL_IP: &str = "NS_LOCAL_IP";
+    pub const LOG_LEVEL: &str = "NS_LOG_LEVEL";
+    pub const PORT: &str = "NS_PORT";
+    pub const SHUFFLE_SERVICE_PORT: &str = "NS_SHUFFLE_SERVICE_PORT";
+}
+
+pub(crate) const THREAD_PREFIX: &str = "_NS";
 static CONF: OnceCell<Configuration> = OnceCell::new();
 static ENV: OnceCell<Env> = OnceCell::new();
 pub(crate) static shuffle_cache: Lazy<ShuffleCache> =
@@ -66,15 +76,6 @@ impl Env {
             async_rt: Mutex::new(build_async_executor()),
         }
     }
-}
-
-pub(crate) mod config_vars {
-    pub const DEPLOYMENT_MODE: &str = "NS_DEPLOYMENT_MODE";
-    pub const LOCAL_DIR: &str = "NS_LOCAL_DIR";
-    pub const LOCAL_IP: &str = "NS_LOCAL_IP";
-    pub const LOG_LEVEL: &str = "NS_LOG_LEVEL";
-    pub const PORT: &str = "NS_PORT";
-    pub const SHUFFLE_SERVICE_PORT: &str = "NS_SHUFFLE_SERVICE_PORT";
 }
 
 #[derive(Clone, Copy, PartialEq)]

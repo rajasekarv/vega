@@ -25,7 +25,7 @@ fn main() -> Result<()> {
                 (line[0].to_string(), line[1].to_string(), time),
                 (line[7].parse::<i64>().unwrap(), 1.0),
             )
-        })) as Box<dyn Iterator<Item = _>>
+        })) as Box<dyn Iterator<Item = _> + Send>
     }));
     let sum = line.reduce_by_key(Fn!(|((vl, cl), (vr, cr))| (vl + vr, cl + cr)), 1);
     let avg = sum.map(Fn!(|(k, (v, c))| (k, v as f64 / c)));

@@ -62,6 +62,9 @@ pub enum Error {
     #[error("failed reading file")]
     ReadFile(#[source] std::io::Error),
 
+    #[error("shuffle server related failure")]
+    ShuffleError(#[from] crate::shuffle::ShuffleError),
+
     #[error("got split object from different concrete type other than {0}")]
     SplitDowncast(&'static str),
 

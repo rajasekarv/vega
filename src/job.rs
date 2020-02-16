@@ -15,6 +15,7 @@ use std::thread;
 use std::time;
 use std::time::{Duration, Instant};
 
+use crate::env;
 use crate::rdd::Rdd;
 use crate::scheduler::NativeScheduler;
 use crate::serializable_traits::{Data, SerFunc};
@@ -93,7 +94,12 @@ where
     {
         let run_id = scheduler.get_next_job_id();
         let final_stage = scheduler.new_stage(final_rdd.clone().get_rdd_base(), None);
-        let threadpool = Rc::new(ThreadPool::new(scheduler.num_threads()));
+        let num_threads = match env::Configuration::get().deployment_mode {
+            // TODO: remove thread pool as it should be executed always within the async runtime
+            env::DeploymentMode::Local => 1,
+            _ => scheduler.num_threads(),
+        };
+        let threadpool = Rc::new(ThreadPool::new(num_threads));
         JobTracker::new(
             run_id,
             final_stage,

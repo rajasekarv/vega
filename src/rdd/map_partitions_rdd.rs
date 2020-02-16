@@ -6,7 +6,7 @@ use std::sync::{atomic::AtomicBool, atomic::Ordering::SeqCst, Arc};
 use crate::context::Context;
 use crate::dependency::{Dependency, OneToOneDependency};
 use crate::error::{Error, Result};
-use crate::rdd::{DataIter, ComputeResult, Rdd, RddBase, RddVals};
+use crate::rdd::{ComputeResult, DataIter, Rdd, RddBase, RddVals};
 use crate::serializable_traits::{AnyData, Data, Func, SerFunc};
 use crate::split::Split;
 use futures::stream::{Stream, StreamExt};
@@ -15,8 +15,7 @@ use parking_lot::Mutex;
 use serde_derive::{Deserialize, Serialize};
 use serde_traitobject::Arc as SerArc;
 
-// type ComputeIterator<T> = Pin<Box<dyn Stream<Item = T>>>;
-type ComputeIterator<T> = Box<dyn Iterator<Item = T>>;
+type ComputeIterator<T> = Box<dyn Iterator<Item = T> + Send>;
 
 /// An RDD that applies the provided function to every partition of the parent RDD.
 #[derive(Serialize, Deserialize)]
@@ -142,9 +141,7 @@ where
 
     async fn compute(&self, split: Box<dyn Split>) -> Result<ComputeResult<Self::Item>> {
         let prev_res = self.prev.iterator(split.clone()).await?;
-        let prev_res = prev_res.lock().into_iter().collect::<Vec<_>>();
-        let f_result = (self.func)(split.get_index(), Box::new(prev_res.into_iter()));
-        let f_result = f_result.collect::<Vec<_>>().into_iter();
-        Ok(Arc::new(Mutex::new(f_result)))
+        let this_result = self.func.call((split.get_index(), Box::new(prev_res)));
+        Ok(this_result)
     }
 }

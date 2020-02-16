@@ -156,8 +156,8 @@ impl<K: Data + Eq + Hash, V: Data, C: Data> Rdd for ShuffledRdd<K, V, C> {
         let start = Instant::now();
         ShuffleFetcher::fetch(self.shuffle_id, split.get_index(), merge_pair).await;
         log::debug!("time taken for fetching {}", start.elapsed().as_millis());
-        Ok(Arc::new(Mutex::new(
+        Ok(Box::new(
             combiners.into_iter().map(|(k, v)| (k, v.unwrap())),
-        )))
+        ))
     }
 }

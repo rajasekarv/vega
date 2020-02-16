@@ -219,16 +219,11 @@ impl<T: Data> Rdd for CoalescedRdd<T> {
             .enumerate()
             .filter(|(i, _)| split.parent_indices.contains(i))
         {
-            self.parent
-                .iterator(p)
-                .await?
-                .lock()
-                .into_iter()
-                .for_each(|e| {
-                    iter.push(e);
-                })
+            self.parent.iterator(p).await?.for_each(|e| {
+                iter.push(e);
+            })
         }
-        Ok(Arc::new(Mutex::new(iter.into_iter())))
+        Ok(Box::new(iter.into_iter()))
     }
 }
 

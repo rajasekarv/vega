@@ -6,7 +6,7 @@ use crate::context::Context;
 use crate::dependency::{Dependency, OneToOneDependency};
 use crate::error::Result;
 use crate::partitioner::Partitioner;
-use crate::rdd::{DataIter, ComputeResult, Rdd, RddBase, RddVals};
+use crate::rdd::{ComputeResult, DataIter, Rdd, RddBase, RddVals};
 use crate::serializable_traits::{AnyData, Data};
 use crate::split::Split;
 use crate::utils::random::RandomSampler;
@@ -120,9 +120,8 @@ impl<T: Data> Rdd for PartitionwiseSampledRdd<T> {
 
     async fn compute(&self, split: Box<dyn Split>) -> Result<ComputeResult<Self::Item>> {
         let prev_res = self.prev.iterator(split).await?;
-        let prev_res = prev_res.lock().into_iter().collect::<Vec<_>>();
         let sampler_func = self.sampler.get_sampler();
-        let this_iter = sampler_func(Box::new(prev_res.into_iter()));
-        Ok(Arc::new(Mutex::new(this_iter.into_iter())))
+        let this_iter = Box::new(sampler_func(Box::new(prev_res)).into_iter());
+        Ok(this_iter)
     }
 }

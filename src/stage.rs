@@ -5,10 +5,6 @@ use std::cmp::Ordering;
 use std::fmt::{Display, Formatter, Result};
 use std::sync::Arc;
 
-// this is strange. see into this in more detail
-//#[derive(Derivative)]
-//#[derivative(PartialEq)]
-//#[derive(Clone, Ord, PartialOrd, Eq)]
 #[derive(Clone)]
 pub struct Stage {
     pub id: usize,

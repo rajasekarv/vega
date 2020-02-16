@@ -243,12 +243,12 @@ impl<K: Data + Eq + Hash> Rdd for CoGroupedRdd<K> {
                                 temp[dep_num].push(v);
                             }
                         };
-                        ShuffleFetcher::fetch(shuffle_id, split_idx, merge_pair).await;
+                        ShuffleFetcher::fetch(shuffle_id, split_idx, merge_pair).await?;
                     }
                 }
             }
             let mut agg = Arc::try_unwrap(agg).unwrap().into_inner();
-            Ok(Arc::new(Mutex::new(agg.into_iter().map(|(k, v)| (k, v)))))
+            Ok(Box::new(agg.into_iter().map(|(k, v)| (k, v))))
         } else {
             panic!("Got split object from different concrete type other than CoGroupSplit")
         }

@@ -47,12 +47,12 @@ fn test_make_rdd() -> Result<()> {
 fn test_map_partitions() -> Result<()> {
     let sc = CONTEXT.clone();
     let rdd = sc.make_rdd(vec![1, 2, 3, 4], 2);
-    let partition_sums = rdd
-        .map_partitions(Fn!(
-            |iter: Box<dyn Iterator<Item = i64>>| Box::new(std::iter::once(iter.sum::<i64>()))
-                as Box<dyn Iterator<Item = i64>>
-        ))
-        .collect()?;
+    let partition_sums =
+        rdd.map_partitions(Fn!(|iter: Box<dyn Iterator<Item = i64> + Send>| Box::new(
+            std::iter::once(iter.sum::<i64>())
+        )
+            as Box<dyn Iterator<Item = i64> + Send>))
+            .collect()?;
     assert_eq!(partition_sums, vec![3, 7]);
     assert_eq!(rdd.glom().collect()?, vec![vec![1, 2], vec![3, 4]]);
     Ok(())
