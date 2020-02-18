@@ -14,7 +14,6 @@ use crate::rdd::{ComputeResult, DataIter, Rdd, RddBase, RddVals};
 use crate::serializable_traits::{AnyData, Data};
 use crate::split::Split;
 use crate::utils;
-use futures::stream::StreamExt;
 use parking_lot::Mutex;
 use rand::Rng;
 use serde_derive::{Deserialize, Serialize};

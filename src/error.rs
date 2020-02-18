@@ -17,9 +17,6 @@ pub enum Error {
         command: String,
     },
 
-    #[error("configuration failure: {0}")]
-    GetOrCreateConfig(&'static str),
-
     #[error("failed to create the log file")]
     CreateLogFile(#[source] std::io::Error),
 
@@ -32,6 +29,24 @@ pub enum Error {
     #[error("couldn't determine the path to the current binary")]
     CurrentBinaryPath,
 
+    #[error("failed trying converting to type {0}")]
+    ConversionError(&'static str),
+
+    #[error("deserialization error")]
+    DeserializationError(#[from] bincode::Error),
+
+    #[error("error de/serializing capnp message")]
+    CapnpDeserialization(#[source] capnp::Error),
+
+    #[error("failure while downcasting an object to a concrete type: {0}")]
+    DowncastFailure(&'static str),
+
+    #[error("executor shutdown signal")]
+    ExecutorShutdown,
+
+    #[error("configuration failure: {0}")]
+    GetOrCreateConfig(&'static str),
+
     #[error("partitioner not set")]
     LackingPartitioner,
 
@@ -40,6 +55,9 @@ pub enum Error {
         source: std::io::Error,
         path: PathBuf,
     },
+
+    #[error("network error")]
+    NetworkError(#[from] NetworkError),
 
     #[error("failed to determine the home directory")]
     NoHome,
@@ -59,15 +77,21 @@ pub enum Error {
     #[error("failed to parse slave address {0}")]
     ParseHostAddress(String),
 
-    #[error("failed reading file")]
-    ReadFile(#[source] std::io::Error),
+    #[error("failed reading from input source")]
+    InputRead(#[source] std::io::Error),
 
     #[error("shuffle server related failure")]
     ShuffleError(#[from] crate::shuffle::ShuffleError),
 
-    #[error("failure while downcasting an object to a concrete type: {0}")]
-    DowncastFailure(&'static str),
-
     #[error("operation not supported: {0}")]
     UnsupportedOperation(&'static str),
+}
+
+#[derive(Debug, Error)]
+pub enum NetworkError {
+    #[error("failed while binding/reading from socket")]
+    TcpListener(#[source] tokio::io::Error),
+
+    #[error("disconnected from address")]
+    ConnectionFailure,
 }

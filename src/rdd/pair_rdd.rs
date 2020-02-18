@@ -14,7 +14,6 @@ use crate::rdd::{
 };
 use crate::serializable_traits::{AnyData, Data, Func, SerFunc};
 use crate::split::Split;
-use futures::stream::StreamExt;
 use log::info;
 use parking_lot::Mutex;
 use serde_derive::{Deserialize, Serialize};

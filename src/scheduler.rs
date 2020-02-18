@@ -14,7 +14,6 @@ use crate::serializable_traits::{Data, SerFunc};
 use crate::shuffle::ShuffleMapTask;
 use crate::stage::Stage;
 use crate::task::{TaskBase, TaskContext, TaskOption};
-use futures::stream::StreamExt;
 use log::{error, info};
 use threadpool::ThreadPool;
 

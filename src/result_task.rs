@@ -2,7 +2,7 @@ use crate::env;
 use crate::rdd::Rdd;
 use crate::serializable_traits::Data;
 use crate::task::{Task, TaskBase, TaskContext};
-use futures::{FutureExt, StreamExt};
+use futures::FutureExt;
 use serde_derive::{Deserialize, Serialize};
 use serde_traitobject::{Any as SerAny, Arc as SerArc, Box as SerBox, Deserialize, Serialize};
 use std::fmt::{Display, Formatter, Result};

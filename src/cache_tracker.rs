@@ -5,7 +5,6 @@ use crate::serializable_traits::Data;
 use crate::serialized_data_capnp::serialized_data;
 use crate::split::Split;
 use capnp::serialize_packed;
-use futures::StreamExt;
 use parking_lot::RwLock;
 use serde_derive::{Deserialize, Serialize};
 use std::collections::LinkedList;

@@ -153,7 +153,7 @@ impl<T: Data> LocalFsReader<T> {
     fn load_local_files(&self) -> Result<Vec<Vec<PathBuf>>> {
         let mut total_size = 0_u64;
         if self.is_single_file {
-            let size = fs::metadata(&self.path).map_err(Error::ReadFile)?.len();
+            let size = fs::metadata(&self.path).map_err(Error::InputRead)?.len();
             total_size += size;
             let files = vec![vec![self.path.clone()]];
             return Ok(files);
@@ -169,10 +169,10 @@ impl<T: Data> LocalFsReader<T> {
         let mut ex2 = 0.0;
 
         for (i, entry) in fs::read_dir(&self.path)
-            .map_err(Error::ReadFile)?
+            .map_err(Error::InputRead)?
             .enumerate()
         {
-            let path = entry.map_err(Error::ReadFile)?.path();
+            let path = entry.map_err(Error::InputRead)?.path();
             if path.is_file() {
                 let is_proper_file = {
                     self.filter_ext.is_none()
@@ -181,7 +181,7 @@ impl<T: Data> LocalFsReader<T> {
                 if !is_proper_file {
                     continue;
                 }
-                let size = fs::metadata(&path).map_err(Error::ReadFile)?.len();
+                let size = fs::metadata(&path).map_err(Error::InputRead)?.len();
                 if i == 0 {
                     // assign first file size as reference sample
                     k = size;

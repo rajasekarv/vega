@@ -1,3 +1,4 @@
+use std::convert::TryFrom;
 use std::fs::File;
 use std::net::{Ipv4Addr, SocketAddrV4, TcpStream};
 use std::ops::Range;
@@ -5,12 +6,6 @@ use std::path::PathBuf;
 use std::process::Command;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
-
-use crate::serialized_data_capnp::serialized_data;
-use capnp::serialize_packed;
-use log::error;
-use simplelog::*;
-use uuid::Uuid;
 
 use crate::distributed_scheduler::DistributedScheduler;
 use crate::error::{Error, Result};
@@ -22,8 +17,13 @@ use crate::rdd::union_rdd::UnionRdd;
 use crate::rdd::{Rdd, RddBase};
 use crate::scheduler::NativeScheduler;
 use crate::serializable_traits::{Data, SerFunc};
+use crate::serialized_data_capnp::serialized_data;
 use crate::task::TaskContext;
 use crate::{env, hosts};
+use capnp::serialize_packed;
+use log::error;
+use simplelog::*;
+use uuid::Uuid;
 
 // there is a problem with this approach since T needs to satisfy PartialEq, Eq for Range
 // No such restrictions are needed for Vec
@@ -175,16 +175,12 @@ impl Context {
                     let uuid = Uuid::new_v4().to_string();
                     initialize_loggers(format!("/tmp/executor-{}", uuid));
                     log::debug!("started client");
-                    let executor = Executor::new(
+                    let executor = Arc::new(Executor::new(
                         env::Configuration::get()
                             .port
                             .ok_or(Error::GetOrCreateConfig("executor port not set"))?,
-                    );
+                    ));
                     executor.worker();
-                    log::debug!("initiated executor worker exit");
-                    // FIXME: startup signal handling inside the worker initialization as
-                    // this is unreable as long as the async runtime keeps running
-                    executor.exit_signal();
                     log::debug!("got executor end signal");
                     std::process::exit(0);
                 }
@@ -205,6 +201,7 @@ impl Context {
     }
 
     fn drop_executors(&self) {
+        use crate::executor::Signal;
         for socket_addr in self.address_map.clone() {
             log::debug!(
                 "dropping executor in {:?}:{:?}",
@@ -214,8 +211,7 @@ impl Context {
             if let Ok(mut stream) =
                 TcpStream::connect(format!("{}:{}", socket_addr.ip(), socket_addr.port() + 10))
             {
-                let signal = true;
-                let signal = bincode::serialize(&signal).unwrap();
+                let signal = bincode::serialize(&Signal::ShutDown).unwrap();
                 let mut message = ::capnp::message::Builder::new_default();
                 let mut task_data = message.init_root::<serialized_data::Builder>();
                 task_data.set_msg(&signal);
