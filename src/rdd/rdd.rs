@@ -695,8 +695,22 @@ pub trait Rdd: RddBase + 'static {
             second,
         ))
     }
-
     fn intersection<T>(
+        &self,
+        other: Arc<T>,
+    ) -> SerArc<dyn Rdd<Item=Self::Item>>
+        where
+            Self: Clone,
+            Self::Item: Data + Eq + Hash,
+            T: Rdd<Item=Self::Item> + Sized,
+    {
+        self.intersection_with_num_partitions(
+            other,
+            self.number_of_splits()
+        )
+    }
+
+    fn intersection_with_num_partitions<T>(
         &self,
         other: Arc<T>,
         num_splits: usize,
