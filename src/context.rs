@@ -1,5 +1,6 @@
 use std::convert::TryFrom;
 use std::fs::File;
+use std::io::Write;
 use std::net::{Ipv4Addr, SocketAddrV4, TcpStream};
 use std::ops::Range;
 use std::path::PathBuf;
@@ -215,10 +216,7 @@ impl Context {
                 TcpStream::connect(format!("{}:{}", socket_addr.ip(), socket_addr.port() + 10))
             {
                 let signal = bincode::serialize(&Signal::ShutDown).unwrap();
-                let mut message = ::capnp::message::Builder::new_default();
-                let mut task_data = message.init_root::<serialized_data::Builder>();
-                task_data.set_msg(&signal);
-                serialize_packed::write_message(&mut stream, &message);
+                stream.write(&signal);
             } else {
                 error!(
                     "Failed to connect to {}:{} in order to stop its executor",

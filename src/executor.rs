@@ -67,13 +67,13 @@ impl Executor {
         // TODO profile which way is the most effitient of doing this
         // 1) reuse the same buffer and only await on run task;
         // 2) create a new buffer per stream and deserialize them in parallel;
-        //    unlikely to gain much here as the socket is physicallly occupied
+        //    unlikely to gain much here as the socket is physically occupied
         let mut buf: Vec<u8> = Vec::new();
         while let Some(stream) = listener.incoming().next().await {
             match stream {
                 Ok(stream) => {
                     if let Ok(Signal::ShutDown) = rcv_main.try_recv() {
-                        return Err(Error::ExecutorShutdown);
+                        break;
                     }
                     buf.clear();
                     let mut reader = BufReader::new(stream);
@@ -224,8 +224,9 @@ impl Executor {
                         .map_err(Error::InputRead)?;
                     if let Signal::ShutDown = bincode::deserialize::<Signal>(&buf)? {
                         // signal shut down to the main executor task receiving thread
+                        log::debug!("received shutdown signal @ {}", self.port);
                         send_child.send(Signal::ShutDown);
-                        return Err(Error::ExecutorShutdown);
+                        break;
                     }
                 }
                 Err(_) => {
@@ -237,6 +238,13 @@ impl Executor {
             }
         }
         Err(Error::ExecutorShutdown)
+    }
+}
+
+impl Drop for Executor {
+    fn drop(&mut self) {
+        log::debug!("inside executor drop @ {}", self.port);
+        //TODO clean up temp local files
     }
 }
 

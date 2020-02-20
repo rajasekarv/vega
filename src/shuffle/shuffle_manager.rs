@@ -11,6 +11,7 @@ use super::Result;
 use super::StdResult;
 use crate::env;
 use crate::shuffle::*;
+use crate::utils::get_dynamic_port;
 use crossbeam::channel as cb_channel;
 use futures::future;
 use hyper::{
@@ -211,12 +212,6 @@ impl ShuffleManager {
 }
 
 //TODO implement drop for deleting files created when the shuffle manager stops
-
-fn get_dynamic_port() -> u16 {
-    const FIRST_DYNAMIC_PORT: u16 = 49152;
-    const LAST_DYNAMIC_PORT: u16 = 65535;
-    FIRST_DYNAMIC_PORT + rand::thread_rng().gen_range(0, LAST_DYNAMIC_PORT - FIRST_DYNAMIC_PORT)
-}
 
 type ShuffleServer = Server<AddrIncoming, ShuffleSvcMaker>;
 

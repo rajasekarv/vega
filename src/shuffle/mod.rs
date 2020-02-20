@@ -92,19 +92,13 @@ impl ShuffleError {
     }
 }
 
-fn get_dynamic_port() -> u16 {
-    const FIRST_DYNAMIC_PORT: u16 = 49152;
-    const LAST_DYNAMIC_PORT: u16 = 65535;
-    FIRST_DYNAMIC_PORT + rand::thread_rng().gen_range(0, LAST_DYNAMIC_PORT - FIRST_DYNAMIC_PORT)
-}
-
 #[cfg(test)]
 fn get_free_port() -> u16 {
     use std::net::TcpListener;
 
     let mut port = 0;
     for _ in 0..100 {
-        port = get_dynamic_port();
+        port = crate::utils::get_dynamic_port();
         if TcpListener::bind(format!("127.0.0.1:{}", port)).is_ok() {
             return port;
         }
