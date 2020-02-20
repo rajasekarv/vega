@@ -12,7 +12,7 @@ use crate::dependency::{
     ShuffleDependencyTrait,
 };
 use crate::env;
-use crate::error::Result;
+use crate::error::{Error, Result};
 use crate::partitioner::Partitioner;
 use crate::rdd::{Rdd, RddBase, RddVals};
 use crate::serializable_traits::{AnyData, Data};
@@ -249,10 +249,8 @@ impl<K: Data + Eq + Hash> Rdd for CoGroupedRdd<K> {
 
                         let split_idx = split.get_index();
                         executor.enter(|| -> Result<()> {
-                            futures::executor::block_on(ShuffleFetcher::fetch(
-                                shuffle_id, split_idx, merge_pair,
-                            ))?;
-                            Ok(())
+                            let fut = ShuffleFetcher::fetch(shuffle_id, split_idx, merge_pair);
+                            Ok(futures::executor::block_on(fut)?)
                         })?;
                     }
                 }

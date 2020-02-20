@@ -7,7 +7,7 @@ use uriparse::{Authority, Fragment, Query, URI};
 pub const SEPARATOR: char = '/';
 pub const SEPARATOR_CHAR: char = '/';
 pub const CUR_DIR: &str = ".";
-pub static WINDOWS: Lazy<bool> = Lazy::new(|| if cfg!(windows) { true } else { false });
+pub static WINDOWS: Lazy<bool> = Lazy::new(|| cfg!(windows));
 
 static HAS_URI_SCHEME: Lazy<Regex> = Lazy::new(|| Regex::new("[a-zA-Z][a-zA-Z0-9+-.]+:").unwrap());
 static HAS_DRIVE_LETTER_SPECIFIER: Lazy<Regex> = Lazy::new(|| Regex::new("^/?[a-zA-Z]:").unwrap());

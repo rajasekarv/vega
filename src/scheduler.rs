@@ -15,7 +15,6 @@ use crate::shuffle::ShuffleMapTask;
 use crate::stage::Stage;
 use crate::task::{TaskBase, TaskContext, TaskOption};
 use log::{error, info};
-use threadpool::ThreadPool;
 
 pub trait Scheduler {
     fn start(&self);
@@ -42,12 +41,15 @@ pub(crate) trait NativeScheduler {
         F: SerFunc((TaskContext, Box<dyn Iterator<Item = T>>)) -> U,
     {
         if jt.final_stage.parents.is_empty() && (jt.num_output_parts == 1) {
-            let split = (jt.final_rdd.splits()[jt.output_parts[0]]).clone();
-            let task_context = TaskContext::new(jt.final_stage.id, jt.output_parts[0], 0);
-            Ok(Some(vec![(&jt.func)((
-                task_context,
-                jt.final_rdd.iterator(split)?,
-            ))]))
+            let executor = env::Env::get_async_handle();
+            futures::executor::block_on(tokio::task::block_in_place(|| async {
+                let split = (jt.final_rdd.splits()[jt.output_parts[0]]).clone();
+                let task_context = TaskContext::new(jt.final_stage.id, jt.output_parts[0], 0);
+                Ok(Some(vec![(&jt.func)((
+                    task_context,
+                    jt.final_rdd.iterator(split)?,
+                ))]))
+            }))
         } else {
             Ok(None)
         }
@@ -195,14 +197,14 @@ pub(crate) trait NativeScheduler {
         //TODO mapoutput tracker needs to be finished for this
         // let failed_stage = self.id_to_stage.lock().get(&stage_id).unwrap().clone();
         let failed_stage = self.fetch_from_stage_cache(stage_id);
-        jt.running.borrow_mut().remove(&failed_stage);
-        jt.failed.borrow_mut().insert(failed_stage);
+        jt.running.lock().remove(&failed_stage);
+        jt.failed.lock().insert(failed_stage);
         //TODO logging
         self.remove_output_loc_from_stage(shuffle_id, map_id, &server_uri);
         self.unregister_map_output(shuffle_id, map_id, server_uri);
         //logging
         jt.failed
-            .borrow_mut()
+            .lock()
             .insert(self.fetch_from_shuffle_to_cache(shuffle_id));
     }
 
@@ -233,7 +235,7 @@ pub(crate) trait NativeScheduler {
                     .clone();
 
                 results[rt.output_id] = Some(result);
-                jt.finished.borrow_mut()[rt.output_id] = true;
+                jt.finished.lock()[rt.output_id] = true;
                 *num_finished += 1;
             }
         } else if let Ok(smt) = completed_event.task.downcast::<ShuffleMapTask>() {
@@ -253,7 +255,7 @@ pub(crate) trait NativeScheduler {
             log::debug!(
                 "pending stages {:?}",
                 jt.pending_tasks
-                    .borrow()
+                    .lock()
                     .iter()
                     .map(|(x, y)| (x.id, y.iter().map(|k| k.get_task_id()).collect::<Vec<_>>()))
                     .collect::<Vec<_>>()
@@ -261,7 +263,7 @@ pub(crate) trait NativeScheduler {
             log::debug!(
                 "pending tasks {:?}",
                 jt.pending_tasks
-                    .borrow()
+                    .lock()
                     .get(&stage)
                     .unwrap()
                     .iter()
@@ -270,19 +272,19 @@ pub(crate) trait NativeScheduler {
             );
             log::debug!(
                 "running {:?}",
-                jt.running.borrow().iter().map(|x| x.id).collect::<Vec<_>>()
+                jt.running.lock().iter().map(|x| x.id).collect::<Vec<_>>()
             );
             log::debug!(
                 "waiting {:?}",
-                jt.waiting.borrow().iter().map(|x| x.id).collect::<Vec<_>>()
+                jt.waiting.lock().iter().map(|x| x.id).collect::<Vec<_>>()
             );
 
-            if jt.running.borrow().contains(&stage)
-                && jt.pending_tasks.borrow().get(&stage).unwrap().is_empty()
+            if jt.running.lock().contains(&stage)
+                && jt.pending_tasks.lock().get(&stage).unwrap().is_empty()
             {
                 log::debug!("here before registering map outputs ");
                 //TODO logging
-                jt.running.borrow_mut().remove(&stage);
+                jt.running.lock().remove(&stage);
                 if stage.shuffle_dependency.is_some() {
                     log::debug!(
                         "stage output locs before register mapoutput tracker {:?}",
@@ -307,7 +309,7 @@ pub(crate) trait NativeScheduler {
                 //TODO Cache
                 self.update_cache_locs();
                 let mut newly_runnable = Vec::new();
-                for stage in jt.waiting.borrow().iter() {
+                for stage in jt.waiting.lock().iter() {
                     log::debug!(
                         "waiting stage parent stages for stage {} are {:?}",
                         stage.id,
@@ -321,10 +323,10 @@ pub(crate) trait NativeScheduler {
                     }
                 }
                 for stage in &newly_runnable {
-                    jt.waiting.borrow_mut().remove(stage);
+                    jt.waiting.lock().remove(stage);
                 }
                 for stage in &newly_runnable {
-                    jt.running.borrow_mut().insert(stage.clone());
+                    jt.running.lock().insert(stage.clone());
                 }
                 for stage in newly_runnable {
                     self.submit_missing_tasks(stage, jt.clone());
@@ -338,7 +340,7 @@ pub(crate) trait NativeScheduler {
         F: SerFunc((TaskContext, Box<dyn Iterator<Item = T>>)) -> U,
     {
         log::debug!("submiting stage {}", stage.id);
-        if !jt.waiting.borrow().contains(&stage) && !jt.running.borrow().contains(&stage) {
+        if !jt.waiting.lock().contains(&stage) && !jt.running.lock().contains(&stage) {
             let missing = self.get_missing_parent_stages(stage.clone());
             log::debug!(
                 "inside submit stage missing stages {:?}",
@@ -346,12 +348,12 @@ pub(crate) trait NativeScheduler {
             );
             if missing.is_empty() {
                 self.submit_missing_tasks(stage.clone(), jt.clone());
-                jt.running.borrow_mut().insert(stage);
+                jt.running.lock().insert(stage);
             } else {
                 for parent in missing {
                     self.submit_stage(parent, jt.clone());
                 }
-                jt.waiting.borrow_mut().insert(stage);
+                jt.waiting.lock().insert(stage);
             }
         }
     }
@@ -360,7 +362,7 @@ pub(crate) trait NativeScheduler {
     where
         F: SerFunc((TaskContext, Box<dyn Iterator<Item = T>>)) -> U,
     {
-        let mut pending_tasks = jt.pending_tasks.borrow_mut();
+        let mut pending_tasks = jt.pending_tasks.lock();
         let my_pending = pending_tasks
             .entry(stage.clone())
             .or_insert_with(BTreeSet::new);
@@ -390,7 +392,6 @@ pub(crate) trait NativeScheduler {
                 self.submit_task::<T, U, F>(
                     TaskOption::ResultTask(Box::new(result_task)),
                     id_in_job,
-                    jt.thread_pool.clone(),
                     executor,
                 );
             }
@@ -421,7 +422,6 @@ pub(crate) trait NativeScheduler {
                     self.submit_task::<T, U, F>(
                         TaskOption::ShuffleMapTask(Box::new(shuffle_map_task)),
                         p,
-                        jt.thread_pool.clone(),
                         executor,
                     );
                 }
@@ -433,7 +433,6 @@ pub(crate) trait NativeScheduler {
         &self,
         task: TaskOption,
         id_in_job: usize,
-        thread_pool: Rc<ThreadPool>,
         target_executor: SocketAddrV4,
     ) where
         F: SerFunc((TaskContext, Box<dyn Iterator<Item = T>>)) -> U;
@@ -491,9 +490,6 @@ pub(crate) trait NativeScheduler {
 
     fn get_shuffle_map_stage(&self, shuf: Arc<dyn ShuffleDependencyTrait>) -> Stage;
 
-    fn num_threads(&self) -> usize {
-        num_cpus::get()
-    }
 }
 
 macro_rules! impl_common_scheduler_funcs {
@@ -594,10 +590,6 @@ macro_rules! impl_common_scheduler_funcs {
                     stage
                 }
             }
-        }
-
-        fn num_threads(&self) -> usize {
-            self.threads
         }
     };
 }

@@ -24,6 +24,12 @@ pub(crate) fn yield_tokio_futures() {
     });
 }
 
+pub(crate) fn get_dynamic_port() -> u16 {
+    const FIRST_DYNAMIC_PORT: u16 = 49152;
+    const LAST_DYNAMIC_PORT: u16 = 65535;
+    FIRST_DYNAMIC_PORT + rand::thread_rng().gen_range(0, LAST_DYNAMIC_PORT - FIRST_DYNAMIC_PORT)
+}
+
 #[test]
 #[cfg(test)]
 fn test_randomize_in_place() {

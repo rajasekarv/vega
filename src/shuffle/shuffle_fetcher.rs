@@ -16,8 +16,7 @@ use hyper::{
     StatusCode, Uri,
 };
 use log::info;
-use threadpool::ThreadPool;
-use tokio::sync::{mpsc, Mutex};
+use tokio::sync::Mutex;
 
 /// Parallel shuffle fetcher.
 pub(crate) struct ShuffleFetcher;

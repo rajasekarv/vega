@@ -1,6 +1,3 @@
-use crate::job::{Job, JobTracker};
-use crate::scheduler::NativeScheduler;
-
 use std::any::Any;
 use std::cell::RefCell;
 use std::clone::Clone;
@@ -21,21 +18,23 @@ use crate::dag_scheduler::{CompletionEvent, TastEndReason};
 use crate::dependency::ShuffleDependencyTrait;
 use crate::env;
 use crate::error::{Error, Result};
+use crate::job::{Job, JobTracker};
 use crate::map_output_tracker::MapOutputTracker;
 use crate::rdd::{Rdd, RddBase};
 use crate::result_task::ResultTask;
+use crate::scheduler::NativeScheduler;
 use crate::serializable_traits::{Data, SerFunc};
 use crate::serialized_data_capnp::serialized_data;
 use crate::shuffle::ShuffleMapTask;
 use crate::stage::Stage;
 use crate::task::{TaskBase, TaskContext, TaskOption, TaskResult};
+use crate::utils;
 use log::info;
 use parking_lot::Mutex;
-use threadpool::ThreadPool;
+use serde_traitobject::Arc as SerArc;
 
 #[derive(Clone, Default)]
 pub struct LocalScheduler {
-    pub(crate) threads: usize,
     max_failures: usize,
     attempt_id: Arc<AtomicUsize>,
     resubmit_timeout: u128,
@@ -65,7 +64,6 @@ pub struct LocalScheduler {
 impl LocalScheduler {
     pub fn new(threads: usize, max_failures: usize, master: bool) -> Self {
         LocalScheduler {
-            threads,
             max_failures,
             attempt_id: Arc::new(AtomicUsize::new(0)),
             resubmit_timeout: 2000,
@@ -93,7 +91,7 @@ impl LocalScheduler {
     }
 
     pub fn run_job<T: Data, U: Data, F>(
-        &self,
+        self: Arc<Self>,
         func: Arc<F>,
         final_rdd: Arc<dyn Rdd<Item = T>>,
         partitions: Vec<usize>,
@@ -102,23 +100,13 @@ impl LocalScheduler {
     where
         F: SerFunc((TaskContext, Box<dyn Iterator<Item = T>>)) -> U,
     {
-        // acquiring lock so that only one job can run a same time
-        // this lock is just a temporary patch for preventing multiple jobs to update cache locks
-        // which affects construction of dag task graph. dag task graph construction need to be
-        // altered
+        // acquiring lock so that only one job can run at same time this lock is just
+        // a temporary patch for preventing multiple jobs to update cache locks which affects
+        // construction of dag task graph. dag task graph construction needs to be altered
         let lock = self.scheduler_lock.lock();
-        log::debug!(
-            "shuffle manager in final rdd of run job {:?}",
-            env::Env::get().shuffle_manager
-        );
-
-        let mut jt = JobTracker::from_scheduler(self, func, final_rdd.clone(), partitions);
-        let mut results: Vec<Option<U>> = (0..jt.num_output_parts).map(|_| None).collect();
-        let mut num_finished = 0;
-        let mut fetch_failure_duration = Duration::new(0, 0);
+        let mut jt = JobTracker::from_scheduler(&*self, func, final_rdd.clone(), partitions);
 
         //TODO update cache
-        //TODO logging
 
         if allow_local {
             if let Some(result) = LocalScheduler::local_execution(jt.clone())? {
@@ -128,61 +116,81 @@ impl LocalScheduler {
 
         self.event_queues.lock().insert(jt.run_id, VecDeque::new());
 
-        self.submit_stage(jt.final_stage.clone(), jt.clone());
-        log::debug!(
-            "pending stages and tasks {:?}",
-            jt.pending_tasks
-                .borrow()
-                .iter()
-                .map(|(k, v)| (k.id, v.iter().map(|x| x.get_task_id()).collect::<Vec<_>>()))
-                .collect::<Vec<_>>()
-        );
+        let self_clone = Arc::clone(&self);
+        let jt_clone = jt.clone();
+        // run in async executor
+        let executor = env::Env::get_async_handle();
+        let results = executor.enter(move || {
+            let self_borrow = &*self_clone;
+            let jt = jt_clone;
+            let mut results: Vec<Option<U>> = (0..jt.num_output_parts).map(|_| None).collect();
+            let mut fetch_failure_duration = Duration::new(0, 0);
 
-        while num_finished != jt.num_output_parts {
-            let event_option = self.wait_for_event(jt.run_id, self.poll_timeout);
-            let start = Instant::now();
-
-            if let Some(mut evt) = event_option {
-                log::debug!("event starting");
-                let stage = self.stage_cache.lock()[&evt.task.get_stage_id()].clone();
-                log::debug!(
-                    "removing stage task from pending tasks {} {}",
-                    stage.id,
-                    evt.task.get_task_id()
-                );
+            self_borrow.submit_stage(jt.final_stage.clone(), jt.clone());
+            utils::yield_tokio_futures();
+            log::debug!(
+                "pending stages and tasks {:?}",
                 jt.pending_tasks
-                    .borrow_mut()
-                    .get_mut(&stage)
-                    .unwrap()
-                    .remove(&evt.task);
-                use super::dag_scheduler::TastEndReason::*;
-                match evt.reason {
-                    Success => {
-                        self.on_event_success(evt, &mut results, &mut num_finished, jt.clone())
-                    }
-                    FetchFailed(failed_vals) => {
-                        self.on_event_failure(jt.clone(), failed_vals, evt.task.get_stage_id());
-                        fetch_failure_duration = start.elapsed();
-                    }
-                    _ => {
-                        //TODO error handling
+                    .lock()
+                    .iter()
+                    .map(|(k, v)| (k.id, v.iter().map(|x| x.get_task_id()).collect::<Vec<_>>()))
+                    .collect::<Vec<_>>()
+            );
+
+            let mut num_finished = 0;
+            while num_finished != jt.num_output_parts {
+                let event_option = self_borrow.wait_for_event(jt.run_id, self_borrow.poll_timeout);
+                let start = Instant::now();
+
+                if let Some(mut evt) = event_option {
+                    log::debug!("event starting");
+                    let stage = self_borrow.stage_cache.lock()[&evt.task.get_stage_id()].clone();
+                    log::debug!(
+                        "removing stage task from pending tasks {} {}",
+                        stage.id,
+                        evt.task.get_task_id()
+                    );
+                    jt.pending_tasks
+                        .lock()
+                        .get_mut(&stage)
+                        .unwrap()
+                        .remove(&evt.task);
+                    use super::dag_scheduler::TastEndReason::*;
+                    match evt.reason {
+                        Success => self_borrow.on_event_success(
+                            evt,
+                            &mut results,
+                            &mut num_finished,
+                            jt.clone(),
+                        ),
+                        FetchFailed(failed_vals) => {
+                            self_borrow.on_event_failure(
+                                jt.clone(),
+                                failed_vals,
+                                evt.task.get_stage_id(),
+                            );
+                            fetch_failure_duration = start.elapsed();
+                        }
+                        Error(error) => panic!("{}", error),
+                        OtherFailure(msg) => panic!("{}", msg),
                     }
                 }
             }
 
-            if !jt.failed.borrow().is_empty()
-                && fetch_failure_duration.as_millis() > self.resubmit_timeout
+            if !jt.failed.lock().is_empty()
+                && fetch_failure_duration.as_millis() > self_borrow.resubmit_timeout
             {
-                self.update_cache_locs();
-                for stage in jt.failed.borrow().iter() {
-                    self.submit_stage(stage.clone(), jt.clone());
+                self_borrow.update_cache_locs();
+                for stage in jt.failed.lock().iter() {
+                    self_borrow.submit_stage(stage.clone(), jt.clone());
                 }
-                jt.failed.borrow_mut().clear();
+                utils::yield_tokio_futures();
+                jt.failed.lock().clear();
             }
-        }
+            results
+        });
 
         self.event_queues.lock().remove(&jt.run_id);
-
         Ok(results
             .into_iter()
             .map(|s| match s {
@@ -279,7 +287,6 @@ impl NativeScheduler for LocalScheduler {
         &self,
         task: TaskOption,
         id_in_job: usize,
-        thread_pool: Rc<ThreadPool>,
         server_address: SocketAddrV4,
     ) where
         F: SerFunc((TaskContext, Box<dyn Iterator<Item = T>>)) -> U,
@@ -288,7 +295,8 @@ impl NativeScheduler for LocalScheduler {
         let my_attempt_id = self.attempt_id.fetch_add(1, Ordering::SeqCst);
         let event_queues = self.event_queues.clone();
         let task = bincode::serialize(&task).unwrap();
-        thread_pool.execute(move || {
+
+        tokio::task::spawn_blocking(move || {
             LocalScheduler::run_task::<T, U, F>(event_queues, task, id_in_job, my_attempt_id)
         });
     }

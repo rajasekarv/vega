@@ -34,14 +34,14 @@ pub enum Sequence<T> {
 
 #[derive(Clone)]
 enum Schedulers {
-    Local(LocalScheduler),
-    Distributed(DistributedScheduler),
+    Local(Arc<LocalScheduler>),
+    Distributed(Arc<DistributedScheduler>),
 }
 
 impl Default for Schedulers {
     fn default() -> Schedulers {
         //        let map_output_tracker = MapOutputTracker::new(true, "".to_string(), 0);
-        Schedulers::Local(LocalScheduler::new(num_cpus::get(), 20, true))
+        Schedulers::Local(Arc::new(LocalScheduler::new(num_cpus::get(), 20, true)))
     }
 }
 
@@ -59,9 +59,13 @@ impl Schedulers {
         use Schedulers::*;
         match self {
             Distributed(distributed) => {
-                distributed.run_job(func, final_rdd, partitions, allow_local)
+                distributed
+                    .clone()
+                    .run_job(func, final_rdd, partitions, allow_local)
             }
-            Local(local) => local.run_job(func, final_rdd, partitions, allow_local),
+            Local(local) => local
+                .clone()
+                .run_job(func, final_rdd, partitions, allow_local),
         }
     }
 }
@@ -161,13 +165,12 @@ impl Context {
                     Ok(Arc::new(Context {
                         next_rdd_id,
                         next_shuffle_id,
-                        scheduler: Distributed(DistributedScheduler::new(
-                            4,
+                        scheduler: Distributed(Arc::new(DistributedScheduler::new(
                             20,
                             true,
                             Some(address_map.clone()),
                             10000,
-                        )),
+                        ))),
                         address_map,
                         distributed_master: true,
                     }))
@@ -190,7 +193,7 @@ impl Context {
             env::DeploymentMode::Local => {
                 let uuid = Uuid::new_v4().to_string();
                 initialize_loggers(format!("/tmp/master-{}", uuid));
-                let scheduler = Local(LocalScheduler::new(num_cpus::get(), 20, true));
+                let scheduler = Local(Arc::new(LocalScheduler::new(num_cpus::get(), 20, true)));
                 Ok(Arc::new(Context {
                     next_rdd_id,
                     next_shuffle_id,

@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::future::Future;
 use std::hash::Hash;
 use std::sync::Arc;
 use std::time::Instant;
@@ -169,15 +170,11 @@ impl<K: Data + Eq + Hash, V: Data, C: Data> Rdd for ShuffledRdd<K, V, C> {
 
         let shuffle_id = self.shuffle_id;
         let split_idx = split.get_index();
-        {
-            let executor = env::Env::get_async_handle();
-            executor.enter(|| -> Result<()> {
-                futures::executor::block_on(ShuffleFetcher::fetch(
-                    shuffle_id, split_idx, merge_pair,
-                ))?;
-                Ok(())
-            })?;
-        }
+        let executor = env::Env::get_async_handle();
+        executor.enter(|| -> Result<()> {
+            let fut = ShuffleFetcher::fetch(shuffle_id, split_idx, merge_pair);
+            Ok(futures::executor::block_on(fut)?)
+        })?;
 
         log::debug!("time taken for fetching {}", start.elapsed().as_millis());
 

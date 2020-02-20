@@ -1,5 +1,3 @@
-use crate::scheduler::{NativeScheduler, Scheduler};
-
 use std::any::Any;
 use std::collections::{
     btree_map::BTreeMap, btree_set::BTreeSet, vec_deque::VecDeque, HashMap, HashSet,
@@ -25,20 +23,20 @@ use crate::map_output_tracker::MapOutputTracker;
 use crate::rdd::{Rdd, RddBase};
 use crate::result_task::ResultTask;
 use crate::scheduler::*;
+use crate::scheduler::{NativeScheduler, Scheduler};
 use crate::serializable_traits::{Data, SerFunc};
 use crate::serialized_data_capnp::serialized_data;
 use crate::shuffle::ShuffleMapTask;
 use crate::stage::Stage;
 use crate::task::{TaskBase, TaskContext, TaskOption, TaskResult};
+use crate::utils;
 use capnp::serialize_packed;
 use log::info;
 use parking_lot::Mutex;
-use threadpool::ThreadPool;
 
 //just for now, creating an entire scheduler functions without dag scheduler trait. Later change it to extend from dag scheduler
 #[derive(Clone, Default)]
 pub struct DistributedScheduler {
-    threads: usize,
     max_failures: usize,
     attempt_id: Arc<AtomicUsize>,
     resubmit_timeout: u128,
@@ -69,7 +67,6 @@ pub struct DistributedScheduler {
 
 impl DistributedScheduler {
     pub fn new(
-        threads: usize,
         max_failures: usize,
         master: bool,
         servers: Option<Vec<SocketAddrV4>>,
@@ -81,8 +78,6 @@ impl DistributedScheduler {
             port
         );
         DistributedScheduler {
-            //            threads,
-            threads: 100,
             max_failures,
             attempt_id: Arc::new(AtomicUsize::new(0)),
             resubmit_timeout: 2000,
@@ -136,7 +131,7 @@ impl DistributedScheduler {
     }
 
     pub fn run_job<T: Data, U: Data, F>(
-        &self,
+        self: Arc<Self>,
         func: Arc<F>,
         final_rdd: Arc<dyn Rdd<Item = T>>,
         partitions: Vec<usize>,
@@ -145,23 +140,13 @@ impl DistributedScheduler {
     where
         F: SerFunc((TaskContext, Box<dyn Iterator<Item = T>>)) -> U,
     {
-        // acquiring lock so that only one job can run a same time
-        // this lock is just a temporary patch for preventing multiple jobs to update cache locks
-        // which affects construction of dag task graph. dag task graph construction need to be
-        // altered
+        // acquiring lock so that only one job can run a same time this lock is just
+        // a temporary patch for preventing multiple jobs to update cache locks which affects
+        // construction of dag task graph. dag task graph construction need to be altered
         let lock = self.scheduler_lock.lock();
-        log::debug!(
-            "shuffle manager in final rdd of run job {:?}",
-            env::Env::get().shuffle_manager
-        );
-
-        let mut jt = JobTracker::from_scheduler(self, func, final_rdd.clone(), partitions);
-        let mut results: Vec<Option<U>> = (0..jt.num_output_parts).map(|_| None).collect();
-        let mut num_finished = 0;
-        let mut fetch_failure_duration = Duration::new(0, 0);
+        let mut jt = JobTracker::from_scheduler(&*self, func, final_rdd.clone(), partitions);
 
         //TODO update cache
-        //TODO logging
 
         if allow_local {
             if let Some(result) = LocalScheduler::local_execution(jt.clone())? {
@@ -171,58 +156,80 @@ impl DistributedScheduler {
 
         self.event_queues.lock().insert(jt.run_id, VecDeque::new());
 
-        self.submit_stage(jt.final_stage.clone(), jt.clone());
-        log::debug!(
-            "pending stages and tasks {:?}",
-            jt.pending_tasks
-                .borrow()
-                .iter()
-                .map(|(k, v)| (k.id, v.iter().map(|x| x.get_task_id()).collect::<Vec<_>>()))
-                .collect::<Vec<_>>()
-        );
+        let self_clone = Arc::clone(&self);
+        let jt_clone = jt.clone();
+        // run in async executor
+        let executor = env::Env::get_async_handle();
+        let results = executor.enter(move || {
+            let self_borrow = &*self_clone;
+            let jt = jt_clone;
+            let mut results: Vec<Option<U>> = (0..jt.num_output_parts).map(|_| None).collect();
+            let mut fetch_failure_duration = Duration::new(0, 0);
 
-        while num_finished != jt.num_output_parts {
-            let event_option = self.wait_for_event(jt.run_id, self.poll_timeout);
-            let start_time = Instant::now();
-
-            if let Some(mut evt) = event_option {
-                log::debug!("event starting");
-                let stage = self.stage_cache.lock()[&evt.task.get_stage_id()].clone();
-                log::debug!(
-                    "removing stage task from pending tasks {} {}",
-                    stage.id,
-                    evt.task.get_task_id()
-                );
+            self_borrow.submit_stage(jt.final_stage.clone(), jt.clone());
+            utils::yield_tokio_futures();
+            log::debug!(
+                "pending stages and tasks {:?}",
                 jt.pending_tasks
-                    .borrow_mut()
-                    .get_mut(&stage)
-                    .unwrap()
-                    .remove(&evt.task);
-                use super::dag_scheduler::TastEndReason::*;
-                match evt.reason {
-                    Success => {
-                        self.on_event_success(evt, &mut results, &mut num_finished, jt.clone())
-                    }
-                    FetchFailed(failed_vals) => {
-                        self.on_event_failure(jt.clone(), failed_vals, evt.task.get_stage_id());
-                        fetch_failure_duration = start_time.elapsed();
-                    }
-                    _ => {
-                        //TODO error handling
-                    }
-                }
-            }
+                    .lock()
+                    .iter()
+                    .map(|(k, v)| (k.id, v.iter().map(|x| x.get_task_id()).collect::<Vec<_>>()))
+                    .collect::<Vec<_>>()
+            );
 
-            if !jt.failed.borrow().is_empty()
-                && fetch_failure_duration.as_millis() > self.resubmit_timeout
-            {
-                self.update_cache_locs();
-                for stage in jt.failed.borrow().iter() {
-                    self.submit_stage(stage.clone(), jt.clone());
+            let mut num_finished = 0;
+            while num_finished != jt.num_output_parts {
+                let event_option = self_borrow.wait_for_event(jt.run_id, self_borrow.poll_timeout);
+                let start_time = Instant::now();
+
+                if let Some(mut evt) = event_option {
+                    log::debug!("event starting");
+                    let stage = self_borrow.stage_cache.lock()[&evt.task.get_stage_id()].clone();
+                    log::debug!(
+                        "removing stage task from pending tasks {} {}",
+                        stage.id,
+                        evt.task.get_task_id()
+                    );
+                    jt.pending_tasks
+                        .lock()
+                        .get_mut(&stage)
+                        .unwrap()
+                        .remove(&evt.task);
+                    use super::dag_scheduler::TastEndReason::*;
+                    match evt.reason {
+                        Success => self_borrow.on_event_success(
+                            evt,
+                            &mut results,
+                            &mut num_finished,
+                            jt.clone(),
+                        ),
+                        FetchFailed(failed_vals) => {
+                            self_borrow.on_event_failure(
+                                jt.clone(),
+                                failed_vals,
+                                evt.task.get_stage_id(),
+                            );
+                            fetch_failure_duration = start_time.elapsed();
+                        }
+                        _ => {
+                            //TODO error handling
+                        }
+                    }
                 }
-                jt.failed.borrow_mut().clear();
+
+                if !jt.failed.lock().is_empty()
+                    && fetch_failure_duration.as_millis() > self_borrow.resubmit_timeout
+                {
+                    self_borrow.update_cache_locs();
+                    for stage in jt.failed.lock().iter() {
+                        self_borrow.submit_stage(stage.clone(), jt.clone());
+                    }
+                    utils::yield_tokio_futures();
+                    jt.failed.lock().clear();
+                }
             }
-        }
+            results
+        });
 
         self.event_queues.lock().remove(&jt.run_id);
         Ok(results
@@ -256,92 +263,92 @@ impl NativeScheduler for DistributedScheduler {
         &self,
         task: TaskOption,
         id_in_job: usize,
-        thread_pool: Rc<ThreadPool>,
         target_executor: SocketAddrV4,
     ) where
         F: SerFunc((TaskContext, Box<dyn Iterator<Item = T>>)) -> U,
     {
-        if self.master {
-            log::debug!("inside submit task");
-            let my_attempt_id = self.attempt_id.fetch_add(1, Ordering::SeqCst);
-            let event_queues = self.event_queues.clone();
-            let event_queues_clone = event_queues;
-            thread_pool.execute(move || {
-                while let Err(_) = TcpStream::connect(&target_executor) {
-                    continue;
-                }
-                let ser_task = task;
-
-                let task_bytes = bincode::serialize(&ser_task).unwrap();
-                log::debug!(
-                    "task in executor {} {:?} master",
-                    target_executor.port(),
-                    ser_task.get_task_id()
-                );
-                let mut stream = TcpStream::connect(&target_executor).unwrap();
-                log::debug!(
-                    "task in executor {} {} master task len",
-                    target_executor.port(),
-                    task_bytes.len()
-                );
-                let mut message = ::capnp::message::Builder::new_default();
-                let mut task_data = message.init_root::<serialized_data::Builder>();
-                log::debug!("sending data to server");
-                task_data.set_msg(&task_bytes);
-                serialize_packed::write_message(&mut stream, &message);
-
-                let r = ::capnp::message::ReaderOptions {
-                    traversal_limit_in_words: std::u64::MAX,
-                    nesting_limit: 64,
-                };
-                let mut stream_r = std::io::BufReader::new(&mut stream);
-                let message_reader = serialize_packed::read_message(&mut stream_r, r).unwrap();
-                let task_data = message_reader
-                    .get_root::<serialized_data::Reader>()
-                    .unwrap();
-                log::debug!(
-                    "task in executor {} {} master task result len",
-                    target_executor.port(),
-                    task_data.get_msg().unwrap().len()
-                );
-                let result: TaskResult =
-                    bincode::deserialize(&task_data.get_msg().unwrap()).unwrap();
-                match ser_task {
-                    TaskOption::ResultTask(tsk) => {
-                        let result = match result {
-                            TaskResult::ResultTask(r) => r,
-                            _ => panic!("wrong result type"),
-                        };
-                        if let Ok(task_final) = tsk.downcast::<ResultTask<T, U, F>>() {
-                            let task_final = task_final as Box<dyn TaskBase>;
-                            DistributedScheduler::task_ended(
-                                event_queues_clone,
-                                task_final,
-                                TastEndReason::Success,
-                                // Can break in future. But actually not needed for distributed scheduler since task runs on different processes.
-                                // Currently using this because local scheduler needs it. It can be solved by refactoring tasks differently for local and distributed scheduler
-                                result.into_any_send_sync(),
-                            );
-                        }
-                    }
-                    TaskOption::ShuffleMapTask(tsk) => {
-                        let result = match result {
-                            TaskResult::ShuffleTask(r) => r,
-                            _ => panic!("wrong result type"),
-                        };
-                        if let Ok(task_final) = tsk.downcast::<ShuffleMapTask>() {
-                            let task_final = task_final as Box<dyn TaskBase>;
-                            DistributedScheduler::task_ended(
-                                event_queues_clone,
-                                task_final,
-                                TastEndReason::Success,
-                                result.into_any_send_sync(),
-                            );
-                        }
-                    }
-                };
-            })
+        if !self.master {
+            return;
         }
+        log::debug!("inside submit task");
+        let my_attempt_id = self.attempt_id.fetch_add(1, Ordering::SeqCst);
+        let event_queues = self.event_queues.clone();
+        let event_queues_clone = event_queues;
+        // FIXME: probably does not need to be blocking in distributed mode; test it and change back to normal spawn
+        tokio::task::spawn_blocking(move || {
+            while let Err(_) = TcpStream::connect(&target_executor) {
+                continue;
+            }
+            let ser_task = task;
+
+            let task_bytes = bincode::serialize(&ser_task).unwrap();
+            log::debug!(
+                "task in executor {} {:?} master",
+                target_executor.port(),
+                ser_task.get_task_id()
+            );
+            let mut stream = TcpStream::connect(&target_executor).unwrap();
+            log::debug!(
+                "task in executor {} {} master task len",
+                target_executor.port(),
+                task_bytes.len()
+            );
+            let mut message = ::capnp::message::Builder::new_default();
+            let mut task_data = message.init_root::<serialized_data::Builder>();
+            log::debug!("sending data to server");
+            task_data.set_msg(&task_bytes);
+            serialize_packed::write_message(&mut stream, &message);
+
+            let r = ::capnp::message::ReaderOptions {
+                traversal_limit_in_words: std::u64::MAX,
+                nesting_limit: 64,
+            };
+            let mut stream_r = std::io::BufReader::new(&mut stream);
+            let message_reader = serialize_packed::read_message(&mut stream_r, r).unwrap();
+            let task_data = message_reader
+                .get_root::<serialized_data::Reader>()
+                .unwrap();
+            log::debug!(
+                "task in executor {} {} master task result len",
+                target_executor.port(),
+                task_data.get_msg().unwrap().len()
+            );
+            let result: TaskResult = bincode::deserialize(&task_data.get_msg().unwrap()).unwrap();
+            match ser_task {
+                TaskOption::ResultTask(tsk) => {
+                    let result = match result {
+                        TaskResult::ResultTask(r) => r,
+                        _ => panic!("wrong result type"),
+                    };
+                    if let Ok(task_final) = tsk.downcast::<ResultTask<T, U, F>>() {
+                        let task_final = task_final as Box<dyn TaskBase>;
+                        DistributedScheduler::task_ended(
+                            event_queues_clone,
+                            task_final,
+                            TastEndReason::Success,
+                            // Can break in future. But actually not needed for distributed scheduler since task runs on different processes.
+                            // Currently using this because local scheduler needs it. It can be solved by refactoring tasks differently for local and distributed scheduler
+                            result.into_any_send_sync(),
+                        );
+                    }
+                }
+                TaskOption::ShuffleMapTask(tsk) => {
+                    let result = match result {
+                        TaskResult::ShuffleTask(r) => r,
+                        _ => panic!("wrong result type"),
+                    };
+                    if let Ok(task_final) = tsk.downcast::<ShuffleMapTask>() {
+                        let task_final = task_final as Box<dyn TaskBase>;
+                        DistributedScheduler::task_ended(
+                            event_queues_clone,
+                            task_final,
+                            TastEndReason::Success,
+                            result.into_any_send_sync(),
+                        );
+                    }
+                }
+            };
+        });
     }
 
     fn next_executor_server(&self, task: &dyn TaskBase) -> SocketAddrV4 {

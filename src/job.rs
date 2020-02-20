@@ -6,7 +6,6 @@ use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet, VecDeque};
 use std::marker::PhantomData;
 use std::net::Ipv4Addr;
 use std::option::Option;
-use std::rc::Rc;
 use std::sync::{
     atomic::{AtomicUsize, Ordering as OrdAtomic},
     Arc,
@@ -20,7 +19,7 @@ use crate::scheduler::NativeScheduler;
 use crate::serializable_traits::{Data, SerFunc};
 use crate::stage::Stage;
 use crate::task::{TaskBase, TaskContext};
-use threadpool::ThreadPool;
+use parking_lot::Mutex;
 
 #[derive(Clone, Debug)]
 pub struct Job {
@@ -68,12 +67,11 @@ where
     pub func: Arc<F>,
     pub final_rdd: Arc<dyn Rdd<Item = T>>,
     pub run_id: usize,
-    pub thread_pool: Rc<ThreadPool>,
-    pub waiting: Rc<RefCell<BTreeSet<Stage>>>,
-    pub running: Rc<RefCell<BTreeSet<Stage>>>,
-    pub failed: Rc<RefCell<BTreeSet<Stage>>>,
-    pub finished: Rc<RefCell<Vec<bool>>>,
-    pub pending_tasks: Rc<RefCell<PendingTasks>>,
+    pub waiting: Arc<Mutex<BTreeSet<Stage>>>,
+    pub running: Arc<Mutex<BTreeSet<Stage>>>,
+    pub failed: Arc<Mutex<BTreeSet<Stage>>>,
+    pub finished: Arc<Mutex<Vec<bool>>>,
+    pub pending_tasks: Arc<Mutex<PendingTasks>>,
     _marker_t: PhantomData<T>,
     _marker_u: PhantomData<U>,
 }
@@ -93,15 +91,7 @@ where
     {
         let run_id = scheduler.get_next_job_id();
         let final_stage = scheduler.new_stage(final_rdd.clone().get_rdd_base(), None);
-        let threadpool = Rc::new(ThreadPool::new(scheduler.num_threads()));
-        JobTracker::new(
-            run_id,
-            final_stage,
-            func,
-            final_rdd,
-            output_parts,
-            threadpool,
-        )
+        JobTracker::new(run_id, final_stage, func, final_rdd, output_parts)
     }
 
     fn new(
@@ -110,7 +100,6 @@ where
         func: Arc<F>,
         final_rdd: Arc<dyn Rdd<Item = T>>,
         output_parts: Vec<usize>,
-        thread_pool: Rc<ThreadPool>,
     ) -> JobTracker<F, U, T> {
         let finished: Vec<bool> = (0..output_parts.len()).map(|_| false).collect();
         let mut pending_tasks: BTreeMap<Stage, BTreeSet<Box<dyn TaskBase>>> = BTreeMap::new();
@@ -121,12 +110,11 @@ where
             func,
             final_rdd,
             run_id,
-            thread_pool,
-            waiting: Rc::new(RefCell::new(BTreeSet::new())),
-            running: Rc::new(RefCell::new(BTreeSet::new())),
-            failed: Rc::new(RefCell::new(BTreeSet::new())),
-            finished: Rc::new(RefCell::new(finished)),
-            pending_tasks: Rc::new(RefCell::new(pending_tasks)),
+            waiting: Arc::new(Mutex::new(BTreeSet::new())),
+            running: Arc::new(Mutex::new(BTreeSet::new())),
+            failed: Arc::new(Mutex::new(BTreeSet::new())),
+            finished: Arc::new(Mutex::new(finished)),
+            pending_tasks: Arc::new(Mutex::new(pending_tasks)),
             _marker_t: PhantomData,
             _marker_u: PhantomData,
         }
@@ -145,7 +133,6 @@ where
             func: self.func.clone(),
             final_rdd: self.final_rdd.clone(),
             run_id: self.run_id,
-            thread_pool: self.thread_pool.clone(),
             waiting: self.waiting.clone(),
             running: self.running.clone(),
             failed: self.running.clone(),
