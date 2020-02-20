@@ -17,7 +17,7 @@ use log::LevelFilter as LogLevel;
 use once_cell::sync::{Lazy, OnceCell};
 use parking_lot::{Mutex, RwLock};
 use thiserror::Error;
-use tokio::runtime::Runtime;
+use tokio::runtime::{Handle, Runtime};
 
 type ShuffleCache = Arc<RwLock<HashMap<(usize, usize, usize), Vec<u8>>>>;
 
@@ -33,6 +33,8 @@ pub(crate) mod config_vars {
 pub(crate) const THREAD_PREFIX: &str = "_NS";
 static CONF: OnceCell<Configuration> = OnceCell::new();
 static ENV: OnceCell<Env> = OnceCell::new();
+static ASYNC_HANDLE: Lazy<Handle> = Lazy::new(Handle::current);
+
 pub(crate) static shuffle_cache: Lazy<ShuffleCache> =
     Lazy::new(|| Arc::new(RwLock::new(HashMap::new())));
 pub(crate) static the_cache: Lazy<BoundedMemoryCache> = Lazy::new(BoundedMemoryCache::new);
@@ -42,22 +44,37 @@ pub(crate) struct Env {
     pub shuffle_manager: ShuffleManager,
     pub shuffle_fetcher: ShuffleFetcher,
     pub cache_tracker: CacheTracker,
-    pub async_rt: Mutex<Runtime>,
+    async_rt: Option<Runtime>,
 }
 
 /// Builds an async executor for executing DAG tasks according to env,
 /// machine properties and schedulling mode.
-pub(crate) fn build_async_executor() -> Runtime {
-    tokio::runtime::Builder::new()
-        .enable_all()
-        .threaded_scheduler()
-        .build()
-        .unwrap()
+fn build_async_executor() -> Option<Runtime> {
+    if Handle::try_current().is_ok() {
+        None
+    } else {
+        Some(
+            tokio::runtime::Builder::new()
+                .enable_all()
+                .threaded_scheduler()
+                .build()
+                .unwrap(),
+        )
+    }
 }
 
 impl Env {
     pub fn get() -> &'static Env {
         ENV.get_or_init(Self::new)
+    }
+
+    /// Get a handle to the current running async executor to spawn tasks.
+    pub fn get_async_handle() -> &'static Handle {
+        if let Some(executor) = &ENV.get_or_init(Self::new).async_rt {
+            executor.handle()
+        } else {
+            &ASYNC_HANDLE
+        }
     }
 
     fn new() -> Self {
@@ -73,7 +90,7 @@ impl Env {
                 conf.local_ip,
                 &the_cache,
             ),
-            async_rt: Mutex::new(build_async_executor()),
+            async_rt: build_async_executor(),
         }
     }
 }

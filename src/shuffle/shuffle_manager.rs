@@ -178,7 +178,7 @@ impl ShuffleManager {
                         loop {
                             let res = client.get(status_uri.clone()).await?;
                             // dispatch all queued requests responses
-                            while let Ok(()) = rcv_child.recv() {
+                            while let Ok(()) = rcv_child.try_recv() {
                                 send_child.send(Ok(res.status()));
                             }
                             // sleep for a while before checking again if there are status requests

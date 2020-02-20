@@ -17,7 +17,6 @@ use hyper::{
 };
 use log::info;
 use parking_lot::Mutex;
-use threadpool::ThreadPool;
 
 /// Parallel shuffle fetcher.
 pub(crate) struct ShuffleFetcher;
