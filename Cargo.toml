@@ -27,7 +27,7 @@ parking_lot = { version = "0.10.0", features = ["serde"] }
 simplelog = "0.7.4"
 thiserror = "1.0.11"
 toml = "0.5.6"
-tokio = { version = "^0.2", features = ["full"] }
+tokio = { version = "^0.2.0", features = ["rt-core", "rt-threaded", "sync", "parking_lot"] }
 uuid = { version = "0.8", features = ["v4"] }
 regex = "1.3.4"
 
@@ -39,6 +39,7 @@ rand_pcg = "0.2"
 # serialization
 bincode = "1.2.1"
 capnp = "0.12.1"
+capnp-futures = "0.12.0"
 serde = { version = "1.0.104", features = ["rc"] }
 serde_closure = "^0.2.9"
 serde_derive = "1.0.104"
@@ -62,7 +63,10 @@ default-features = false
 capnpc = "0.12.1"
 
 [dev-dependencies]
+async-std = { version = "1.5.0", features = ["attributes"] }
 chrono = "0.4.10"
 parquet = "0.15.1"
 tempfile = "3"
-async-std = { version = "1.5.0", features = ["attributes"] }
+
+[dev-dependencies.tokio]
+features = ["test-util", "macros"]

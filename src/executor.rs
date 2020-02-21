@@ -1,5 +1,5 @@
 use std::future::Future;
-use std::net::SocketAddr;
+use std::net::{SocketAddr, TcpListener};
 use std::pin::Pin;
 use std::sync::Arc;
 use std::thread;
@@ -12,18 +12,15 @@ use crate::task::TaskOption;
 use capnp::{
     message::{Builder as MsgBuilder, HeapAllocator, Reader as CpnpReader},
     serialize::OwnedSegments,
-    serialize_packed,
 };
+use capnp_futures::serialize;
+use futures::io::{AllowStdIo, AsyncReadExt, BufReader};
 use hyper::{
     service::{make_service_fn, service_fn},
     Body, Request, Response, Server,
 };
-use log::info;
 use serde::{Deserialize, Serialize};
 use tokio::{
-    io::{AsyncReadExt, BufReader},
-    net::TcpListener,
-    stream::StreamExt,
     sync::mpsc::{channel, Receiver, Sender},
     task,
 };
@@ -60,39 +57,26 @@ impl Executor {
     #[allow(clippy::drop_copy)]
     async fn process_stream(self: Arc<Self>, mut rcv_main: Receiver<Signal>) -> Result<()> {
         let addr = SocketAddr::from(([0, 0, 0, 0], self.port));
-        let mut listener = TcpListener::bind(addr)
-            .await
-            .map_err(NetworkError::TcpListener)?;
+        let mut listener = TcpListener::bind(addr).map_err(NetworkError::TcpListener)?;
         let mut conn_errors = 0usize;
-        // TODO profile which way is the most effitient of doing this
-        // 1) reuse the same buffer and only await on run task;
-        // 2) create a new buffer per stream and deserialize them in parallel;
-        //    unlikely to gain much here as the socket is physically occupied
-        let mut buf: Vec<u8> = Vec::new();
-        while let Some(stream) = listener.incoming().next().await {
+        for stream in listener.incoming() {
+            if let Ok(Signal::ShutDown) = rcv_main.try_recv() {
+                break;
+            }
             match stream {
                 Ok(stream) => {
-                    if let Ok(Signal::ShutDown) = rcv_main.try_recv() {
-                        break;
-                    }
-                    buf.clear();
-                    let mut reader = BufReader::new(stream);
-                    let signal = reader
-                        .read_to_end(&mut buf)
+                    let mut buf = BufReader::new(AllowStdIo::new(stream));
+                    let r = capnp::message::ReaderOptions {
+                        traversal_limit_in_words: std::u64::MAX,
+                        nesting_limit: 64,
+                    };
+                    if let Some(message) = serialize::read_message(&mut buf, r)
                         .await
-                        .map_err(Error::InputRead)?;
-                    let message_reader =
-                        task::block_in_place(|| -> Result<CpnpReader<OwnedSegments>> {
-                            let r = capnp::message::ReaderOptions {
-                                traversal_limit_in_words: std::u64::MAX,
-                                nesting_limit: 64,
-                            };
-                            let mut stream_r = std::io::BufReader::new(&*buf);
-                            serialize_packed::read_message(&mut stream_r, r)
-                                .map_err(Error::CapnpDeserialization)
-                        })?;
-                    let message = self.run_task(message_reader).await.unwrap();
-                    serialize_packed::write_message(&mut buf, &message);
+                        .map_err(Error::CapnpDeserialization)?
+                    {
+                        let message = self.run_task(message).await.unwrap();
+                        serialize::write_message(&mut buf, &message);
+                    };
                 }
                 Err(_) => {
                     conn_errors += 1;
@@ -207,18 +191,16 @@ impl Executor {
 
     async fn signal_handler(self: Arc<Self>, mut send_child: Sender<Signal>) -> Result<()> {
         let addr = SocketAddr::from(([0, 0, 0, 0], self.port + 10));
-        let mut listener = TcpListener::bind(addr)
-            .await
-            .map_err(NetworkError::TcpListener)?;
-        let mut buf: Vec<u8> = Vec::new();
+        let mut listener = TcpListener::bind(addr).map_err(NetworkError::TcpListener)?;
         let mut conn_errors = 0usize;
-        while let Some(stream) = listener.incoming().next().await {
+        let mut buf = Vec::new();
+        for stream in listener.incoming() {
             log::debug!("inside end signal stream");
             match stream {
                 Ok(stream) => {
                     buf.clear();
-                    let mut reader = BufReader::new(stream);
-                    let signal = reader
+                    let mut reader = BufReader::new(AllowStdIo::new(stream));
+                    reader
                         .read_to_end(&mut buf)
                         .await
                         .map_err(Error::InputRead)?;
