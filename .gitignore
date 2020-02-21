@@ -6,3 +6,4 @@
 # build
 /target/
 /userGuide/book
+/Cargo.lock
