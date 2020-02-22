@@ -11,6 +11,9 @@ pub enum Error {
     #[error("async runtime configuration error")]
     AsyncRuntimeError,
 
+    #[error(transparent)]
+    AsyncJoinError(#[from] tokio::task::JoinError),
+
     #[error("failed to run {command}")]
     CommandOutput {
         source: std::io::Error,

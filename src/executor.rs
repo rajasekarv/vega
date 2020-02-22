@@ -11,16 +11,18 @@ use crate::serialized_data_capnp::serialized_data;
 use crate::task::TaskOption;
 use async_std::net::TcpListener;
 use capnp::{
-    message::{Builder as MsgBuilder, HeapAllocator, Reader as CpnpReader},
+    message::{Builder as MsgBuilder, HeapAllocator, Reader as CpnpReader, ReaderOptions},
     serialize::OwnedSegments,
 };
 use capnp_futures::serialize;
-use futures::{
-    io::{AllowStdIo, AsyncReadExt, BufReader},
-    FutureExt, StreamExt,
-};
+use futures::{io::BufReader, AsyncReadExt, AsyncWriteExt, FutureExt, StreamExt};
 use serde::{Deserialize, Serialize};
 use tokio::sync::oneshot::{channel, Receiver, Sender};
+
+const CAPNP_BUF_READ_OPTS: ReaderOptions = ReaderOptions {
+    traversal_limit_in_words: std::u64::MAX,
+    nesting_limit: 64,
+};
 
 pub(crate) struct Executor {
     port: u16,
@@ -49,7 +51,7 @@ impl Executor {
             let handler_err = tokio::spawn(Arc::clone(&self).signal_handler(send_child));
             tokio::select! {
                 err = process_err => err,
-                err = handler_err => err.unwrap(),
+                err = handler_err => err?,
             }
         })?;
         Err(Error::ExecutorShutdown)
@@ -62,29 +64,27 @@ impl Executor {
             .await
             .map_err(NetworkError::TcpListener)?;
 
-        while let Some(stream) = listener.incoming().next().await {
+        while let Some(mut stream) = listener.incoming().next().await {
             if let Ok(Signal::ShutDown) = rcv_main.try_recv() {
                 break;
             }
             let mut stream = stream.unwrap();
             let mut buf = BufReader::new(stream);
-            let options = capnp::message::ReaderOptions {
-                traversal_limit_in_words: std::u64::MAX,
-                nesting_limit: 64,
-            };
-            if let Some(message) = serialize::read_message(&mut buf, options).await? {
-                let message = self.run_task(message).await.unwrap();
+            if let Some(message) = serialize::read_message(&mut buf, CAPNP_BUF_READ_OPTS).await? {
+                let des_task = self.deserialize_task(message)?;
+                let message = tokio::spawn(Arc::clone(&self).run_task(des_task)).await??;
                 serialize::write_message(&mut buf, &message);
+                buf.flush().await;
             };
         }
         Err(Error::ExecutorShutdown)
     }
 
     #[allow(clippy::drop_copy)]
-    async fn run_task(
+    fn deserialize_task(
         self: &Arc<Self>,
         message_reader: CpnpReader<OwnedSegments>,
-    ) -> Result<MsgBuilder<HeapAllocator>> {
+    ) -> Result<TaskOption> {
         let task_data = message_reader
             .get_root::<serialized_data::Reader>()
             .unwrap();
@@ -93,6 +93,7 @@ impl Executor {
             self.port,
             task_data.get_msg().unwrap().len()
         );
+        let port = self.port;
         let start = Instant::now();
         // let local_dir_root = "/tmp";
         // let uuid = Uuid::new_v4();
@@ -113,6 +114,7 @@ impl Executor {
                 std::process::exit(0);
             }
         };
+        std::mem::drop(task_data);
         // f.write(msg);
         // let f = fs::File::open(task_dir_path.clone()).unwrap();
         // let mut f = fs::File::open(task_dir_path).unwrap();
@@ -124,45 +126,49 @@ impl Executor {
             self.port,
             des_task.get_task_id(),
         );
-        std::mem::drop(task_data);
         log::debug!(
             "time taken in server for deserializing:{} {}",
             self.port,
             start.elapsed().as_millis(),
         );
-        let start = Instant::now();
-        log::debug!("executing the trait from server port {}", self.port);
-        //TODO change attempt id from 0 to proper value
-        let result = des_task.run(0).await;
+        Ok(des_task)
+    }
 
-        log::debug!(
-            "time taken in server for running:{} {}",
-            self.port,
-            start.elapsed().as_millis(),
-        );
-        let start = Instant::now();
-        let result = bincode::serialize(&result).unwrap();
-        log::debug!(
-            "task in executor {} {} slave result len",
-            self.port,
-            result.len()
-        );
-        log::debug!(
-            "time taken in server for serializing:{} {}",
-            self.port,
-            start.elapsed().as_millis(),
-        );
+    async fn run_task(self: Arc<Self>, des_task: TaskOption) -> Result<MsgBuilder<HeapAllocator>> {
+        // Run execution + serialization in parallel in the executor threadpool
+        let result: Result<Vec<u8>> = {
+            let start = Instant::now();
+            log::debug!("executing the task from server port {}", self.port);
+            //TODO change attempt id from 0 to proper value
+            let result = des_task.run(0).await;
+            log::debug!(
+                "time taken in server for running:{} {}",
+                self.port,
+                start.elapsed().as_millis(),
+            );
+            let start = Instant::now();
+            let result = bincode::serialize(&result)?;
+            log::debug!(
+                "task in executor {} {} slave result len",
+                self.port,
+                result.len()
+            );
+            log::debug!(
+                "time taken in server for serializing:{} {}",
+                self.port,
+                start.elapsed().as_millis(),
+            );
+            Ok(result)
+        };
+
         let mut message = capnp::message::Builder::new_default();
         let mut task_data = message.init_root::<serialized_data::Builder>();
         log::debug!("sending data to master");
-        task_data.set_msg(&result);
+        task_data.set_msg(&(result?));
         Ok(message)
     }
 
     /// A listener for exit signal from master to end the whole slave process.
-    // Ideally should start directly the async handler under the same executor concurrently with
-    // the task runner.
-    // However this won't be possible unless a non-blocking async TcpStream is used in both places.
     async fn signal_handler(self: Arc<Self>, mut send_child: Sender<Signal>) -> Result<()> {
         let addr = SocketAddr::from(([0, 0, 0, 0], self.port + 10));
         let mut listener = TcpListener::bind(addr)
@@ -172,11 +178,9 @@ impl Executor {
             log::debug!("inside end signal stream");
             let mut stream = stream.unwrap();
             let mut buf = BufReader::new(stream);
-            let options = capnp::message::ReaderOptions {
-                traversal_limit_in_words: std::u64::MAX,
-                nesting_limit: 64,
-            };
-            if let Some(signal_data) = serialize::read_message(&mut buf, options).await? {
+            if let Some(signal_data) =
+                serialize::read_message(&mut buf, CAPNP_BUF_READ_OPTS).await?
+            {
                 let data = bincode::deserialize::<Signal>(
                     signal_data
                         .get_root::<serialized_data::Reader>()?
@@ -210,21 +214,25 @@ pub(crate) enum Signal {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::utils::test_utils::get_free_port;
-    use std::io::Write;
-    use std::net::TcpStream;
+    use crate::task::TaskContext;
+    use crate::utils::test_utils::{create_test_task, get_free_port};
+    use async_std::net::TcpStream;
 
-    #[tokio::test]
-    async fn send_shutdown_signal() {
-        let port = get_free_port();
+    /// Wait until everything is running
+    async fn initialize_exec(signal: bool) -> (std::thread::JoinHandle<Result<()>>, TcpStream) {
+        let mut port = get_free_port();
         let err = thread::spawn(move || {
-            let executor = Arc::new(Executor::new(55000));
+            let executor = Arc::new(Executor::new(port));
             executor.worker()
         });
-        // wait until everything is running
+
         let mut i: usize = 0;
-        let mut stream = loop {
-            if let Ok(stream) = TcpStream::connect(format!("{}:{}", "0.0.0.0", 55010)) {
+        if signal {
+            // connect to signal handling port
+            port += 10;
+        }
+        let stream = loop {
+            if let Ok(stream) = TcpStream::connect(format!("{}:{}", "0.0.0.0", port)).await {
                 break stream;
             }
             tokio::time::delay_for(Duration::from_millis(10)).await;
@@ -233,13 +241,54 @@ mod tests {
                 panic!("failed openning tcp conn");
             }
         };
+        (err, stream)
+    }
 
-        let signal = bincode::serialize(&Signal::ShutDown).unwrap();
+    #[tokio::test]
+    #[ignore]
+    async fn send_shutdown_signal() -> Result<()> {
+        let (err, mut stream) = initialize_exec(true).await;
+        let mut buf = BufReader::new(stream);
+
+        let signal = bincode::serialize(&Signal::ShutDown)?;
         let mut message = capnp::message::Builder::new_default();
         let mut msg_data = message.init_root::<serialized_data::Builder>();
         msg_data.set_msg(&signal);
-        capnp::serialize::write_message(&mut stream, &message);
+        serialize::write_message(&mut buf, &message);
+        buf.flush().await;
 
         assert!(err.join().unwrap().unwrap_err().executor_shutdown());
+        Ok(())
+    }
+
+    #[tokio::test]
+    #[ignore]
+    async fn send_task() -> Result<()> {
+        let (_, mut stream) = initialize_exec(false).await;
+        let mut buf = BufReader::new(stream);
+
+        // Mock data:
+        let func = Fn!(
+            move |(task_context, iter): (TaskContext, Box<dyn Iterator<Item = u8>>)| -> u8 {
+                // let iter = iter.collect::<Vec<u8>>();
+                // eprintln!("{:?}", iter);
+                iter.into_iter().next().unwrap()
+            }
+        );
+        let mock_task: TaskOption = create_test_task(func).into();
+        let ser_task = bincode::serialize(&mock_task)?;
+
+        // Send task to executor:
+        let mut message = capnp::message::Builder::new_default();
+        let mut msg_data = message.init_root::<serialized_data::Builder>();
+        msg_data.set_msg(&ser_task);
+        serialize::write_message(&mut buf, &message);
+        buf.flush().await;
+
+        // Get the results back:
+        if let Some(msg) = serialize::read_message(&mut buf, CAPNP_BUF_READ_OPTS).await? {
+            assert!(true);
+        }
+        Ok(())
     }
 }
