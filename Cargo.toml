@@ -13,6 +13,8 @@ name = "native_spark"
 aws_connectors = ["rusoto_core", "rusoto_s3"]
 
 [dependencies]
+# this is a temporal dependency until tokio moves to futures::AsyncRead which WIP
+async-std = "1.5.0"
 async-trait = "0.1.24"
 crossbeam = "0.7.3"
 fasthash = "0.4.0"

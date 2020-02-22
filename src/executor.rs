@@ -1,31 +1,26 @@
 use std::future::Future;
-use std::net::{SocketAddr, TcpListener};
+use std::net::SocketAddr;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::thread;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use crate::env;
 use crate::error::{Error, NetworkError, Result, StdResult};
 use crate::serialized_data_capnp::serialized_data;
 use crate::task::TaskOption;
+use async_std::net::TcpListener;
 use capnp::{
     message::{Builder as MsgBuilder, HeapAllocator, Reader as CpnpReader},
     serialize::OwnedSegments,
 };
 use capnp_futures::serialize;
-use futures::io::{AllowStdIo, AsyncReadExt, BufReader};
-use hyper::{
-    service::{make_service_fn, service_fn},
-    Body, Request, Response, Server,
+use futures::{
+    io::{AllowStdIo, AsyncReadExt, BufReader},
+    FutureExt, StreamExt,
 };
 use serde::{Deserialize, Serialize};
-use tokio::{
-    sync::mpsc::{channel, Receiver, Sender},
-    task,
-};
-
-const CONN_ERROR_GUARD: usize = 10;
+use tokio::sync::oneshot::{channel, Receiver, Sender};
 
 pub(crate) struct Executor {
     port: u16,
@@ -33,58 +28,54 @@ pub(crate) struct Executor {
 
 impl Executor {
     pub fn new(port: u16) -> Self {
-        // let (send_child, rcv_main) = cb_channel::bounded::<Signal>(1);
         Executor { port }
     }
 
-    /// Worker which spawns threads for received tasks, deserializes it and executes the task and send the result back to the master.
+    /// Worker which spawns threads for received tasks, deserializes them,
+    /// executes the task and sends the result back to the master.
     ///
-    /// This will spawn it's own Tokio runtime to run tasks on.
+    /// This will spawn it's own Tokio runtime to run the tasks on.
     pub fn worker(self: Arc<Self>) -> Result<()> {
         let parallelism = num_cpus::get();
-        let (send_child, rcv_main) = channel(1);
         let mut rt = tokio::runtime::Builder::new()
             .enable_all()
             .threaded_scheduler()
             .core_threads(parallelism)
             .build()
             .unwrap();
-        Arc::clone(&self).start_exit_signal(send_child)?;
-        rt.block_on(self.process_stream(rcv_main))?;
+        rt.block_on(async move {
+            let (send_child, rcv_main) = channel::<Signal>();
+            let process_err = Arc::clone(&self).process_stream(rcv_main);
+            let handler_err = tokio::spawn(Arc::clone(&self).signal_handler(send_child));
+            tokio::select! {
+                err = process_err => err,
+                err = handler_err => err.unwrap(),
+            }
+        })?;
         Err(Error::ExecutorShutdown)
     }
 
     #[allow(clippy::drop_copy)]
     async fn process_stream(self: Arc<Self>, mut rcv_main: Receiver<Signal>) -> Result<()> {
         let addr = SocketAddr::from(([0, 0, 0, 0], self.port));
-        let mut listener = TcpListener::bind(addr).map_err(NetworkError::TcpListener)?;
-        let mut conn_errors = 0usize;
-        for stream in listener.incoming() {
+        let mut listener = TcpListener::bind(addr)
+            .await
+            .map_err(NetworkError::TcpListener)?;
+
+        while let Some(stream) = listener.incoming().next().await {
             if let Ok(Signal::ShutDown) = rcv_main.try_recv() {
                 break;
             }
-            match stream {
-                Ok(stream) => {
-                    let mut buf = BufReader::new(AllowStdIo::new(stream));
-                    let r = capnp::message::ReaderOptions {
-                        traversal_limit_in_words: std::u64::MAX,
-                        nesting_limit: 64,
-                    };
-                    if let Some(message) = serialize::read_message(&mut buf, r)
-                        .await
-                        .map_err(Error::CapnpDeserialization)?
-                    {
-                        let message = self.run_task(message).await.unwrap();
-                        serialize::write_message(&mut buf, &message);
-                    };
-                }
-                Err(_) => {
-                    conn_errors += 1;
-                    if conn_errors > CONN_ERROR_GUARD {
-                        return Err(NetworkError::ConnectionFailure.into());
-                    }
-                }
-            }
+            let mut stream = stream.unwrap();
+            let mut buf = BufReader::new(stream);
+            let options = capnp::message::ReaderOptions {
+                traversal_limit_in_words: std::u64::MAX,
+                nesting_limit: 64,
+            };
+            if let Some(message) = serialize::read_message(&mut buf, options).await? {
+                let message = self.run_task(message).await.unwrap();
+                serialize::write_message(&mut buf, &message);
+            };
         }
         Err(Error::ExecutorShutdown)
     }
@@ -169,55 +160,35 @@ impl Executor {
     }
 
     /// A listener for exit signal from master to end the whole slave process.
-    fn start_exit_signal(self: Arc<Self>, send_child: Sender<Signal>) -> Result<()> {
-        let thread =
-            thread::Builder::new().name(format!("{}_exec_signal_handler", env::THREAD_PREFIX));
-        thread
-            .spawn(move || -> Result<()> {
-                let mut rt = tokio::runtime::Builder::new()
-                    .enable_all()
-                    .basic_scheduler()
-                    .core_threads(1)
-                    .thread_stack_size(1024)
-                    .build()
-                    .map_err(|_| Error::AsyncRuntimeError)?;
-                rt.block_on(self.signal_handler(send_child))?;
-                Err(Error::AsyncRuntimeError)
-            })
-            .unwrap()
-            .join()
-            .unwrap()
-    }
-
+    // Ideally should start directly the async handler under the same executor concurrently with
+    // the task runner.
+    // However this won't be possible unless a non-blocking async TcpStream is used in both places.
     async fn signal_handler(self: Arc<Self>, mut send_child: Sender<Signal>) -> Result<()> {
         let addr = SocketAddr::from(([0, 0, 0, 0], self.port + 10));
-        let mut listener = TcpListener::bind(addr).map_err(NetworkError::TcpListener)?;
-        let mut conn_errors = 0usize;
-        let mut buf = Vec::new();
-        for stream in listener.incoming() {
+        let mut listener = TcpListener::bind(addr)
+            .await
+            .map_err(NetworkError::TcpListener)?;
+        while let Some(stream) = listener.incoming().next().await {
             log::debug!("inside end signal stream");
-            match stream {
-                Ok(stream) => {
-                    buf.clear();
-                    let mut reader = BufReader::new(AllowStdIo::new(stream));
-                    reader
-                        .read_to_end(&mut buf)
-                        .await
-                        .map_err(Error::InputRead)?;
-                    if let Signal::ShutDown = bincode::deserialize::<Signal>(&buf)? {
-                        // signal shut down to the main executor task receiving thread
-                        log::debug!("received shutdown signal @ {}", self.port);
-                        send_child.send(Signal::ShutDown);
-                        break;
-                    }
+            let mut stream = stream.unwrap();
+            let mut buf = BufReader::new(stream);
+            let options = capnp::message::ReaderOptions {
+                traversal_limit_in_words: std::u64::MAX,
+                nesting_limit: 64,
+            };
+            if let Some(signal_data) = serialize::read_message(&mut buf, options).await? {
+                let data = bincode::deserialize::<Signal>(
+                    signal_data
+                        .get_root::<serialized_data::Reader>()?
+                        .get_msg()?,
+                )?;
+                if let Signal::ShutDown = data {
+                    // signal shut down to the main executor task receiving thread
+                    log::debug!("received shutdown signal @ {}", self.port);
+                    send_child.send(Signal::ShutDown);
+                    break;
                 }
-                Err(_) => {
-                    conn_errors += 1;
-                    if conn_errors > CONN_ERROR_GUARD {
-                        return Err(NetworkError::ConnectionFailure.into());
-                    }
-                }
-            }
+            };
         }
         Err(Error::ExecutorShutdown)
     }
@@ -234,4 +205,41 @@ impl Drop for Executor {
 pub(crate) enum Signal {
     ShutDown,
     Continue,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::utils::test_utils::get_free_port;
+    use std::io::Write;
+    use std::net::TcpStream;
+
+    #[tokio::test]
+    async fn send_shutdown_signal() {
+        let port = get_free_port();
+        let err = thread::spawn(move || {
+            let executor = Arc::new(Executor::new(55000));
+            executor.worker()
+        });
+        // wait until everything is running
+        let mut i: usize = 0;
+        let mut stream = loop {
+            if let Ok(stream) = TcpStream::connect(format!("{}:{}", "0.0.0.0", 55010)) {
+                break stream;
+            }
+            tokio::time::delay_for(Duration::from_millis(10)).await;
+            i += 1;
+            if i > 10 {
+                panic!("failed openning tcp conn");
+            }
+        };
+
+        let signal = bincode::serialize(&Signal::ShutDown).unwrap();
+        let mut message = capnp::message::Builder::new_default();
+        let mut msg_data = message.init_root::<serialized_data::Builder>();
+        msg_data.set_msg(&signal);
+        capnp::serialize::write_message(&mut stream, &message);
+
+        assert!(err.join().unwrap().unwrap_err().executor_shutdown());
+    }
 }

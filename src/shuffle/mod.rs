@@ -23,13 +23,13 @@ pub enum ShuffleError {
     #[error("failure while initializing/running the async runtime")]
     AsyncRuntimeError,
 
-    #[error("failed to create local shuffle dir after 10 attempts")]
+    #[error("failed to create local shuffle dir")]
     CouldNotCreateShuffleDir,
 
-    #[error("deserialization error")]
+    #[error(transparent)]
     DeserializationError(#[from] bincode::Error),
 
-    #[error("incorrect URI sent in the request")]
+    #[error(transparent)]
     IncorrectUri(#[from] http::uri::InvalidUri),
 
     #[error("internal server error")]
@@ -50,7 +50,7 @@ pub enum ShuffleError {
     #[error("cached data not found")]
     RequestedCacheNotFound,
 
-    #[error("unexpected shuffle server problem")]
+    #[error(transparent)]
     UnexpectedServerError(#[from] hyper::error::Error),
 
     #[error("unexpected URI sent in the request: {0}")]
@@ -90,18 +90,4 @@ impl ShuffleError {
             _ => false,
         }
     }
-}
-
-#[cfg(test)]
-fn get_free_port() -> u16 {
-    use std::net::TcpListener;
-
-    let mut port = 0;
-    for _ in 0..100 {
-        port = crate::utils::get_dynamic_port();
-        if TcpListener::bind(format!("127.0.0.1:{}", port)).is_ok() {
-            return port;
-        }
-    }
-    panic!("failed to find free port while testing");
 }

@@ -49,8 +49,9 @@ pub(crate) struct Env {
 
 /// Builds an async executor for executing DAG tasks according to env,
 /// machine properties and schedulling mode.
-fn build_async_executor() -> Option<Runtime> {
-    if Handle::try_current().is_ok() {
+fn build_async_executor(is_master: bool) -> Option<Runtime> {
+    if Handle::try_current().is_ok() || !is_master {
+        // don't initialize a runtime if this is not the master
         None
     } else {
         Some(
@@ -90,7 +91,7 @@ impl Env {
                 conf.local_ip,
                 &the_cache,
             ),
-            async_rt: build_async_executor(),
+            async_rt: build_async_executor(conf.is_master),
         }
     }
 }

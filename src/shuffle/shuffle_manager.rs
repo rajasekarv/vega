@@ -313,22 +313,12 @@ impl<T> Service<T> for ShuffleSvcMaker {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::utils::test_utils::get_free_port;
     use std::io::Read;
     use std::net::TcpListener;
     use std::sync::Arc;
     use std::time::Duration;
     use tokio::prelude::*;
-
-    fn get_free_port() -> u16 {
-        let mut port = 0;
-        for _ in 0..100 {
-            port = get_dynamic_port();
-            if TcpListener::bind(format!("127.0.0.1:{}", port)).is_ok() {
-                return port;
-            }
-        }
-        panic!("failed to find free port while testing");
-    }
 
     fn client() -> Client<hyper::client::HttpConnector, Body> {
         Client::builder().http2_only(true).build_http::<Body>()

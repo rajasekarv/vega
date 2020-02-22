@@ -156,7 +156,7 @@ impl ShuffleFetcher {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::shuffle::get_free_port;
+    use crate::utils::test_utils::get_free_port;
 
     #[tokio::test]
     async fn fetch_ok() -> StdResult<(), Box<dyn std::error::Error + 'static>> {

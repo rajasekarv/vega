@@ -26,7 +26,6 @@ async fn existing_tokio_rt() -> Result<()> {
     Ok(())
 }
 
-// #[ignore]
 #[async_std::test]
 async fn existing_async_std_rt() -> Result<()> {
     let initially = async { "initially" }.await;

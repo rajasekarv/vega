@@ -32,11 +32,11 @@ pub enum Error {
     #[error("failed trying converting to type {0}")]
     ConversionError(&'static str),
 
-    #[error("deserialization error")]
-    DeserializationError(#[from] bincode::Error),
+    #[error(transparent)]
+    BincodeDeserialization(#[from] bincode::Error),
 
-    #[error("error de/serializing capnp message")]
-    CapnpDeserialization(#[source] capnp::Error),
+    #[error(transparent)]
+    CapnpDeserialization(#[from] capnp::Error),
 
     #[error("failure while downcasting an object to a concrete type: {0}")]
     DowncastFailure(&'static str),
@@ -87,10 +87,19 @@ pub enum Error {
     UnsupportedOperation(&'static str),
 }
 
+impl Error {
+    pub(crate) fn executor_shutdown(&self) -> bool {
+        match self {
+            Error::ExecutorShutdown => true,
+            _ => false,
+        }
+    }
+}
+
 #[derive(Debug, Error)]
 pub enum NetworkError {
-    #[error("failed while binding/reading from socket")]
-    TcpListener(#[source] tokio::io::Error),
+    #[error(transparent)]
+    TcpListener(#[from] tokio::io::Error),
 
     #[error("disconnected from address")]
     ConnectionFailure,

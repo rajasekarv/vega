@@ -216,7 +216,10 @@ impl Context {
                 TcpStream::connect(format!("{}:{}", socket_addr.ip(), socket_addr.port() + 10))
             {
                 let signal = bincode::serialize(&Signal::ShutDown).unwrap();
-                stream.write(&signal);
+                let mut message = ::capnp::message::Builder::new_default();
+                let mut task_data = message.init_root::<serialized_data::Builder>();
+                task_data.set_msg(&signal);
+                serialize_packed::write_message(&mut stream, &message);
             } else {
                 error!(
                     "Failed to connect to {}:{} in order to stop its executor",
