@@ -1,11 +1,18 @@
 use crate::serializable_traits::Data;
+use crate::rdd::Rdd;
+use crate::utils;
+
 use downcast_rs::Downcast;
 use fasthash::MetroHasher;
 use serde_derive::{Deserialize, Serialize};
 use serde_traitobject::{Deserialize, Serialize};
 use std::any::Any;
+use std::cmp::{min, max};
 use std::hash::{Hash, Hasher};
 use std::marker::PhantomData;
+use std::sync::Arc;
+use itertools::partition;
+use rand::{Rng, SeedableRng};
 
 /// Partitioner trait for creating Rdd partitions
 pub trait Partitioner:
@@ -53,6 +60,128 @@ impl<K: Data + Hash + Eq> Partitioner for HashPartitioner<K> {
     fn get_partition(&self, key: &dyn Any) -> usize {
         let key = key.downcast_ref::<K>().unwrap();
         hash(key) as usize % self.partitions
+    }
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+pub struct RangePartitioner<K: Data + Eq + PartialEq> {
+    ascending: bool,
+    partitions: usize,
+    #[serde(with = "serde_traitobject")]
+    range_bounds: Arc<Vec<K>>,
+    _marker: PhantomData<K>
+}
+
+impl<K: Data + Eq + PartialEq + Ord + PartialOrd> RangePartitioner<K> {
+    pub fn new<T>(
+        partitions: usize,
+        rdd: Arc<T>,
+        ascending: bool,
+        sample_point_per_partition_hint: usize
+    ) -> Self
+        where
+            T: Rdd<Item = K> + Sized
+    {
+        let mut range_bounds = Vec::new();
+        if partitions <= 1 {
+
+        } else {
+            let sample_size = min(
+                1000000,
+                sample_point_per_partition_hint * partitions
+            );
+            let sample_size_per_partition = sample_size * 3 / partitions;
+
+            let mut samples = Vec::<K>::new();
+
+            samples = rdd.map_partitions(
+                Box::new(
+                    Fn!(
+                        move |iter: Box<dyn Iterator<Item = K>>| -> Box<dyn Iterator<Item = K>> {
+                            let mut res = Vec::<K>::new();
+
+                            let mut rand = utils::random::get_rng_with_random_seed();
+                            for (idx, item) in iter.enumerate() {
+
+                                if idx < sample_size_per_partition {
+                                    res.push(item);
+                                } else {
+                                    let i = rand.gen_range(0, idx);
+                                    if i < idx {
+                                        res[i] = item
+                                    }
+                                }
+                            }
+                            Box::new(res.into_iter())
+                        }
+                    )
+                )
+            ).collect().unwrap();
+
+            samples.sort();
+
+            let step: f64 = samples.len() as f64 / (partitions - 1) as f64;
+            let mut i: f64 = 0.0;
+
+            for idx in 0 .. (partitions - 1) {
+                range_bounds.push(
+                    samples[min((i + step) as usize, samples.len() - 1)].clone()
+                );
+
+                i += step;
+            }
+        }
+
+        RangePartitioner {
+            ascending,
+            partitions,
+            range_bounds: Arc::new(range_bounds),
+            _marker: PhantomData
+        }
+    }
+
+}
+
+impl<K: Data + Eq + PartialEq + Ord + PartialOrd> Partitioner for RangePartitioner<K> {
+    fn equals(&self, other: &dyn Any) -> bool {
+        if let Some(rp) = other.downcast_ref::<RangePartitioner<K>>() {
+            if self.partitions == rp.partitions
+                && self.ascending == rp.ascending
+            {
+                if self.range_bounds.len() == rp.range_bounds.len() {
+                    for idx in (0..self.range_bounds.len()) {
+                        if self.range_bounds[idx] != rp.range_bounds[idx] {
+                            return false;
+                        }
+                    }
+                }
+                return true;
+            } else {
+                return false;
+            }
+        } else {
+            return false;
+        }
+    }
+
+    fn get_num_of_partitions(&self) -> usize {
+        self.partitions
+    }
+
+    fn get_partition(&self,  key: &dyn Any) -> usize {
+        let key = key.downcast_ref::<K>().unwrap();
+        let r_b = &(self.range_bounds);
+        let len = r_b.len();
+        if len == 1 {
+            return 0;
+        } else {
+            for idx in (0..len) {
+                if key < &r_b[idx] {
+                    return idx;
+                }
+            }
+            return len;
+        }
     }
 }
 

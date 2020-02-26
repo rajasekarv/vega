@@ -10,7 +10,7 @@ use std::sync::{atomic::AtomicBool, atomic::Ordering::SeqCst, Arc};
 use crate::context::Context;
 use crate::dependency::{Dependency, OneToOneDependency};
 use crate::error::{Error, Result};
-use crate::partitioner::{HashPartitioner, Partitioner};
+use crate::partitioner::{HashPartitioner, Partitioner, RangePartitioner};
 use crate::serializable_traits::{AnyData, Data, Func, SerFunc};
 use crate::split::Split;
 use crate::task::TaskContext;
@@ -694,6 +694,130 @@ pub trait Rdd: RddBase + 'static {
             Arc::new(self.clone()) as Arc<dyn Rdd<Item = Self::Item>>,
             second,
         ))
+    }
+
+    fn intersection<T>(
+        &self,
+        other: Arc<T>,
+    ) -> SerArc<dyn Rdd<Item=Self::Item>>
+        where
+            Self: Clone,
+            Self::Item: Data + Eq + Hash,
+            T: Rdd<Item=Self::Item> + Sized,
+    {
+        self.intersection_with_num_partitions(
+            other,
+            self.number_of_splits()
+        )
+    }
+
+    fn intersection_with_num_partitions<T>(
+        &self,
+        other: Arc<T>,
+        num_splits: usize,
+    ) -> SerArc<dyn Rdd<Item=Self::Item>>
+        where
+            Self: Clone,
+            Self::Item: Data + Eq + Hash,
+            T: Rdd<Item=Self::Item> + Sized,
+    {
+        let other = other.map(
+            Box::new(Fn!(
+                    |x: Self::Item| -> (Self::Item, Option<Self::Item>){
+                        (x, None)
+                    }
+                )
+            )
+        ).clone();
+        self.map(
+            Box::new(Fn!(
+                    |x| -> (Self::Item, Option<Self::Item>){
+                        (x, None)
+                    }
+                )
+            )
+        ).cogroup(
+            other,
+            Box::new(HashPartitioner::<Self::Item>::new(num_splits)) as Box<dyn Partitioner>
+        ).map(
+            Box::new(
+                Fn!(
+                    |(x, (v1, v2)): (Self::Item, (Vec::<Option<Self::Item>>, Vec::<Option<Self::Item>>))| -> Option<Self::Item> {
+                        if v1.len() >= 1 && v2.len() >= 1 {
+                            Some(x)
+                        } else {
+                            None
+                        }
+                    }
+                )
+            )
+        ).map_partitions(
+            Box::new(
+                Fn!(
+                    |iter: Box<dyn Iterator<Item=Option<Self::Item>>>| -> Box<dyn Iterator<Item=Self::Item>> {
+                        Box::new(
+                            iter.filter(|x| x.is_some()).map(|x| x.unwrap())
+                        ) as Box<dyn Iterator<Item=Self::Item>>
+                    }
+                )
+            )
+        )
+    }
+
+    fn sort_by<K, F>(
+        &self,
+        ascending: bool,
+        num_partitions: usize,
+        func: F,
+    ) -> SerArc<dyn Rdd<Item=Self::Item>>
+        where
+            K: Data + Eq + Hash + PartialEq + Ord + PartialOrd + Clone,
+            F: SerFunc(Self::Item) -> K + Clone,
+            Self::Item: Data + Eq  + Hash,
+            Self: Sized + Clone
+    {
+        let sample_rdd = self.clone().map(
+            func.clone()
+        );
+
+        let part = RangePartitioner::<K>::new(
+            num_partitions,
+            Arc::new(sample_rdd),
+            ascending,
+            20
+        );
+        let f_clone = func.clone();
+//        SerArc::new(sample_rdd)
+        let rdd = self.map(
+            Box::new(
+                Fn!(
+                    move |x: Self::Item| -> (K, Self::Item) {
+                        ((f_clone)(x.clone()), x.clone())
+                    }
+                )
+            )
+        );
+
+        rdd.partition_by_key(Box::new(part)).map_partitions(
+            Fn!(move|iter: Box<dyn Iterator<Item=Self::Item>>| -> Box<dyn Iterator<Item=Self::Item>> {
+                let f_clone = func.clone();
+                let mut res: Vec<(K, Self::Item)> = iter.map(
+                    move|v| {
+                        (f_clone(v.clone()), v)
+                    }
+                ).collect();
+                res.sort_by_key(
+                    |t| {
+                        t.0.clone()
+                    }
+                );
+                Box::new(res.into_iter().map(
+                    |(k, v)| {
+                        v
+                    }
+                ))
+            })
+        )
     }
 }
 

@@ -419,3 +419,46 @@ fn test_zip() {
     ];
     assert_eq!(res, expected);
 }
+
+#[test]
+fn test_sort_by() {
+    let sc = CONTEXT.clone();
+    let col = vec![
+        1,
+        3,
+        2,
+        4,
+        4,
+        10,
+        9,
+        13,
+        19,
+        0
+    ];
+
+
+    let rdd = sc.parallelize(col, 2);
+    let res = rdd.sort_by(
+        true,
+        5,
+        Fn!(
+            |x| {
+                x
+            }
+        )
+    ).collect().unwrap();
+
+    let expected = vec![
+        0,
+        1,
+        2,
+        3,
+        4,
+        4,
+        9,
+        10,
+        13,
+        19
+    ];
+    assert_eq!(res, expected);
+}
