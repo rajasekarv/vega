@@ -418,49 +418,26 @@ fn test_zip() {
         (5, "1a".to_string()),
     ];
     assert_eq!(res, expected);
-
 }
 
 #[test]
 fn test_intersection_with_num_partitions() {
     let sc = CONTEXT.clone();
 
-    let col1 = vec![
-        1,
-        2,
-        3,
-        4,
-        5,
-        10,
-        12,
-        13,
-        19,
-        0
-    ];
+    let col1 = vec![1, 2, 3, 4, 5, 10, 12, 13, 19, 0];
 
-    let col2 = vec![
-        3,
-        4,
-        5,
-        6,
-        7,
-        8,
-        11,
-        13
-    ];
+    let col2 = vec![3, 4, 5, 6, 7, 8, 11, 13];
 
     let first = sc.parallelize(col1, 2);
     let second = sc.parallelize(col2, 4);
-    let mut res = first.intersection_with_num_partitions(Arc::new(second), 3).collect().unwrap();
+    let mut res = first
+        .intersection_with_num_partitions(Arc::new(second), 3)
+        .collect()
+        .unwrap();
 
     res.sort();
 
-    let expected = vec![
-        3,
-        4,
-        5,
-        13
-    ];
+    let expected = vec![3, 4, 5, 13];
     assert_eq!(res, expected);
 }
 
@@ -468,29 +445,9 @@ fn test_intersection_with_num_partitions() {
 fn test_intersection() {
     let sc = CONTEXT.clone();
 
-    let col1 = vec![
-        1,
-        2,
-        3,
-        4,
-        5,
-        10,
-        12,
-        13,
-        19,
-        0
-    ];
+    let col1 = vec![1, 2, 3, 4, 5, 10, 12, 13, 19, 0];
 
-    let col2 = vec![
-        3,
-        4,
-        5,
-        6,
-        7,
-        8,
-        11,
-        13
-    ];
+    let col2 = vec![3, 4, 5, 6, 7, 8, 11, 13];
 
     let first = sc.parallelize(col1, 2);
     let second = sc.parallelize(col2, 4);
@@ -498,11 +455,48 @@ fn test_intersection() {
 
     res.sort();
 
-    let expected = vec![
-        3,
-        4,
-        5,
-        13
+    let expected = vec![3, 4, 5, 13];
+    assert_eq!(res, expected);
+}
+
+#[test]
+fn test_sort_by() {
+    let sc = CONTEXT.clone();
+    let col = vec![
+        "1".to_string(),
+        "3".to_string(),
+        "2".to_string(),
+        "4".to_string(),
+        "4".to_string(),
+        "10".to_string(),
+        "9".to_string(),
+        "13".to_string(),
+        "19".to_string(),
+        "0".to_string(),
     ];
+
+    let rdd = sc.parallelize(col, 2);
+    let res = rdd
+        .sort_by(
+            true,
+            5,
+            Fn!(|x: &String| -> u8 { x.parse::<u8>().unwrap() }),
+        )
+        .collect()
+        .unwrap();
+
+    let expected = vec![
+        "0".to_string(),
+        "1".to_string(),
+        "2".to_string(),
+        "3".to_string(),
+        "4".to_string(),
+        "4".to_string(),
+        "9".to_string(),
+        "10".to_string(),
+        "13".to_string(),
+        "19".to_string(),
+    ];
+
     assert_eq!(res, expected);
 }

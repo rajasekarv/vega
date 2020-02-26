@@ -10,7 +10,7 @@ use std::sync::{atomic::AtomicBool, atomic::Ordering::SeqCst, Arc};
 use crate::context::Context;
 use crate::dependency::{Dependency, OneToOneDependency};
 use crate::error::{Error, Result};
-use crate::partitioner::{HashPartitioner, Partitioner};
+use crate::partitioner::{HashPartitioner, Partitioner, RangePartitioner};
 use crate::serializable_traits::{AnyData, Data, Func, SerFunc};
 use crate::split::Split;
 use crate::task::TaskContext;
@@ -757,6 +757,44 @@ pub trait Rdd: RddBase + 'static {
                 )
             )
         )
+    }
+
+    fn sort_by<K, F>(
+        &self,
+        ascending: bool,
+        num_partitions: usize,
+        func: F,
+    ) -> SerArc<dyn Rdd<Item = Self::Item>>
+    where
+        K: Data + Eq + Hash + PartialEq + Ord + PartialOrd,
+        F: SerFunc(&Self::Item) -> K,
+        Self::Item: Data + Eq + Hash,
+        Self: Sized + Clone,
+    {
+        let f_clone = func.clone();
+        let sample_rdd = self
+            .clone()
+            .map(Fn!(move |x: Self::Item| -> K { (f_clone)(&x) }));
+
+        let part = RangePartitioner::<K>::new(num_partitions, Arc::new(sample_rdd), ascending, 20);
+
+        /// func is called multiple time during sorting. perhaps change it later
+        let f_clone = func.clone();
+        let rdd = self.map(Box::new(Fn!(move |x: Self::Item| -> (K, Self::Item) {
+            ((f_clone)(&x), x)
+        })));
+
+        let f_clone = func.clone();
+        let sort = Fn!(
+        move|iter: Box<dyn Iterator<Item = Self::Item>>| -> Box<dyn Iterator<Item = Self::Item>> {
+            let mut res: Vec<Self::Item> = iter.collect();
+            /// sort_by_key expect a FnMut parameter, but f_clone only implement Fn
+            /// so a wrapper which implement FnMut needed here.
+            res.sort_by_key(|x| (f_clone)(&x));
+            Box::new(res.into_iter())
+        });
+
+        rdd.partition_by_key(Box::new(part)).map_partitions(sort)
     }
 }
 
