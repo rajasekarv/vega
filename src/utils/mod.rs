@@ -16,6 +16,14 @@ where
     }
 }
 
+/// Use this trick to block on the main `run_job` call to schedule the different
+/// tasks in parallel under the Tokio context.
+pub(crate) fn yield_tokio_futures() {
+    futures::executor::block_on(async {
+        tokio::task::yield_now().await;
+    });
+}
+
 #[test]
 #[cfg(test)]
 fn test_randomize_in_place() {
