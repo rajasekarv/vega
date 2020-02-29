@@ -2,7 +2,7 @@ use crate::serializable_traits::Data;
 use serde_derive::{Deserialize, Serialize};
 use std::marker::PhantomData;
 
-// Aggregator for shuffle tasks.
+/// Aggregator for shuffle tasks.
 #[derive(Serialize, Deserialize)]
 pub struct Aggregator<K: Data, V: Data, C: Data> {
     #[serde(with = "serde_traitobject")]
