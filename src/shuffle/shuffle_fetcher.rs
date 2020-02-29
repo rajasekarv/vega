@@ -3,8 +3,6 @@ use std::convert::TryFrom;
 use std::future::Future;
 use std::io::Read;
 use std::pin::Pin;
-use std::sync::mpsc::channel;
-use std::sync::mpsc::Sender;
 use std::sync::{atomic, atomic::AtomicBool, Arc};
 
 use crate::context::Context;
@@ -18,21 +16,18 @@ use hyper::{
     StatusCode, Uri,
 };
 use log::info;
-use parking_lot::Mutex;
 use threadpool::ThreadPool;
+use tokio::sync::{mpsc, Mutex};
 
 /// Parallel shuffle fetcher.
 pub(crate) struct ShuffleFetcher;
 
 impl ShuffleFetcher {
-    pub async fn fetch_2<K: Data, V: Data>(
+    pub async fn fetch<K: Data, V: Data>(
         shuffle_id: usize,
         reduce_id: usize,
         mut func: impl FnMut((K, V)) -> (),
     ) -> Result<()> {
-        use tokio::sync::mpsc;
-        use tokio::sync::Mutex;
-
         log::debug!("inside fetch function");
         let mut inputs_by_uri = HashMap::new();
         let server_uris = env::Env::get()
@@ -149,116 +144,9 @@ impl ShuffleFetcher {
         if chunk.len() == base.len() {
             chunk.push_str(&path_tail);
         } else {
-            //chunk.drain((chunk.len() - base.len())..);
             chunk.replace_range(base.len().., &path_tail);
         }
         Ok(Uri::try_from(chunk.as_str())?)
-    }
-
-    pub fn fetch<K: Data, V: Data>(
-        &self,
-        sc: Arc<Context>,
-        shuffle_id: usize,
-        reduce_id: usize,
-        mut func: impl FnMut((K, V)) -> (),
-    ) {
-        log::debug!("inside fetch function");
-        let parallel_fetches = 10; //TODO  make this as env variable
-        let thread_pool = ThreadPool::new(parallel_fetches);
-        let mut inputs_by_uri = HashMap::new();
-        let server_uris = env::Env::get()
-            .map_output_tracker
-            .get_server_uris(shuffle_id);
-        log::debug!(
-            "server uris for shuffle id {:?} - {:?}",
-            shuffle_id,
-            server_uris
-        );
-        for (index, server_uri) in server_uris.into_iter().enumerate() {
-            inputs_by_uri
-                .entry(server_uri)
-                .or_insert_with(Vec::new)
-                .push(index);
-        }
-        let server_queue = Arc::new(Mutex::new(Vec::new()));
-        let total_results: usize = inputs_by_uri.iter().map(|(_, v)| v.len()).sum();
-        for (key, value) in inputs_by_uri {
-            server_queue.lock().push((key, value));
-        }
-        log::debug!(
-            "servers for shuffle id {:?}, reduce id {:?} - {:?}",
-            shuffle_id,
-            reduce_id,
-            server_queue
-        );
-        let (producer, consumer) = channel();
-        let failure = Arc::new(Mutex::new(None));
-        let sent_count = Arc::new(Mutex::new(0));
-        for i in 0..parallel_fetches {
-            log::debug!("inside parallel fetch {}", i);
-            let server_queue = server_queue.clone();
-            let producer = producer.clone();
-            let failure = failure.clone();
-            let sent_count_clone = sent_count.clone();
-
-            thread_pool.execute(move || {
-                while let Some((server_uri, input_ids)) = server_queue.lock().pop() {
-                    for i in input_ids {
-                        if !failure.lock().is_none() {
-                            return;
-                        }
-                        let url =
-                            format!("{}/shuffle/{}/{}/{}", server_uri, shuffle_id, i, reduce_id);
-                        //TODO logging
-                        fn f(
-                            producer: Sender<(Vec<u8>, String)>,
-                            url: String,
-                        ) -> std::result::Result<(), Box<dyn std::error::Error>>
-                        {
-                            let mut res = reqwest::get(&url)?;
-                            let len = &res.content_length();
-                            let mut body = vec![0; len.unwrap() as usize];
-                            res.read_exact(&mut body)?;
-                            producer.send((body, url))?;
-                            Ok(())
-                        }
-                        let producer_clone = producer.clone();
-                        f(producer_clone, url).map_err(|e|
-                                //TODO change e to FailedFetchException
-                                *failure.lock() = Some(e.to_string()));
-                        *sent_count_clone.lock() += 1;
-                        log::debug!(
-                            "total results {} results sent {:?}",
-                            total_results,
-                            sent_count_clone
-                        );
-                        log::debug!(
-                            "total results {} results sent {:?}",
-                            total_results,
-                            sent_count_clone
-                        );
-                    }
-                }
-            })
-        }
-        log::debug!("total_results {}", total_results);
-
-        let mut results_done = 0;
-        while failure.lock().is_none() && (results_done < total_results) {
-            let (result, url) = consumer.recv().unwrap();
-            log::debug!(
-                "total results {} results done {}",
-                total_results,
-                results_done
-            );
-            log::debug!("received from consumer");
-            let input: Vec<(K, V)> =
-                bincode::deserialize(&result).expect("not able to serialize fetched data");
-            for (k, v) in input {
-                func((k, v));
-            }
-            results_done += 1;
-        }
     }
 }
 
@@ -286,7 +174,7 @@ mod tests {
             assert_eq!(k, 0);
             assert_eq!(v, "example data");
         };
-        ShuffleFetcher::fetch_2(0, 0, test_func).await?;
+        ShuffleFetcher::fetch(0, 0, test_func).await?;
 
         Ok(())
     }
@@ -307,7 +195,7 @@ mod tests {
         }
 
         let test_func = |(_k, _v): (i32, String)| {};
-        assert!(ShuffleFetcher::fetch_2(1, 0, test_func)
+        assert!(ShuffleFetcher::fetch(1, 0, test_func)
             .await
             .unwrap_err()
             .deserialization_err());

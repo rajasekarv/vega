@@ -2,4 +2,4 @@
 //! values as `org.apache.hadoop.fs.CommonConfigurationKeys` are used here too.
 
 /// Default location for user home directories
-const FS_HOME_DIR_KEY: &'static str = "fs.homeDir";
+const FS_HOME_DIR_KEY: &str = "fs.homeDir";

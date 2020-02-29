@@ -6,7 +6,7 @@ use uriparse::{Authority, Fragment, Query, URI};
 
 pub const SEPARATOR: char = '/';
 pub const SEPARATOR_CHAR: char = '/';
-pub const CUR_DIR: &'static str = ".";
+pub const CUR_DIR: &str = ".";
 pub static WINDOWS: Lazy<bool> = Lazy::new(|| if cfg!(windows) { true } else { false });
 
 static HAS_URI_SCHEME: Lazy<Regex> = Lazy::new(|| Regex::new("[a-zA-Z][a-zA-Z0-9+-.]+:").unwrap());
@@ -25,7 +25,7 @@ impl Path {
     pub fn from_path_string(path_string: &str) -> Self {
         // TODO can't directly parse as string might not be escaped
         let mut path_string: String = path_string.to_string();
-        if path_string.len() == 0 {
+        if path_string.is_empty() {
             panic!("can not create a Path from an empty string");
         }
         if Self::has_windows_drive(&path_string) && !path_string.starts_with('/') {
@@ -80,14 +80,14 @@ impl Path {
 
     pub fn from_scheme_auth_path(scheme: &str, auth: Option<&str>, path: &str) -> Self {
         let mut path = path.to_string();
-        if path.len() == 0 {
+        if path.is_empty() {
             panic!("cannot creeate path from empty string");
         }
-        if Self::has_windows_drive(&path) && path.chars().next().unwrap() != '/' {
+        if Self::has_windows_drive(&path) && !path.starts_with('/') {
             path = format!("/{}", path);
         }
 
-        if !*WINDOWS && path.chars().next().unwrap() != '/' {
+        if !*WINDOWS && !path.starts_with('/') {
             path = format!("./{}", path);
         }
 

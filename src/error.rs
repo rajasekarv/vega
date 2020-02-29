@@ -65,6 +65,9 @@ pub enum Error {
     #[error("got split object from different concrete type other than {0}")]
     SplitDowncast(&'static str),
 
+    #[error(transparent)]
+    ShuffleError(#[from] crate::shuffle::ShuffleError),
+
     #[error("operation not supported: {0}")]
     UnsupportedOperation(&'static str),
 }
