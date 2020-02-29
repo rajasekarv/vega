@@ -6,10 +6,5 @@ use serde_derive::{Deserialize, Serialize};
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Column {
     data: Array,
-    field: Field
-}
-
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub struct Schema {
-    fields: Vec<Field>,
+    field: Field,
 }
