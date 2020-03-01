@@ -489,34 +489,37 @@ pub(crate) trait NativeScheduler {
     }
 
     fn get_shuffle_map_stage(&self, shuf: Arc<dyn ShuffleDependencyTrait>) -> Stage;
-
 }
 
 macro_rules! impl_common_scheduler_funcs {
     () => {
         fn add_output_loc_to_stage(&self, stage_id: usize, partition: usize, host: String) {
             self.stage_cache
-                .lock()
                 .get_mut(&stage_id)
                 .unwrap()
                 .add_output_loc(partition, host);
         }
 
         fn insert_into_stage_cache(&self, id: usize, stage: Stage) {
-            self.stage_cache.lock().insert(id, stage.clone());
+            self.stage_cache.insert(id, stage.clone());
         }
 
         fn fetch_from_stage_cache(&self, id: usize) -> Stage {
-            self.stage_cache.lock().get(&id).unwrap().clone()
+            self.stage_cache.get(&id).unwrap().clone()
         }
 
         fn fetch_from_shuffle_to_cache(&self, id: usize) -> Stage {
-            self.shuffle_to_map_stage.lock().get(&id).unwrap().clone()
+            self.shuffle_to_map_stage.get(&id).unwrap().clone()
         }
 
         fn update_cache_locs(&self) {
-            let mut locs = self.cache_locs.lock();
-            *locs = env::Env::get().cache_tracker.get_location_snapshot();
+            use std::iter::FromIterator;
+            self.cache_locs.clear();
+            env::Env::get()
+                .cache_tracker
+                .get_location_snapshot()
+                .into_iter()
+                .for_each(|(k, v)| { self.cache_locs.insert(k, v); });
         }
 
         fn unregister_map_output(&self, shuffle_id: usize, map_id: usize, server_uri: String) {
@@ -543,16 +546,14 @@ macro_rules! impl_common_scheduler_funcs {
 
         fn remove_output_loc_from_stage(&self, shuffle_id: usize, map_id: usize, server_uri: &str) {
             self.shuffle_to_map_stage
-                .lock()
                 .get_mut(&shuffle_id)
                 .unwrap()
                 .remove_output_loc(map_id, server_uri);
         }
 
         fn get_cache_locs(&self, rdd: Arc<dyn RddBase>) -> Option<Vec<Vec<Ipv4Addr>>> {
-            let cache_locs = self.cache_locs.lock();
-            let locs_opt = cache_locs.get(&rdd.get_rdd_id());
-            locs_opt.cloned()
+            let locs_opt = self.cache_locs.get(&rdd.get_rdd_id());
+            locs_opt.map(|l| l.clone())
         }
 
         fn get_next_job_id(&self) -> usize {
@@ -577,14 +578,16 @@ macro_rules! impl_common_scheduler_funcs {
 
         fn get_shuffle_map_stage(&self, shuf: Arc<dyn ShuffleDependencyTrait>) -> Stage {
             log::debug!("inside get_shufflemap stage");
-            let stage = self.shuffle_to_map_stage.lock().get(&shuf.get_shuffle_id()).cloned();
+            let stage = self
+                .shuffle_to_map_stage
+                .get(&shuf.get_shuffle_id())
+                .map(|s| s.clone());
             match stage {
-                Some(stage) => stage.clone(),
+                Some(stage) => stage,
                 None => {
                     log::debug!("inside get_shufflemap stage before");
                     let stage = self.new_stage(shuf.get_rdd_base(), Some(shuf.clone()));
                     self.shuffle_to_map_stage
-                        .lock()
                         .insert(shuf.get_shuffle_id(), stage.clone());
                     log::debug!("inside get_shufflemap return");
                     stage

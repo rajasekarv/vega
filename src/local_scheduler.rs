@@ -29,6 +29,7 @@ use crate::shuffle::ShuffleMapTask;
 use crate::stage::Stage;
 use crate::task::{TaskBase, TaskContext, TaskOption, TaskResult};
 use crate::utils;
+use dashmap::DashMap;
 use log::info;
 use parking_lot::Mutex;
 use serde_traitobject::Arc as SerArc;
@@ -39,14 +40,14 @@ pub struct LocalScheduler {
     attempt_id: Arc<AtomicUsize>,
     resubmit_timeout: u128,
     poll_timeout: u64,
-    event_queues: Arc<Mutex<HashMap<usize, VecDeque<CompletionEvent>>>>,
+    event_queues: Arc<DashMap<usize, VecDeque<CompletionEvent>>>,
     pub(crate) next_job_id: Arc<AtomicUsize>,
     next_run_id: Arc<AtomicUsize>,
     next_task_id: Arc<AtomicUsize>,
     next_stage_id: Arc<AtomicUsize>,
-    stage_cache: Arc<Mutex<HashMap<usize, Stage>>>,
-    shuffle_to_map_stage: Arc<Mutex<HashMap<usize, Stage>>>,
-    cache_locs: Arc<Mutex<HashMap<usize, Vec<Vec<Ipv4Addr>>>>>,
+    stage_cache: Arc<DashMap<usize, Stage>>,
+    shuffle_to_map_stage: Arc<DashMap<usize, Stage>>,
+    cache_locs: Arc<DashMap<usize, Vec<Vec<Ipv4Addr>>>>,
     master: bool,
     framework_name: String,
     is_registered: bool, //TODO check if it is necessary
@@ -68,14 +69,14 @@ impl LocalScheduler {
             attempt_id: Arc::new(AtomicUsize::new(0)),
             resubmit_timeout: 2000,
             poll_timeout: 50,
-            event_queues: Arc::new(Mutex::new(HashMap::new())),
+            event_queues: Arc::new(DashMap::new()),
             next_job_id: Arc::new(AtomicUsize::new(0)),
             next_run_id: Arc::new(AtomicUsize::new(0)),
             next_task_id: Arc::new(AtomicUsize::new(0)),
             next_stage_id: Arc::new(AtomicUsize::new(0)),
-            stage_cache: Arc::new(Mutex::new(HashMap::new())),
-            shuffle_to_map_stage: Arc::new(Mutex::new(HashMap::new())),
-            cache_locs: Arc::new(Mutex::new(HashMap::new())),
+            stage_cache: Arc::new(DashMap::new()),
+            shuffle_to_map_stage: Arc::new(DashMap::new()),
+            cache_locs: Arc::new(DashMap::new()),
             master,
             framework_name: "spark".to_string(),
             is_registered: true, //TODO check if it is necessary
@@ -114,7 +115,7 @@ impl LocalScheduler {
             }
         }
 
-        self.event_queues.lock().insert(jt.run_id, VecDeque::new());
+        self.event_queues.insert(jt.run_id, VecDeque::new());
 
         let self_clone = Arc::clone(&self);
         let jt_clone = jt.clone();
@@ -144,7 +145,11 @@ impl LocalScheduler {
 
                 if let Some(mut evt) = event_option {
                     log::debug!("event starting");
-                    let stage = self_borrow.stage_cache.lock()[&evt.task.get_stage_id()].clone();
+                    let stage = self_borrow
+                        .stage_cache
+                        .get(&evt.task.get_stage_id())
+                        .unwrap()
+                        .clone();
                     log::debug!(
                         "removing stage task from pending tasks {} {}",
                         stage.id,
@@ -190,7 +195,7 @@ impl LocalScheduler {
             results
         });
 
-        self.event_queues.lock().remove(&jt.run_id);
+        self.event_queues.remove(&jt.run_id);
         Ok(results
             .into_iter()
             .map(|s| match s {
@@ -202,22 +207,18 @@ impl LocalScheduler {
 
     fn wait_for_event(&self, run_id: usize, timeout: u64) -> Option<CompletionEvent> {
         let end = Instant::now() + Duration::from_millis(timeout);
-        while self.event_queues.lock().get(&run_id).unwrap().is_empty() {
+        while self.event_queues.get(&run_id).unwrap().is_empty() {
             if Instant::now() > end {
                 return None;
             } else {
                 thread::sleep(end - Instant::now());
             }
         }
-        self.event_queues
-            .lock()
-            .get_mut(&run_id)
-            .unwrap()
-            .pop_front()
+        self.event_queues.get_mut(&run_id).unwrap().pop_front()
     }
 
     fn run_task<T: Data, U: Data, F>(
-        event_queues: Arc<Mutex<HashMap<usize, VecDeque<CompletionEvent>>>>,
+        event_queues: Arc<DashMap<usize, VecDeque<CompletionEvent>>>,
         task: Vec<u8>,
         id_in_job: usize,
         attempt_id: usize,
@@ -261,14 +262,14 @@ impl LocalScheduler {
     }
 
     fn task_ended(
-        event_queues: Arc<Mutex<HashMap<usize, VecDeque<CompletionEvent>>>>,
+        event_queues: Arc<DashMap<usize, VecDeque<CompletionEvent>>>,
         task: Box<dyn TaskBase>,
         reason: TastEndReason,
         result: Box<dyn Any + Send + Sync>,
         //TODO accumvalues needs to be done
     ) {
         let result = Some(result);
-        if let Some(queue) = event_queues.lock().get_mut(&(task.get_run_id())) {
+        if let Some(mut queue) = event_queues.get_mut(&(task.get_run_id())) {
             queue.push_back(CompletionEvent {
                 task,
                 reason,
