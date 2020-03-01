@@ -1,11 +1,30 @@
+use std::future::Future;
+use std::net::{SocketAddr, TcpListener};
+use std::pin::Pin;
+use std::sync::Arc;
+use std::thread;
+use std::time::{Duration, Instant};
+
+use crate::env;
+use crate::error::{Error, NetworkError, Result, StdResult};
 use crate::serialized_data_capnp::serialized_data;
 use crate::task::TaskOption;
-use capnp::serialize_packed;
-use log::info;
-use std::net::TcpListener;
-use std::thread;
-use std::time::Instant;
+// use async_std::net::TcpListener;
+use capnp::{
+    message::{Builder as MsgBuilder, HeapAllocator, Reader as CpnpReader, ReaderOptions},
+    serialize::OwnedSegments,
+    serialize_packed,
+};
+//use capnp_futures::serialize;
+use futures::{io::BufReader, AsyncReadExt, AsyncWriteExt, FutureExt, StreamExt};
+use serde::{Deserialize, Serialize};
 use threadpool::ThreadPool;
+use tokio::sync::oneshot::{channel, Receiver, Sender};
+
+const CAPNP_BUF_READ_OPTS: ReaderOptions = ReaderOptions {
+    traversal_limit_in_words: std::u64::MAX,
+    nesting_limit: 64,
+};
 
 pub struct Executor {
     port: u16,
@@ -188,5 +207,93 @@ impl Executor {
                 }
             }
         }
+    }
+}
+
+#[derive(Serialize, Deserialize)]
+pub(crate) enum Signal {
+    ShutDown,
+    Continue,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::task::TaskContext;
+    use crate::utils::test_utils::{create_test_task, get_free_port};
+    use std::net::TcpStream;
+
+    /// Wait until everything is running
+    async fn initialize_exec(signal: bool) -> (std::thread::JoinHandle<Result<()>>, TcpStream) {
+        let mut port = get_free_port();
+        let err = thread::spawn(move || {
+            let executor = Arc::new(Executor::new(port));
+            executor.worker()
+        });
+
+        let mut i: usize = 0;
+        if signal {
+            // connect to signal handling port
+            port += 10;
+        }
+        let stream = loop {
+            if let Ok(stream) = TcpStream::connect(format!("{}:{}", "0.0.0.0", port)) {
+                break stream;
+            }
+            tokio::time::delay_for(Duration::from_millis(10)).await;
+            i += 1;
+            if i > 10 {
+                panic!("failed openning tcp conn");
+            }
+        };
+        (err, stream)
+    }
+
+    #[tokio::test]
+    #[ignore]
+    async fn send_shutdown_signal() -> Result<()> {
+        let (err, mut stream) = initialize_exec(true).await;
+        let mut buf = BufReader::new(stream);
+
+        let signal = bincode::serialize(&Signal::ShutDown)?;
+        let mut message = capnp::message::Builder::new_default();
+        let mut msg_data = message.init_root::<serialized_data::Builder>();
+        msg_data.set_msg(&signal);
+        serialize::write_message(&mut buf, &message);
+        buf.flush().await;
+
+        assert!(err.join().unwrap().unwrap_err().executor_shutdown());
+        Ok(())
+    }
+
+    #[tokio::test]
+    #[ignore]
+    async fn send_task() -> Result<()> {
+        let (_, mut stream) = initialize_exec(false).await;
+        let mut buf = BufReader::new(stream);
+
+        // Mock data:
+        let func = Fn!(
+            move |(task_context, iter): (TaskContext, Box<dyn Iterator<Item = u8>>)| -> u8 {
+                // let iter = iter.collect::<Vec<u8>>();
+                // eprintln!("{:?}", iter);
+                iter.into_iter().next().unwrap()
+            }
+        );
+        let mock_task: TaskOption = create_test_task(func).into();
+        let ser_task = bincode::serialize(&mock_task)?;
+
+        // Send task to executor:
+        let mut message = capnp::message::Builder::new_default();
+        let mut msg_data = message.init_root::<serialized_data::Builder>();
+        msg_data.set_msg(&ser_task);
+        serialize::write_message(&mut buf, &message);
+        buf.flush().await;
+
+        // Get the results back:
+        if let Some(msg) = serialize::read_message(&mut buf, CAPNP_BUF_READ_OPTS).await? {
+            assert!(true);
+        }
+        Ok(())
     }
 }

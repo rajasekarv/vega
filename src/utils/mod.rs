@@ -1,4 +1,6 @@
 pub(crate) mod random;
+#[cfg(test)]
+pub(crate) mod test_utils;
 
 use rand::{
     distributions::{Bernoulli, Distribution},

@@ -40,6 +40,7 @@ rand_pcg = "0.2"
 # serialization
 bincode = "1.2.1"
 capnp = "0.12.1"
+capnp-futures = "0.12.0"
 serde = { version = "1.0.104", features = ["rc"] }
 serde_closure = "^0.2.9"
 serde_derive = "1.0.104"
