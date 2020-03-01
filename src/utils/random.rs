@@ -54,7 +54,7 @@ pub(crate) fn get_default_rng_from_seed(seed: u64) -> Pcg64 {
 }
 
 /// Get a new rng with random thread local random seed
-fn get_rng_with_random_seed() -> Pcg64 {
+pub(crate) fn get_rng_with_random_seed() -> Pcg64 {
     Pcg64::seed_from_u64(rand::random::<u64>())
 }
 
