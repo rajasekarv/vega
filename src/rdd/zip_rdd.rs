@@ -122,7 +122,7 @@ impl<F: Data, S: Data> Rdd for ZippedPartitionsRdd<F, S> {
     fn compute(&self, split: Box<dyn Split>) -> Result<Box<dyn Iterator<Item = Self::Item>>> {
         let current_split = split
             .downcast::<ZippedPartitionsSplit>()
-            .or(Err(Error::SplitDowncast("ZippedPartitionsSplit")))?;
+            .or(Err(Error::DowncastFailure("ZippedPartitionsSplit")))?;
 
         let fst_iter = self.first.iterator(current_split.fst_split.clone())?;
         let sec_iter = self.second.iterator(current_split.sec_split.clone())?;

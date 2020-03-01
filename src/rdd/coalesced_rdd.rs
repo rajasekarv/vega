@@ -67,7 +67,7 @@ impl CoalescedRddSplit {
     fn downcasting(split: Box<dyn Split>) -> Box<CoalescedRddSplit> {
         split
             .downcast::<CoalescedRddSplit>()
-            .or(Err(Error::SplitDowncast("CoalescedRddSplit")))
+            .or(Err(Error::DowncastFailure("CoalescedRddSplit")))
             .unwrap()
     }
 }

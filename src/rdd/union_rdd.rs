@@ -225,7 +225,7 @@ impl<T: Data> RddBase for UnionRdd<T> {
 
                 let split = &*split
                     .downcast::<PartitionerAwareUnionSplit>()
-                    .or(Err(Error::SplitDowncast("UnionSplit")))
+                    .or(Err(Error::DowncastFailure("UnionSplit")))
                     .unwrap();
 
                 let locations =
@@ -325,14 +325,14 @@ impl<T: Data> Rdd for UnionRdd<T> {
             NonUniquePartitioner { rdds, .. } => {
                 let part = &*split
                     .downcast::<UnionSplit<T>>()
-                    .or(Err(Error::SplitDowncast("UnionSplit")))?;
+                    .or(Err(Error::DowncastFailure("UnionSplit")))?;
                 let parent = (&rdds[part.parent_rdd_index]);
                 parent.iterator(part.parent_partition())
             }
             PartitionerAware { rdds, .. } => {
                 let split = split
                     .downcast::<PartitionerAwareUnionSplit>()
-                    .or(Err(Error::SplitDowncast("PartitionerAwareUnionSplit")))?;
+                    .or(Err(Error::DowncastFailure("PartitionerAwareUnionSplit")))?;
                 let iter: Result<Vec<_>> = rdds
                     .iter()
                     .zip(split.parents(&rdds))
