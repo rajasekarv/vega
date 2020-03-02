@@ -178,14 +178,12 @@ impl Context {
                     let uuid = Uuid::new_v4().to_string();
                     initialize_loggers(format!("/tmp/executor-{}", uuid));
                     log::debug!("started client");
-                    let executor = Executor::new(
+                    let executor = Arc::new(Executor::new(
                         env::Configuration::get()
                             .port
                             .ok_or(Error::GetOrCreateConfig("executor port not set"))?,
-                    );
+                    ));
                     executor.worker();
-                    log::debug!("initiated executor worker exit");
-                    executor.exit_signal();
                     log::debug!("got executor end signal");
                     std::process::exit(0);
                 }
@@ -206,6 +204,7 @@ impl Context {
     }
 
     fn drop_executors(&self) {
+        use crate::executor::Signal;
         for socket_addr in self.address_map.clone() {
             log::debug!(
                 "dropping executor in {:?}:{:?}",
@@ -215,8 +214,7 @@ impl Context {
             if let Ok(mut stream) =
                 TcpStream::connect(format!("{}:{}", socket_addr.ip(), socket_addr.port() + 10))
             {
-                let signal = true;
-                let signal = bincode::serialize(&signal).unwrap();
+                let signal = bincode::serialize(&Signal::ShutDown).unwrap();
                 let mut message = ::capnp::message::Builder::new_default();
                 let mut task_data = message.init_root::<serialized_data::Builder>();
                 task_data.set_msg(&signal);

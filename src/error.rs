@@ -68,6 +68,9 @@ pub enum Error {
     #[error("failed to convert {:?} to a String", .0)]
     OsStringToString(OsString),
 
+    #[error("failed writing to output source")]
+    OutputWrite(#[source] std::io::Error),
+
     #[error("failed to parse hosts file at {}", path.display())]
     ParseHosts {
         source: toml::de::Error,
