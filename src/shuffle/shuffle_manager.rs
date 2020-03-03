@@ -94,17 +94,9 @@ impl ShuffleManager {
             ShuffleManager::launch_async_server(bind_ip, bind_port)?;
             bind_port
         } else {
-            let mut port = 0;
-            for retry in 0..10 {
-                let bind_port = crate::utils::get_dynamic_port();
-                if let Ok(server) = ShuffleManager::launch_async_server(bind_ip, bind_port) {
-                    port = bind_port;
-                    break;
-                } else if retry == 9 {
-                    return Err(ShuffleError::FreePortNotFound(bind_port));
-                }
-            }
-            port
+            let bind_port = crate::utils::get_free_port()?;
+            ShuffleManager::launch_async_server(bind_ip, bind_port);
+            bind_port
         };
         let server_uri = format!(
             "http://{}:{}",
@@ -131,7 +123,7 @@ impl ShuffleManager {
                     if let Err(err) = rt.block_on(async move {
                         let bind_addr = SocketAddr::from((bind_ip, bind_port));
                         Server::try_bind(&bind_addr.clone())
-                            .map_err(|_| ShuffleError::FreePortNotFound(bind_port))?
+                            .map_err(|_| crate::NetworkError::FreePortNotFound(bind_port, 0))?
                             .serve(ShuffleSvcMaker)
                             .await
                             .map_err(|_| ShuffleError::FailedToStart)
@@ -316,17 +308,6 @@ mod tests {
     use std::sync::Arc;
     use std::time::Duration;
     use tokio::prelude::*;
-
-    fn get_free_port() -> u16 {
-        let mut port = 0;
-        for _ in 0..100 {
-            port = get_dynamic_port();
-            if TcpListener::bind(format!("127.0.0.1:{}", port)).is_ok() {
-                return port;
-            }
-        }
-        panic!("failed to find free port while testing");
-    }
 
     fn client() -> Client<hyper::client::HttpConnector, Body> {
         Client::builder().http2_only(true).build_http::<Body>()

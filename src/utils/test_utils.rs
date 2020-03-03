@@ -7,17 +7,6 @@ use crate::task::TaskContext;
 use crate::*;
 use serde_traitobject::{Deserialize, Serialize};
 
-pub fn get_free_port() -> u16 {
-    let mut port = 0;
-    for _ in 0..100 {
-        port = crate::utils::get_dynamic_port();
-        if TcpListener::bind(format!("127.0.0.1:{}", port)).is_ok() {
-            return port;
-        }
-    }
-    panic!("failed to find free port while testing");
-}
-
 pub(crate) fn create_test_task<F>(func: F) -> ResultTask<u8, u8, F>
 where
     F: SerFunc((TaskContext, Box<dyn Iterator<Item = u8>>)) -> u8,

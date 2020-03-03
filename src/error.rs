@@ -109,4 +109,7 @@ pub enum NetworkError {
 
     #[error("disconnected from address")]
     ConnectionFailure,
+
+    #[error("failed to find free port {0}, tried {1} times")]
+    FreePortNotFound(u16, usize),
 }

@@ -41,8 +41,8 @@ pub enum ShuffleError {
     #[error("failed to start shuffle server")]
     FailedToStart,
 
-    #[error("failed to find free port: {0}")]
-    FreePortNotFound(u16),
+    #[error(transparent)]
+    NetworkError(#[from] crate::NetworkError),
 
     #[error("not valid request")]
     NotValidRequest,
@@ -79,7 +79,7 @@ impl Into<Response<Body>> for ShuffleError {
 impl ShuffleError {
     fn no_port(&self) -> bool {
         match self {
-            ShuffleError::FreePortNotFound(_) => true,
+            ShuffleError::NetworkError(crate::NetworkError::FreePortNotFound(_, _)) => true,
             _ => false,
         }
     }
