@@ -1,14 +1,15 @@
-use crate::serialized_data_capnp::serialized_data;
-use log::info;
-use serde_derive::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::net::{IpAddr, Ipv4Addr, SocketAddr, TcpListener, TcpStream};
 use std::sync::Arc;
 use std::thread;
 use std::time;
 
+use crate::serialized_data_capnp::serialized_data;
 use capnp::serialize_packed;
+use dashmap::DashMap;
+use log::info;
 use parking_lot::{Mutex, RwLock};
+use serde_derive::{Deserialize, Serialize};
 
 pub enum MapOutputTrackerMessage {
     //contains shuffle_id
@@ -17,10 +18,10 @@ pub enum MapOutputTrackerMessage {
 }
 
 // starts the server in master node and client in slave nodes. Similar to cache tracker
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug)]
 pub(crate) struct MapOutputTracker {
     is_master: bool,
-    pub server_uris: Arc<RwLock<HashMap<usize, Vec<Option<String>>>>>,
+    pub server_uris: Arc<DashMap<usize, Vec<Option<String>>>>,
     fetching: Arc<RwLock<HashSet<usize>>>,
     generation: Arc<Mutex<i64>>,
     master_addr: SocketAddr,
@@ -43,7 +44,7 @@ impl MapOutputTracker {
     pub fn new(is_master: bool, master_addr: SocketAddr) -> Self {
         let m = MapOutputTracker {
             is_master,
-            server_uris: Arc::new(RwLock::new(HashMap::new())),
+            server_uris: Arc::new(DashMap::new()),
             fetching: Arc::new(RwLock::new(HashSet::new())),
             generation: Arc::new(Mutex::new(0)),
             master_addr,
@@ -122,7 +123,6 @@ impl MapOutputTracker {
                                 let shuffle_id: usize =
                                     bincode::deserialize(data.get_msg().unwrap()).unwrap();
                                 while server_uris_clone
-                                    .read()
                                     .get(&shuffle_id)
                                     .unwrap()
                                     .iter()
@@ -135,10 +135,9 @@ impl MapOutputTracker {
                                     thread::sleep(wait);
                                 }
                                 let locs = server_uris_clone
-                                    .read()
                                     .get(&shuffle_id)
-                                    .unwrap_or(&Vec::new())
-                                    .clone();
+                                    .map(|kv| kv.value().clone())
+                                    .unwrap_or(Vec::new());
                                 log::debug!("locs inside mapoutput tracker server before unwrapping for shuffle id {:?} {:?}",shuffle_id,locs);
                                 let locs = locs.into_iter().map(|x| x.unwrap()).collect::<Vec<_>>();
                                 log::debug!("locs inside mapoutput tracker server after unwrapping for shuffle id {:?} {:?} ", shuffle_id, locs);
@@ -159,22 +158,20 @@ impl MapOutputTracker {
 
     pub fn register_shuffle(&self, shuffle_id: usize, num_maps: usize) {
         log::debug!("inside register shuffle");
-        if self.server_uris.read().get(&shuffle_id).is_some() {
+        if self.server_uris.get(&shuffle_id).is_some() {
             //TODO error handling
             log::debug!("map tracker register shuffle none");
             return;
         }
-        let mut server_uris = self.server_uris.write();
-        server_uris.insert(shuffle_id, vec![None; num_maps]);
-        log::debug!("server_uris after register_shuffle {:?}", server_uris);
+        self.server_uris.insert(shuffle_id, vec![None; num_maps]);
+        log::debug!("server_uris after register_shuffle {:?}", self.server_uris);
     }
 
     pub fn register_map_output(&self, shuffle_id: usize, map_id: usize, server_uri: String) {
         //        if !self.is_master {
         //            return;
         //        }
-        let mut array = self.server_uris.write();
-        array.get_mut(&shuffle_id).unwrap()[map_id] = Some(server_uri);
+        self.server_uris.get_mut(&shuffle_id).unwrap()[map_id] = Some(server_uri);
     }
 
     pub fn register_map_outputs(&self, shuffle_id: usize, locs: Vec<Option<String>>) {
@@ -192,7 +189,7 @@ impl MapOutputTracker {
             shuffle_id,
             locs
         );
-        self.server_uris.write().insert(shuffle_id, locs);
+        self.server_uris.insert(shuffle_id, locs);
         //        .insert(shuffle_id, locs.into_iter().map(|x| Some(x)).collect());
     }
 
@@ -200,12 +197,10 @@ impl MapOutputTracker {
         //        if !self.is_master {
         //            return;
         //        }
-        let array = self.server_uris.read();
-        let array = array.get(&shuffle_id);
+        let array = self.server_uris.get(&shuffle_id);
         if let Some(arr) = array {
             if arr.get(map_id).unwrap() == &Some(server_uri) {
                 self.server_uris
-                    .write()
                     .get_mut(&shuffle_id)
                     .unwrap()
                     .insert(map_id, None)
@@ -223,7 +218,6 @@ impl MapOutputTracker {
         );
         if self
             .server_uris
-            .read()
             .get(&shuffle_id)
             .unwrap()
             .iter()
@@ -242,7 +236,6 @@ impl MapOutputTracker {
                 log::debug!(
                     "returning after fetching done {:?}",
                     self.server_uris
-                        .read()
                         .get(&shuffle_id)
                         .unwrap()
                         .iter()
@@ -252,7 +245,6 @@ impl MapOutputTracker {
                 );
                 return self
                     .server_uris
-                    .read()
                     .get(&shuffle_id)
                     .unwrap()
                     .iter()
@@ -266,7 +258,7 @@ impl MapOutputTracker {
             // TODO logging
             let fetched = self.client(shuffle_id);
             log::debug!("fetched locs from client {:?}", fetched);
-            self.server_uris.write().insert(
+            self.server_uris.insert(
                 shuffle_id,
                 fetched.iter().map(|x| Some(x.clone())).collect(),
             );
@@ -277,7 +269,6 @@ impl MapOutputTracker {
             fetched
         } else {
             self.server_uris
-                .read()
                 .get(&shuffle_id)
                 .unwrap()
                 .iter()
@@ -297,7 +288,7 @@ impl MapOutputTracker {
 
     pub fn update_generation(&mut self, new_gen: i64) {
         if new_gen > *self.generation.lock() {
-            self.server_uris = Arc::new(RwLock::new(HashMap::new()));
+            self.server_uris = Arc::new(DashMap::new());
             *self.generation.lock() = new_gen;
         }
     }

@@ -238,8 +238,7 @@ impl ShuffleService {
             }
             Ok(parts) => parts,
         };
-        let cache = env::shuffle_cache.read();
-        if let Some(cached_data) = cache.get(&(parts[0], parts[1], parts[2])) {
+        if let Some(cached_data) = env::shuffle_cache.get(&(parts[0], parts[1], parts[2])) {
             Ok(Vec::from(&cached_data[..]))
         } else {
             Err(ShuffleError::RequestedCacheNotFound)
@@ -370,8 +369,7 @@ mod tests {
         ShuffleManager::start_server(Some(port))?;
         let data = b"some random bytes".iter().copied().collect::<Vec<u8>>();
         {
-            let mut cache = env::shuffle_cache.write();
-            cache.insert((2, 1, 0), data.clone());
+            env::shuffle_cache.insert((2, 1, 0), data.clone());
         }
         let url = format!(
             "http://{}:{}/shuffle/2/1/0",

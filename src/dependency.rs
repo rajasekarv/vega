@@ -216,9 +216,7 @@ impl<K: Data + Eq + Hash, V: Data, C: Data> ShuffleDependencyTrait for ShuffleDe
                 partition,
                 i
             );
-            env::shuffle_cache
-                .write()
-                .insert((self.shuffle_id, partition, i), ser_bytes);
+            env::shuffle_cache.insert((self.shuffle_id, partition, i), ser_bytes);
         }
         env::Env::get().shuffle_manager.get_server_uri()
     }

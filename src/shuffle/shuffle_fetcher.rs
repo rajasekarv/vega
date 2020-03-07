@@ -160,13 +160,12 @@ mod tests {
         ShuffleManager::start_server(Some(port))?;
         {
             let addr = format!("http://127.0.0.1:{}", port);
-            let mut servers = env::Env::get().map_output_tracker.server_uris.write();
+            let mut servers = &env::Env::get().map_output_tracker.server_uris;
             servers.insert(0, vec![Some(addr)]);
 
             let data = vec![(0i32, "example data".to_string())];
             let serialized_data = bincode::serialize(&data).unwrap();
-            let mut cache = env::shuffle_cache.write();
-            cache.insert((0, 0, 0), serialized_data);
+            env::shuffle_cache.insert((0, 0, 0), serialized_data);
         }
 
         let test_func = |(k, v): (i32, String)| {
@@ -184,13 +183,12 @@ mod tests {
         ShuffleManager::start_server(Some(port))?;
         {
             let addr = format!("http://127.0.0.1:{}", port);
-            let mut servers = env::Env::get().map_output_tracker.server_uris.write();
+            let mut servers = &env::Env::get().map_output_tracker.server_uris;
             servers.insert(1, vec![Some(addr)]);
 
             let data = "corrupted data";
             let serialized_data = bincode::serialize(&data).unwrap();
-            let mut cache = env::shuffle_cache.write();
-            cache.insert((1, 0, 0), serialized_data);
+            env::shuffle_cache.insert((1, 0, 0), serialized_data);
         }
 
         let test_func = |(_k, _v): (i32, String)| {};

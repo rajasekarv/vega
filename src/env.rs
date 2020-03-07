@@ -13,13 +13,14 @@ use crate::hosts::Hosts;
 use crate::map_output_tracker::MapOutputTracker;
 use crate::shuffle::{ShuffleFetcher, ShuffleManager};
 use clap::{App, Arg, SubCommand};
+use dashmap::DashMap;
 use log::LevelFilter as LogLevel;
 use once_cell::sync::{Lazy, OnceCell};
 use parking_lot::{Mutex, RwLock};
 use thiserror::Error;
 use tokio::runtime::{Handle, Runtime};
 
-type ShuffleCache = Arc<RwLock<HashMap<(usize, usize, usize), Vec<u8>>>>;
+type ShuffleCache = Arc<DashMap<(usize, usize, usize), Vec<u8>>>;
 
 pub(crate) mod config_vars {
     pub const DEPLOYMENT_MODE: &str = "NS_DEPLOYMENT_MODE";
@@ -35,8 +36,7 @@ static CONF: OnceCell<Configuration> = OnceCell::new();
 static ENV: OnceCell<Env> = OnceCell::new();
 static ASYNC_HANDLE: Lazy<Handle> = Lazy::new(Handle::current);
 
-pub(crate) static shuffle_cache: Lazy<ShuffleCache> =
-    Lazy::new(|| Arc::new(RwLock::new(HashMap::new())));
+pub(crate) static shuffle_cache: Lazy<ShuffleCache> = Lazy::new(|| Arc::new(DashMap::new()));
 pub(crate) static the_cache: Lazy<BoundedMemoryCache> = Lazy::new(BoundedMemoryCache::new);
 
 pub(crate) struct Env {
