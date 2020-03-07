@@ -1,12 +1,10 @@
-use std::future::Future;
 use std::net::SocketAddr;
-use std::pin::Pin;
 use std::sync::Arc;
 use std::thread;
 use std::time::{Duration, Instant};
 
 use crate::env;
-use crate::error::{Error, NetworkError, Result, StdResult};
+use crate::error::{Error, NetworkError, Result};
 use crate::serialized_data_capnp::serialized_data;
 use crate::task::TaskOption;
 use capnp::{
@@ -42,9 +40,8 @@ impl Executor {
     /// This will spawn it's own Tokio runtime to run the tasks on.
     #[allow(clippy::drop_copy)]
     pub fn worker(self: Arc<Self>) -> Result<()> {
-        let parallelism = num_cpus::get();
         let executor = env::Env::get_async_handle();
-        executor.enter(move || {
+        executor.enter(move || -> Result<()> {
             futures::executor::block_on(async move {
                 let (send_child, rcv_main) = channel::<Signal>();
                 let process_err = Arc::clone(&self).process_stream(rcv_main);
@@ -54,7 +51,7 @@ impl Executor {
                     err = handler_err => err?,
                 }
             })
-        });
+        })?;
         Err(Error::ExecutorShutdown)
     }
 
@@ -66,13 +63,13 @@ impl Executor {
             .map_err(NetworkError::TcpListener)?;
         let mut buf: Vec<u8> = Vec::new();
         while let Some(stream) = listener.incoming().next().await {
-            if let Ok(stream) = stream {
+            if let Ok(mut stream) = stream {
                 if let Ok(Signal::ShutDown) = rcv_main.try_recv() {
                     return Err(Error::ExecutorShutdown);
                 }
                 buf.clear();
                 let mut reader = BufReader::new(stream);
-                let signal = reader
+                reader
                     .read_to_end(&mut buf)
                     .await
                     .map_err(Error::InputRead)?;
@@ -82,13 +79,13 @@ impl Executor {
                         .map_err(Error::CapnpDeserialization)
                 }?;
                 let self_clone = Arc::clone(&self);
-                let message = tokio::task::spawn_blocking(move || {
+                let message = {
                     let des_task = self_clone.deserialize_task(message_reader)?;
                     self_clone.run_task(des_task)
-                })
-                .await??;
+                }?;
                 serialize_packed::write_message(&mut buf, &message);
                 reader.write_all(&*buf).await.map_err(Error::OutputWrite)?;
+                reader.flush().await.map_err(Error::OutputWrite)?;
             }
         }
         Err(Error::ExecutorShutdown)
@@ -185,16 +182,16 @@ impl Executor {
     /// A listener for exit signal from master to end the whole slave process.
     async fn signal_handler(self: Arc<Self>, mut send_child: Sender<Signal>) -> Result<()> {
         let addr = SocketAddr::from(([0, 0, 0, 0], self.port + 10));
+        log::debug!("signal handler port open @ {}", addr.port());
         let mut listener = TcpListener::bind(addr)
             .await
             .map_err(NetworkError::TcpListener)?;
         let mut buf = Vec::new();
         while let Some(stream) = listener.incoming().next().await {
-            log::debug!("inside end signal stream");
             let mut stream = stream.unwrap();
             buf.clear();
             let mut reader = BufReader::new(stream);
-            let signal = reader
+            reader
                 .read_to_end(&mut buf)
                 .await
                 .map_err(Error::InputRead)?;
@@ -226,34 +223,52 @@ pub(crate) enum Signal {
 mod tests {
     use super::*;
     use crate::task::TaskContext;
+    use crate::task::TaskResult;
     use crate::utils::{get_free_port, test_utils::create_test_task};
-    use std::net::SocketAddr;
+    use std::io::{Read, Write};
+    use tokio::sync::mpsc::{
+        unbounded_channel, UnboundedReceiver as Receiver, UnboundedSender as Sender,
+    };
 
-    /// Wait until everything is running
-    async fn initialize_exec(signal: bool) -> (std::thread::JoinHandle<Result<()>>, TcpStream) {
+    type Port = u16;
+    type ComputeResult = std::result::Result<(), ()>;
+
+    fn initialize_exec() -> (Arc<Executor>, Port) {
         let mut port = get_free_port().unwrap();
-        let err = thread::spawn(move || {
-            let executor = Arc::new(Executor::new(port));
-            executor.worker()
-        });
+        (Arc::new(Executor::new(port)), port)
+    }
+
+    fn connect_to_executor(mut port: u16, signal_handler: bool) -> Result<std::net::TcpStream> {
+        use std::net::TcpStream;
 
         let mut i: usize = 0;
-        if signal {
+        if signal_handler {
             // connect to signal handling port
             port += 10;
         }
-        let stream = loop {
+
+        loop {
             let addr: SocketAddr = format!("{}:{}", "0.0.0.0", port).parse().unwrap();
-            if let Ok(stream) = TcpStream::connect(addr).await {
-                break stream;
+            if let Ok(stream) = TcpStream::connect(addr) {
+                return Ok(stream);
             }
-            tokio::time::delay_for(Duration::from_millis(10)).await;
+            thread::sleep_ms(10);
             i += 1;
             if i > 10 {
-                panic!("failed openning tcp conn");
+                break;
             }
-        };
-        (err, stream)
+        }
+        Err(Error::AsyncRuntimeError)
+    }
+
+    fn _start_test<TF, CF, R>(test_func: TF, checker_func: CF) -> Result<R>
+    where
+        TF: FnOnce(Receiver<ComputeResult>) -> Result<()> + Send + 'static,
+        CF: FnOnce(Sender<ComputeResult>) -> Result<R>,
+    {
+        let (send_exec, client_rcv) = unbounded_channel::<ComputeResult>();
+        thread::spawn(move || test_func(client_rcv));
+        checker_func(send_exec)
     }
 
     fn set_shutdown_signal_msg(buf: &mut Vec<u8>) -> Result<()> {
@@ -265,53 +280,110 @@ mod tests {
         Ok(())
     }
 
-    #[tokio::test]
-    #[ignore]
-    async fn send_shutdown_signal() -> Result<()> {
-        let (err, mut stream) = initialize_exec(true).await;
-        let mut reader = BufReader::new(stream);
+    #[test]
+    fn send_shutdown_signal() -> Result<()> {
+        let (executor, port) = initialize_exec();
 
-        let mut buf = Vec::new();
-        set_shutdown_signal_msg(&mut buf);
-        reader.write_all(&*buf).await.map_err(Error::OutputWrite)?;
+        let test = move |mut client_rcv: Receiver<ComputeResult>| -> Result<()> {
+            let mut buf = Vec::new();
+            set_shutdown_signal_msg(&mut buf);
+            loop {
+                thread::sleep_ms(5);
+                if let Ok(mut stream) = connect_to_executor(port, true) {
+                    stream.write_all(&*buf).map_err(Error::OutputWrite)?;
+                    stream.flush();
+                    match client_rcv.try_recv() {
+                        Ok(Ok(_)) => return Ok(()),
+                        Ok(Err(_)) => return Err(Error::AsyncRuntimeError),
+                        _ => {}
+                    }
+                }
+            }
+            Err(Error::AsyncRuntimeError)
+        };
 
-        assert!(err.join().unwrap().unwrap_err().executor_shutdown());
-        Ok(())
+        let result_checker = |sender: Sender<ComputeResult>| -> Result<()> {
+            let result = match executor.worker() {
+                Err(Error::ExecutorShutdown) => Ok(()),
+                Err(err) => Err(err),
+                _ => Err(Error::AsyncRuntimeError),
+            };
+            sender.send(Ok(())).map_err(|_| Error::AsyncRuntimeError)?;
+            result
+        };
+
+        _start_test(test, result_checker)
     }
 
-    #[tokio::test]
-    async fn send_task() -> Result<()> {
-        let (_, mut stream) = initialize_exec(false).await;
-        let mut reader = BufReader::new(stream);
+    #[test]
+    fn send_task() -> Result<()> {
+        let (executor, port) = initialize_exec();
 
-        // Mock data:
-        let func = Fn!(
-            move |(task_context, iter): (TaskContext, Box<dyn Iterator<Item = u8>>)| -> u8 {
-                // let iter = iter.collect::<Vec<u8>>();
-                // eprintln!("{:?}", iter);
-                iter.into_iter().next().unwrap()
+        let test = move |mut client_rcv: Receiver<ComputeResult>| -> Result<()> {
+            // Mock data:
+            let func =
+                Fn!(
+                    move |(task_context, iter): (TaskContext, Box<dyn Iterator<Item = u8>>)| -> u8 {
+                        // let iter = iter.collect::<Vec<u8>>();
+                        // eprintln!("{:?}", iter);
+                        iter.into_iter().next().unwrap()
+                    }
+                );
+            let mock_task: TaskOption = create_test_task(func).into();
+            let ser_task = bincode::serialize(&mock_task)?;
+            let mut message = capnp::message::Builder::new_default();
+            let mut msg_data = message.init_root::<serialized_data::Builder>();
+            msg_data.set_msg(&ser_task);
+            let mut buf = Vec::new();
+            serialize_packed::write_message(&mut buf, &message);
+
+            loop {
+                thread::sleep_ms(5);
+                if let Ok(mut stream) = connect_to_executor(port, false) {
+                    // Send task to executor:
+                    buf.clear();
+                    stream.write_all(&*buf).map_err(Error::OutputWrite)?;
+                    stream.flush().map_err(Error::OutputWrite);
+                    if let Ok(Err(_)) = client_rcv.try_recv() {
+                        return Err(Error::AsyncRuntimeError);
+                    }
+                    // Get the results back:
+                    // buf.clear();
+                    // stream.read_to_end(&mut buf);
+                    // let mut stream_r = std::io::BufReader::new(&*buf);
+                    // if let Ok(res) =
+                    //     serialize_packed::read_message(&mut stream_r, CAPNP_BUF_READ_OPTS)
+                    // {
+                    //     let task_data = res.get_root::<serialized_data::Reader>().unwrap();
+                    //     let des_task: TaskResult =
+                    //         bincode::deserialize(&*task_data.get_msg().unwrap())?;
+
+                    //     if let Ok(mut stream) = connect_to_executor(port, true) {
+                    //         buf.clear();
+                    //         set_shutdown_signal_msg(&mut buf);
+                    //         stream.write_all(&*buf).map_err(Error::OutputWrite)?;
+                    //         stream.flush();
+                    //     }
+                    // }
+                }
             }
-        );
-        let mock_task: TaskOption = create_test_task(func).into();
-        let ser_task = bincode::serialize(&mock_task)?;
+            Err(Error::AsyncRuntimeError)
+        };
 
-        // Send task to executor:
-        let mut message = capnp::message::Builder::new_default();
-        let mut msg_data = message.init_root::<serialized_data::Builder>();
-        msg_data.set_msg(&ser_task);
-        let mut buf = Vec::new();
-        serialize_packed::write_message(&mut buf, &message);
-        reader.write_all(&*buf).await.map_err(Error::OutputWrite)?;
+        let result_checker = |sender: Sender<ComputeResult>| -> Result<()> {
+            let result = match executor.worker() {
+                Err(Error::ExecutorShutdown) => Ok(()),
+                Err(err) => Err(err),
+                _ => Err(Error::AsyncRuntimeError),
+            };
+            if result.is_err() {
+                sender.send(Err(())).map_err(|_| Error::AsyncRuntimeError)?;
+            } else {
+                sender.send(Ok(())).map_err(|_| Error::AsyncRuntimeError)?;
+            }
+            result
+        };
 
-        // Get the results back:
-        buf.clear();
-        let mut stream_r = std::io::BufReader::new(&*buf);
-        serialize_packed::read_message(&mut stream_r, CAPNP_BUF_READ_OPTS);
-
-        // Shutdown
-        buf.clear();
-        set_shutdown_signal_msg(&mut buf);
-        reader.write_all(&*buf).await.map_err(Error::OutputWrite)?;
-        Ok(())
+        _start_test(test, result_checker)
     }
 }
