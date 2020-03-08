@@ -1,6 +1,8 @@
-use std::collections::BTreeSet;
+use std::collections::{BTreeSet, VecDeque};
 use std::net::{Ipv4Addr, SocketAddrV4};
 use std::sync::Arc;
+use std::thread;
+use std::time::{Duration, Instant};
 
 use crate::dag_scheduler::{CompletionEvent, FetchFailedVals};
 use crate::dependency::{Dependency, ShuffleDependencyTrait};
@@ -13,6 +15,7 @@ use crate::serializable_traits::{Data, SerFunc};
 use crate::shuffle::ShuffleMapTask;
 use crate::stage::Stage;
 use crate::task::{TaskBase, TaskContext, TaskOption};
+use dashmap::DashMap;
 
 pub trait Scheduler {
     fn start(&self);
@@ -426,6 +429,19 @@ pub(crate) trait NativeScheduler {
         }
     }
 
+    fn wait_for_event(&self, run_id: usize, timeout: u64) -> Option<CompletionEvent> {
+        // TODO: make use of async to wait for events
+        let end = Instant::now() + Duration::from_millis(timeout);
+        while self.get_event_queue().get(&run_id).unwrap().is_empty() {
+            if Instant::now() > end {
+                return None;
+            } else {
+                thread::sleep(end - Instant::now());
+            }
+        }
+        self.get_event_queue().get_mut(&run_id).unwrap().pop_front()
+    }
+
     fn submit_task<T: Data, U: Data, F>(
         &self,
         task: TaskOption,
@@ -448,6 +464,7 @@ pub(crate) trait NativeScheduler {
     fn fetch_from_stage_cache(&self, id: usize) -> Stage;
     fn fetch_from_shuffle_to_cache(&self, id: usize) -> Stage;
     fn get_cache_locs(&self, rdd: Arc<dyn RddBase>) -> Option<Vec<Vec<Ipv4Addr>>>;
+    fn get_event_queue(&self) -> &Arc<DashMap<usize, VecDeque<CompletionEvent>>>;
     fn get_missing_parent_stages(&self, stage: Stage) -> Vec<Stage>;
     fn get_next_job_id(&self) -> usize;
     fn get_next_stage_id(&self) -> usize;
@@ -497,14 +514,17 @@ macro_rules! impl_common_scheduler_funcs {
                 .add_output_loc(partition, host);
         }
 
+        #[inline]
         fn insert_into_stage_cache(&self, id: usize, stage: Stage) {
             self.stage_cache.insert(id, stage.clone());
         }
 
+        #[inline]
         fn fetch_from_stage_cache(&self, id: usize) -> Stage {
             self.stage_cache.get(&id).unwrap().clone()
         }
 
+        #[inline]
         fn fetch_from_shuffle_to_cache(&self, id: usize) -> Stage {
             self.shuffle_to_map_stage.get(&id).unwrap().clone()
         }
@@ -547,19 +567,28 @@ macro_rules! impl_common_scheduler_funcs {
                 .remove_output_loc(map_id, server_uri);
         }
 
+        #[inline]
         fn get_cache_locs(&self, rdd: Arc<dyn RddBase>) -> Option<Vec<Vec<Ipv4Addr>>> {
             let locs_opt = self.cache_locs.get(&rdd.get_rdd_id());
             locs_opt.map(|l| l.clone())
         }
 
+        #[inline]
+        fn get_event_queue(&self) -> &Arc<DashMap<usize, VecDeque<CompletionEvent>>> {
+            &self.event_queues
+        }
+
+        #[inline]
         fn get_next_job_id(&self) -> usize {
             self.next_job_id.fetch_add(1, Ordering::SeqCst)
         }
 
+        #[inline]
         fn get_next_stage_id(&self) -> usize {
             self.next_stage_id.fetch_add(1, Ordering::SeqCst)
         }
 
+        #[inline]
         fn get_next_task_id(&self) -> usize {
             self.next_task_id.fetch_add(1, Ordering::SeqCst)
         }

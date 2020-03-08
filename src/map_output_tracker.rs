@@ -96,6 +96,7 @@ impl MapOutputTracker {
             let master_addr = self.master_addr;
             let server_uris = self.server_uris.clone();
             thread::spawn(move || {
+                // TODO: make this use async rt
                 let listener = TcpListener::bind(master_addr).unwrap();
                 log::debug!("mapoutput tracker server started");
                 for stream in listener.incoming() {
