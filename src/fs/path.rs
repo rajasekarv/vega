@@ -1,7 +1,5 @@
-use crate::error::Result;
 use once_cell::sync::Lazy;
 use regex::Regex;
-use std::convert::{TryFrom, TryInto};
 use uriparse::{Authority, Fragment, Query, URI};
 
 pub const SEPARATOR: char = '/';
@@ -92,7 +90,7 @@ impl Path {
         }
 
         path = Self::normalize_path(scheme.to_string(), path);
-        let mut url =
+        let url =
             URI::from_parts(scheme, auth, path.as_str(), None::<Query>, None::<Fragment>).unwrap();
         Path::from_url(url.into_owned())
     }
@@ -145,7 +143,7 @@ impl Path {
 
     pub fn get_name(&self) -> Option<String> {
         let path = self.url.path();
-        let mut slash = path.to_string().rfind(SEPARATOR).map_or(0, |i| i + 1);
+        let slash = path.to_string().rfind(SEPARATOR).map_or(0, |i| i + 1);
         path.to_string().get(slash..).map(|x| x.to_owned())
     }
 
@@ -172,7 +170,7 @@ impl Path {
                 .map(|x| x.to_string())?
         };
         let mut parent = self.url.clone();
-        parent.set_path(parent_path.as_str());
+        parent.set_path(parent_path.as_str()).unwrap();
         Some(Path::from_url(parent.into_owned()))
     }
 
@@ -182,7 +180,7 @@ impl Path {
 
     fn normalize_path(scheme: String, mut path: String) -> String {
         path = path.replace("//", "/");
-        if (*WINDOWS && (Self::has_windows_drive(&path) || scheme.eq("file"))) {
+        if *WINDOWS && (Self::has_windows_drive(&path) || scheme.eq("file")) {
             path = path.replace("\\", "/");
         }
 

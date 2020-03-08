@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr, TcpListener, TcpStream};
 use std::sync::Arc;
 use std::thread;
@@ -7,9 +7,7 @@ use std::time;
 use crate::serialized_data_capnp::serialized_data;
 use capnp::serialize_packed;
 use dashmap::DashMap;
-use log::info;
 use parking_lot::{Mutex, RwLock};
-use serde_derive::{Deserialize, Serialize};
 
 pub enum MapOutputTrackerMessage {
     //contains shuffle_id
@@ -64,7 +62,7 @@ impl MapOutputTracker {
         let mut message = ::capnp::message::Builder::new_default();
         let mut shuffle_data = message.init_root::<serialized_data::Builder>();
         shuffle_data.set_msg(&shuffle_id_bytes);
-        serialize_packed::write_message(&mut stream, &message);
+        serialize_packed::write_message(&mut stream, &message).unwrap();
 
         let r = ::capnp::message::ReaderOptions {
             traversal_limit_in_words: std::u64::MAX,
@@ -147,7 +145,7 @@ impl MapOutputTracker {
                                 let mut message = ::capnp::message::Builder::new_default();
                                 let mut locs_data = message.init_root::<serialized_data::Builder>();
                                 locs_data.set_msg(&result);
-                                serialize_packed::write_message(&mut stream, &message);
+                                serialize_packed::write_message(&mut stream, &message).unwrap();
                             });
                         }
                     }

@@ -2,13 +2,12 @@ use std::cmp::Ordering;
 use std::fs;
 use std::hash::Hash;
 use std::io::{BufWriter, Write};
-use std::marker::PhantomData;
 use std::net::Ipv4Addr;
 use std::path::Path;
-use std::sync::{atomic::AtomicBool, atomic::Ordering::SeqCst, Arc};
+use std::sync::Arc;
 
 use crate::context::Context;
-use crate::dependency::{Dependency, OneToOneDependency};
+use crate::dependency::Dependency;
 use crate::error::{Error, Result};
 use crate::partitioner::{HashPartitioner, Partitioner};
 use crate::serializable_traits::{AnyData, Data, Func, SerFunc};
@@ -17,7 +16,6 @@ use crate::task::TaskContext;
 use crate::utils;
 use crate::utils::random::{BernoulliSampler, PoissonSampler, RandomSampler};
 use fasthash::MetroHasher;
-use log::info;
 use rand::{Rng, SeedableRng};
 use serde_derive::{Deserialize, Serialize};
 use serde_traitobject::{Arc as SerArc, Deserialize, Serialize};
@@ -81,7 +79,7 @@ pub trait RddBase: Send + Sync + Serialize + Deserialize {
     fn get_rdd_id(&self) -> usize;
     fn get_context(&self) -> Arc<Context>;
     fn get_dependencies(&self) -> Vec<Dependency>;
-    fn preferred_locations(&self, split: Box<dyn Split>) -> Vec<Ipv4Addr> {
+    fn preferred_locations(&self, _split: Box<dyn Split>) -> Vec<Ipv4Addr> {
         Vec::new()
     }
     fn partitioner(&self) -> Option<Box<dyn Partitioner>> {
@@ -232,7 +230,7 @@ pub trait Rdd: RddBase + 'static {
         Self: Sized,
     {
         fn save<R: Data>(ctx: TaskContext, iter: Box<dyn Iterator<Item = R>>, path: String) {
-            fs::create_dir_all(&path);
+            fs::create_dir_all(&path).unwrap();
             let id = ctx.split_id;
             let file_path = Path::new(&path).join(format!("part-{}", id));
             let f = fs::File::create(file_path).expect("unable to create file");
@@ -413,7 +411,7 @@ pub trait Rdd: RddBase + 'static {
     where
         Self: Sized,
     {
-        let mut context = self.get_context();
+        let context = self.get_context();
         let counting_func =
             Fn!(|iter: Box<dyn Iterator<Item = Self::Item>>| { iter.count() as u64 });
         Ok(context
@@ -492,29 +490,29 @@ pub trait Rdd: RddBase + 'static {
     {
         //TODO: in original spark this is configurable; see rdd/RDD.scala:1397
         // Math.max(conf.get(RDD_LIMIT_SCALE_UP_FACTOR), 2)
-        const scale_up_factor: f64 = 2.0;
+        const SCALE_UP_FACTOR: f64 = 2.0;
         if num == 0 {
             return Ok(vec![]);
         }
         let mut buf = vec![];
         let total_parts = self.number_of_splits() as u32;
         let mut parts_scanned = 0_u32;
-        while (buf.len() < num && parts_scanned < total_parts) {
+        while buf.len() < num && parts_scanned < total_parts {
             // The number of partitions to try in this iteration. It is ok for this number to be
             // greater than total_parts because we actually cap it at total_parts in run_job.
             let mut num_parts_to_try = 1u32;
             let left = num - buf.len();
-            if (parts_scanned > 0) {
+            if parts_scanned > 0 {
                 // If we didn't find any rows after the previous iteration, quadruple and retry.
                 // Otherwise, interpolate the number of partitions we need to try, but overestimate
                 // it by 50%. We also cap the estimation in the end.
                 let parts_scanned = f64::from(parts_scanned);
                 num_parts_to_try = if buf.is_empty() {
-                    (parts_scanned * scale_up_factor).ceil() as u32
+                    (parts_scanned * SCALE_UP_FACTOR).ceil() as u32
                 } else {
                     let num_parts_to_try =
                         (1.5 * left as f64 * parts_scanned / (buf.len() as f64)).ceil();
-                    num_parts_to_try.min(parts_scanned * scale_up_factor) as u32
+                    num_parts_to_try.min(parts_scanned * SCALE_UP_FACTOR) as u32
                 };
             }
 
@@ -636,7 +634,7 @@ pub trait Rdd: RddBase + 'static {
             // If the first sample didn't turn out large enough, keep trying to take samples;
             // this shouldn't happen often because we use a big multiplier for the initial size.
             let mut num_iters = 0;
-            while (samples.len() < num as usize && num_iters < REPETITION_GUARD) {
+            while samples.len() < num as usize && num_iters < REPETITION_GUARD {
                 log::warn!(
                     "Needed to re-sample due to insufficient sample size. Repeat #{}",
                     num_iters

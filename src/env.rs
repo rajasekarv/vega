@@ -1,14 +1,10 @@
-use std::collections::HashMap;
-use std::fs::File;
-use std::fs::OpenOptions;
-use std::net::{Ipv4Addr, SocketAddr};
+use std::net::Ipv4Addr;
 use std::path::PathBuf;
 use std::sync::Arc;
 
 use self::config_vars::*;
 use crate::cache::BoundedMemoryCache;
 use crate::cache_tracker::CacheTracker;
-use crate::error::Error;
 use crate::hosts::Hosts;
 use crate::map_output_tracker::MapOutputTracker;
 use crate::shuffle::{ShuffleFetcher, ShuffleManager};
@@ -16,7 +12,6 @@ use clap::{App, Arg, SubCommand};
 use dashmap::DashMap;
 use log::LevelFilter as LogLevel;
 use once_cell::sync::{Lazy, OnceCell};
-use parking_lot::{Mutex, RwLock};
 use thiserror::Error;
 use tokio::runtime::{Handle, Runtime};
 
@@ -36,8 +31,8 @@ static CONF: OnceCell<Configuration> = OnceCell::new();
 static ENV: OnceCell<Env> = OnceCell::new();
 static ASYNC_HANDLE: Lazy<Handle> = Lazy::new(Handle::current);
 
-pub(crate) static shuffle_cache: Lazy<ShuffleCache> = Lazy::new(|| Arc::new(DashMap::new()));
-pub(crate) static the_cache: Lazy<BoundedMemoryCache> = Lazy::new(BoundedMemoryCache::new);
+pub(crate) static SHUFFLE_CACHE: Lazy<ShuffleCache> = Lazy::new(|| Arc::new(DashMap::new()));
+pub(crate) static BOUNDED_MEM_CACHE: Lazy<BoundedMemoryCache> = Lazy::new(BoundedMemoryCache::new);
 
 pub(crate) struct Env {
     pub map_output_tracker: MapOutputTracker,
@@ -88,7 +83,7 @@ impl Env {
                 conf.is_master,
                 master_addr,
                 conf.local_ip,
-                &the_cache,
+                &BOUNDED_MEM_CACHE,
             ),
             async_rt: build_async_executor(),
         }

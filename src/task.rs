@@ -6,7 +6,7 @@ use crate::serializable_traits::{Data, SerFunc};
 use crate::shuffle::ShuffleMapTask;
 use downcast_rs::Downcast;
 use serde_derive::{Deserialize, Serialize};
-use serde_traitobject::{Any as SerAny, Arc as SerArc, Box as SerBox, Deserialize, Serialize};
+use serde_traitobject::{Deserialize, Serialize};
 
 pub struct TaskContext {
     pub stage_id: usize,

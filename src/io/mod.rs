@@ -1,12 +1,8 @@
-use std::marker::PhantomData;
-use std::net::Ipv4Addr;
-use std::path::PathBuf;
 use std::sync::Arc;
 
 use crate::context::Context;
-use crate::rdd::{Rdd, RddBase};
+use crate::rdd::Rdd;
 use crate::serializable_traits::{Data, SerFunc};
-use downcast_rs::Downcast;
 use serde_traitobject::Arc as SerArc;
 
 mod local_file_reader;

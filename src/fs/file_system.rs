@@ -1,5 +1,3 @@
-use std::path::Path;
-
 // WIP
 pub trait FileSystem {
     fn get_default_port(&self) -> u16 {

@@ -1,24 +1,15 @@
-use std::any::Any;
-use std::cell::RefCell;
 use std::clone::Clone;
 use std::cmp::Ordering;
-use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet, VecDeque};
+use std::collections::{BTreeMap, BTreeSet};
 use std::marker::PhantomData;
-use std::net::Ipv4Addr;
 use std::option::Option;
-use std::sync::{
-    atomic::{AtomicUsize, Ordering as OrdAtomic},
-    Arc,
-};
-use std::thread;
-use std::time;
-use std::time::{Duration, Instant};
+use std::sync::Arc;
 
-use crate::rdd::Rdd;
 use crate::scheduler::NativeScheduler;
 use crate::serializable_traits::{Data, SerFunc};
 use crate::stage::Stage;
 use crate::task::{TaskBase, TaskContext};
+use crate::Rdd;
 use parking_lot::Mutex;
 
 #[derive(Clone, Debug)]
@@ -102,7 +93,7 @@ where
         output_parts: Vec<usize>,
     ) -> JobTracker<F, U, T> {
         let finished: Vec<bool> = (0..output_parts.len()).map(|_| false).collect();
-        let mut pending_tasks: BTreeMap<Stage, BTreeSet<Box<dyn TaskBase>>> = BTreeMap::new();
+        let pending_tasks: BTreeMap<Stage, BTreeSet<Box<dyn TaskBase>>> = BTreeMap::new();
         JobTracker {
             num_output_parts: output_parts.len(),
             output_parts,

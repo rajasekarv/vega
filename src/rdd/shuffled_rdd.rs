@@ -1,5 +1,3 @@
-use std::collections::HashMap;
-use std::future::Future;
 use std::hash::Hash;
 use std::sync::Arc;
 use std::time::Instant;
@@ -8,15 +6,13 @@ use crate::aggregator::Aggregator;
 use crate::context::Context;
 use crate::dependency::{Dependency, ShuffleDependency};
 use crate::env;
-use crate::error::{Error, Result};
+use crate::error::Result;
 use crate::partitioner::Partitioner;
 use crate::rdd::{Rdd, RddBase, RddVals};
 use crate::serializable_traits::{AnyData, Data};
 use crate::shuffle::ShuffleFetcher;
 use crate::split::Split;
-use crate::utils::yield_tokio_futures;
 use dashmap::DashMap;
-use log::info;
 use serde_derive::{Deserialize, Serialize};
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -153,7 +149,7 @@ impl<K: Data + Eq + Hash, V: Data, C: Data> Rdd for ShuffledRdd<K, V, C> {
     fn compute(&self, split: Box<dyn Split>) -> Result<Box<dyn Iterator<Item = Self::Item>>> {
         log::debug!("compute inside shuffled rdd");
         let combiners: Arc<DashMap<K, Option<C>>> = Arc::new(DashMap::new());
-        let mut comb_clone = combiners.clone();
+        let comb_clone = combiners.clone();
         let agg = self.aggregator.clone();
         let merge_pair = move |(k, c): (K, C)| {
             if let Some(mut old_c) = comb_clone.get_mut(&k) {

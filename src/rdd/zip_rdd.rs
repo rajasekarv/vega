@@ -1,15 +1,13 @@
 use std::cmp::min;
 use std::marker::PhantomData;
-use std::net::Ipv4Addr;
 use std::sync::Arc;
 
-use crate::serializable_traits::{AnyData, Data, Func, SerFunc};
+use crate::serializable_traits::{AnyData, Data};
 use serde_derive::{Deserialize, Serialize};
 
 use crate::context::Context;
 use crate::dependency::{Dependency, OneToOneDependency};
 use crate::error::{Error, Result};
-use crate::partitioner::{HashPartitioner, Partitioner};
 use crate::rdd::{Rdd, RddBase, RddVals};
 use crate::split::Split;
 

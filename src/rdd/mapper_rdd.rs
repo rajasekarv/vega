@@ -4,12 +4,11 @@ use std::sync::{atomic::AtomicBool, atomic::Ordering::SeqCst, Arc};
 
 use crate::context::Context;
 use crate::dependency::{Dependency, OneToOneDependency};
-use crate::error::{Error, Result};
+use crate::error::Result;
 use crate::rdd::{Rdd, RddBase, RddVals};
 use crate::serializable_traits::{AnyData, Data, Func, SerFunc};
 use crate::split::Split;
 use serde_derive::{Deserialize, Serialize};
-use serde_traitobject::{Arc as SerArc, Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize)]
 pub struct MapperRdd<T: Data, U: Data, F>

@@ -3,7 +3,7 @@ use crate::env;
 use crate::rdd::RddBase;
 use crate::task::{Task, TaskBase};
 use serde_derive::{Deserialize, Serialize};
-use std::fmt::{Display, Formatter, Result};
+use std::fmt::Display;
 use std::net::Ipv4Addr;
 use std::sync::Arc;
 
@@ -76,14 +76,12 @@ impl TaskBase for ShuffleMapTask {
     }
 
     fn generation(&self) -> Option<i64> {
-        //        let base = self.rdd.get_rdd_base();
-        let context = self.rdd.get_context();
         Some(env::Env::get().map_output_tracker.get_generation())
     }
 }
 
 impl Task for ShuffleMapTask {
-    fn run(&self, id: usize) -> serde_traitobject::Box<dyn serde_traitobject::Any + Send + Sync> {
+    fn run(&self, _id: usize) -> serde_traitobject::Box<dyn serde_traitobject::Any + Send + Sync> {
         serde_traitobject::Box::new(self.dep.do_shuffle_task(self.rdd.clone(), self.partition))
             as serde_traitobject::Box<dyn serde_traitobject::Any + Send + Sync>
     }

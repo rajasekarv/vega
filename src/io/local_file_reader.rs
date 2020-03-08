@@ -7,17 +7,15 @@ use std::sync::Arc;
 
 use crate::context::Context;
 use crate::dependency::Dependency;
-use crate::env;
 use crate::error::{Error, Result};
 use crate::io::ReaderConfiguration;
 use crate::rdd::{MapPartitionsRdd, MapperRdd, Rdd, RddBase};
 use crate::serializable_traits::{AnyData, Data, SerFunc};
 use crate::split::Split;
 use log::debug;
-use log::info;
 use rand::prelude::*;
 use serde_derive::{Deserialize, Serialize};
-use serde_traitobject::{Arc as SerArc, Box as SerBox};
+use serde_traitobject::Arc as SerArc;
 
 pub struct LocalFsReaderConfig {
     filter_ext: Option<std::ffi::OsString>,
@@ -147,8 +145,6 @@ impl<T: Data> LocalFsReader<T> {
     fn load_local_files(&self) -> Result<Vec<Vec<PathBuf>>> {
         let mut total_size = 0_u64;
         if self.is_single_file {
-            let size = fs::metadata(&self.path).map_err(Error::InputRead)?.len();
-            total_size += size;
             let files = vec![vec![self.path.clone()]];
             return Ok(files);
         }
@@ -394,7 +390,7 @@ impl Rdd for LocalFsReader<BytesReader> {
 
     fn compute(&self, split: Box<dyn Split>) -> Result<Box<dyn Iterator<Item = Self::Item>>> {
         let split = split.downcast_ref::<BytesReader>().unwrap();
-        let mut files_by_part = self.load_local_files()?;
+        let files_by_part = self.load_local_files()?;
         let idx = split.idx;
         let host = split.host;
         Ok(Box::new(
@@ -412,7 +408,7 @@ impl Rdd for LocalFsReader<FileReader> {
 
     fn compute(&self, split: Box<dyn Split>) -> Result<Box<dyn Iterator<Item = Self::Item>>> {
         let split = split.downcast_ref::<FileReader>().unwrap();
-        let mut files_by_part = self.load_local_files()?;
+        let files_by_part = self.load_local_files()?;
         let idx = split.idx;
         let host = split.host;
         Ok(Box::new(
@@ -440,10 +436,10 @@ impl Iterator for BytesReader {
     type Item = Vec<u8>;
     fn next(&mut self) -> Option<Self::Item> {
         if let Some(path) = self.files.pop() {
-            let mut file = fs::File::open(path).unwrap();
+            let file = fs::File::open(path).unwrap();
             let mut content = vec![];
             let mut reader = BufReader::new(file);
-            reader.read_to_end(&mut content);
+            reader.read_to_end(&mut content).unwrap();
             Some(content)
         } else {
             None

@@ -1,4 +1,4 @@
-#![allow(where_clauses_object_safety)]
+#![allow(where_clauses_object_safety, clippy::single_component_path_imports)]
 use native_spark::io::*;
 use native_spark::*;
 #[macro_use]

@@ -1,8 +1,7 @@
 use crate::dependency::ShuffleDependencyTrait;
 use crate::rdd::RddBase;
-use log::info;
 use std::cmp::Ordering;
-use std::fmt::{Display, Formatter, Result};
+use std::fmt::Display;
 use std::sync::Arc;
 
 // this is strange. see into this in more detail
@@ -65,7 +64,7 @@ impl Stage {
             rdd: rdd.clone(),
             output_locs: {
                 let mut v = Vec::new();
-                for i in 0..rdd.number_of_splits() {
+                for _ in 0..rdd.number_of_splits() {
                     v.push(Vec::new());
                 }
                 v

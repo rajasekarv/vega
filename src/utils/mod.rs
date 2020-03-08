@@ -3,10 +3,7 @@ pub(crate) mod random;
 pub(crate) mod test_utils;
 
 use crate::error;
-use rand::{
-    distributions::{Bernoulli, Distribution},
-    Rng,
-};
+use rand::Rng;
 use std::net::TcpListener;
 
 /// Shuffle the elements of a vec into a random order in place, modifying it.
@@ -49,7 +46,7 @@ fn get_dynamic_port() -> u16 {
 #[cfg(test)]
 fn test_randomize_in_place() {
     use rand::SeedableRng;
-    let mut sample = vec![1_i64, 2, 3, 4, 5, 6, 7, 8, 9, 10];
+    let sample = vec![1_i64, 2, 3, 4, 5, 6, 7, 8, 9, 10];
 
     let mut randomized_samples = vec![];
     for seed in 0..10 {

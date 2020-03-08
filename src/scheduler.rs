@@ -1,6 +1,5 @@
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeSet;
 use std::net::{Ipv4Addr, SocketAddrV4};
-use std::rc::Rc;
 use std::sync::Arc;
 
 use crate::dag_scheduler::{CompletionEvent, FetchFailedVals};
@@ -14,7 +13,6 @@ use crate::serializable_traits::{Data, SerFunc};
 use crate::shuffle::ShuffleMapTask;
 use crate::stage::Stage;
 use crate::task::{TaskBase, TaskContext, TaskOption};
-use log::{error, info};
 
 pub trait Scheduler {
     fn start(&self);
@@ -101,7 +99,7 @@ pub(crate) trait NativeScheduler {
         if !visited.contains(&rdd) {
             visited.insert(rdd.clone());
             // TODO CacheTracker register
-            for p in 0..rdd.number_of_splits() {
+            for _ in 0..rdd.number_of_splits() {
                 let locs = self.get_cache_locs(rdd.clone());
                 log::debug!("cache locs {:?}", locs);
                 if locs == None {
@@ -190,7 +188,7 @@ pub(crate) trait NativeScheduler {
             server_uri,
             shuffle_id,
             map_id,
-            reduce_id,
+            ..
         } = failed_vals;
 
         //TODO mapoutput tracker needs to be finished for this
@@ -219,7 +217,7 @@ pub(crate) trait NativeScheduler {
         //TODO logging
         //TODO add to Accumulator
 
-        let mut result_type = completed_event
+        let result_type = completed_event
             .task
             .downcast_ref::<ResultTask<T, U, F>>()
             .is_some();
@@ -357,7 +355,7 @@ pub(crate) trait NativeScheduler {
         }
     }
 
-    fn submit_missing_tasks<T: Data, U: Data, F>(&self, stage: Stage, mut jt: JobTracker<F, U, T>)
+    fn submit_missing_tasks<T: Data, U: Data, F>(&self, stage: Stage, jt: JobTracker<F, U, T>)
     where
         F: SerFunc((TaskContext, Box<dyn Iterator<Item = T>>)) -> U,
     {
@@ -512,7 +510,6 @@ macro_rules! impl_common_scheduler_funcs {
         }
 
         fn update_cache_locs(&self) {
-            use std::iter::FromIterator;
             self.cache_locs.clear();
             env::Env::get()
                 .cache_tracker

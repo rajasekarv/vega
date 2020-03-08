@@ -1,11 +1,9 @@
-use std::any::Any;
 use std::net::Ipv4Addr;
 use std::sync::Arc;
 
 use itertools::{Itertools, MinMaxResult};
-use log::debug;
 use serde_derive::{Deserialize, Serialize};
-use serde_traitobject::{Arc as SerArc, Box as SerBox};
+use serde_traitobject::Arc as SerArc;
 
 use crate::context::Context;
 use crate::dependency::{Dependency, NarrowDependencyTrait, OneToOneDependency, RangeDependency};
@@ -280,7 +278,7 @@ impl<T: Data> RddBase for UnionRdd<T> {
                     }) as Box<dyn Split>
                 })
                 .collect(),
-            PartitionerAware { rdds, part, .. } => {
+            PartitionerAware { part, .. } => {
                 let num_partitions = part.get_num_of_partitions();
                 (0..num_partitions)
                     .map(|idx| Box::new(PartitionerAwareUnionSplit { idx }) as Box<dyn Split>)
@@ -320,13 +318,12 @@ impl<T: Data> Rdd for UnionRdd<T> {
     }
 
     fn compute(&self, split: Box<dyn Split>) -> Result<Box<dyn Iterator<Item = T>>> {
-        let context = self.get_context();
         match &self.0 {
             NonUniquePartitioner { rdds, .. } => {
                 let part = &*split
                     .downcast::<UnionSplit<T>>()
                     .or(Err(Error::DowncastFailure("UnionSplit")))?;
-                let parent = (&rdds[part.parent_rdd_index]);
+                let parent = &rdds[part.parent_rdd_index];
                 parent.iterator(part.parent_partition())
             }
             PartitionerAware { rdds, .. } => {

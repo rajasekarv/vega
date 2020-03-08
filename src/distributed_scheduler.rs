@@ -1,29 +1,24 @@
 use std::any::Any;
-use std::collections::{
-    btree_map::BTreeMap, btree_set::BTreeSet, vec_deque::VecDeque, HashMap, HashSet,
-};
+use std::collections::{btree_set::BTreeSet, vec_deque::VecDeque, HashMap, HashSet};
 use std::iter::FromIterator;
 use std::net::{Ipv4Addr, SocketAddrV4, TcpStream};
-use std::rc::Rc;
 use std::sync::{
     atomic::{AtomicUsize, Ordering},
     Arc,
 };
 use std::thread;
-use std::time;
 use std::time::{Duration, Instant};
 
-use crate::dag_scheduler::{CompletionEvent, FetchFailedVals, TastEndReason};
-use crate::dependency::{Dependency, ShuffleDependencyTrait};
+use crate::dag_scheduler::{CompletionEvent, TastEndReason};
+use crate::dependency::ShuffleDependencyTrait;
 use crate::env;
-use crate::error::{Error, Result};
+use crate::error::Result;
 use crate::job::{Job, JobTracker};
 use crate::local_scheduler::LocalScheduler;
 use crate::map_output_tracker::MapOutputTracker;
 use crate::rdd::{Rdd, RddBase};
 use crate::result_task::ResultTask;
-use crate::scheduler::*;
-use crate::scheduler::{NativeScheduler, Scheduler};
+use crate::scheduler::NativeScheduler;
 use crate::serializable_traits::{Data, SerFunc};
 use crate::serialized_data_capnp::serialized_data;
 use crate::shuffle::ShuffleMapTask;
@@ -32,7 +27,6 @@ use crate::task::{TaskBase, TaskContext, TaskOption, TaskResult};
 use crate::utils;
 use capnp::serialize_packed;
 use dashmap::DashMap;
-use log::info;
 use parking_lot::Mutex;
 
 //just for now, creating an entire scheduler functions without dag scheduler trait. Later change it to extend from dag scheduler
@@ -144,8 +138,8 @@ impl DistributedScheduler {
         // acquiring lock so that only one job can run a same time this lock is just
         // a temporary patch for preventing multiple jobs to update cache locks which affects
         // construction of dag task graph. dag task graph construction need to be altered
-        let lock = self.scheduler_lock.lock();
-        let mut jt = JobTracker::from_scheduler(&*self, func, final_rdd.clone(), partitions);
+        let _lock = self.scheduler_lock.lock();
+        let jt = JobTracker::from_scheduler(&*self, func, final_rdd.clone(), partitions);
 
         //TODO update cache
 
@@ -183,7 +177,7 @@ impl DistributedScheduler {
                 let event_option = self_borrow.wait_for_event(jt.run_id, self_borrow.poll_timeout);
                 let start_time = Instant::now();
 
-                if let Some(mut evt) = event_option {
+                if let Some(evt) = event_option {
                     log::debug!("event starting");
                     let stage = self_borrow
                         .stage_cache
@@ -263,7 +257,7 @@ impl NativeScheduler for DistributedScheduler {
     fn submit_task<T: Data, U: Data, F>(
         &self,
         task: TaskOption,
-        id_in_job: usize,
+        _id_in_job: usize,
         target_executor: SocketAddrV4,
     ) where
         F: SerFunc((TaskContext, Box<dyn Iterator<Item = T>>)) -> U,
@@ -272,7 +266,6 @@ impl NativeScheduler for DistributedScheduler {
             return;
         }
         log::debug!("inside submit task");
-        let my_attempt_id = self.attempt_id.fetch_add(1, Ordering::SeqCst);
         let event_queues = self.event_queues.clone();
         let event_queues_clone = event_queues;
         // FIXME: probably does not need to be blocking in distributed mode; test it and change back to normal spawn
@@ -298,7 +291,7 @@ impl NativeScheduler for DistributedScheduler {
             let mut task_data = message.init_root::<serialized_data::Builder>();
             log::debug!("sending data to server");
             task_data.set_msg(&task_bytes);
-            serialize_packed::write_message(&mut stream, &message);
+            serialize_packed::write_message(&mut stream, &message).unwrap();
 
             let r = ::capnp::message::ReaderOptions {
                 traversal_limit_in_words: std::u64::MAX,
@@ -365,7 +358,7 @@ impl NativeScheduler for DistributedScheduler {
             if let Some((pos, _)) = servers
                 .iter()
                 .enumerate()
-                .find(|(i, e)| *e.ip() == location)
+                .find(|(_, e)| *e.ip() == location)
             {
                 let target_host = servers.remove(pos).unwrap();
                 servers.push_front(target_host.clone());

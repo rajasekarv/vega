@@ -1,38 +1,31 @@
 use std::any::Any;
-use std::cell::RefCell;
 use std::clone::Clone;
-use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet, VecDeque};
-use std::marker::PhantomData;
+use std::collections::{BTreeSet, HashMap, HashSet, VecDeque};
 use std::net::{Ipv4Addr, SocketAddrV4};
 use std::option::Option;
-use std::rc::Rc;
 use std::sync::{
     atomic::{AtomicUsize, Ordering},
     Arc,
 };
 use std::thread;
-use std::time;
 use std::time::{Duration, Instant};
 
 use crate::dag_scheduler::{CompletionEvent, TastEndReason};
 use crate::dependency::ShuffleDependencyTrait;
 use crate::env;
-use crate::error::{Error, Result};
+use crate::error::Result;
 use crate::job::{Job, JobTracker};
 use crate::map_output_tracker::MapOutputTracker;
 use crate::rdd::{Rdd, RddBase};
 use crate::result_task::ResultTask;
 use crate::scheduler::NativeScheduler;
 use crate::serializable_traits::{Data, SerFunc};
-use crate::serialized_data_capnp::serialized_data;
 use crate::shuffle::ShuffleMapTask;
 use crate::stage::Stage;
 use crate::task::{TaskBase, TaskContext, TaskOption, TaskResult};
 use crate::utils;
 use dashmap::DashMap;
-use log::info;
 use parking_lot::Mutex;
-use serde_traitobject::Arc as SerArc;
 
 #[derive(Clone, Default)]
 pub struct LocalScheduler {
@@ -63,7 +56,7 @@ pub struct LocalScheduler {
 }
 
 impl LocalScheduler {
-    pub fn new(threads: usize, max_failures: usize, master: bool) -> Self {
+    pub fn new(max_failures: usize, master: bool) -> Self {
         LocalScheduler {
             max_failures,
             attempt_id: Arc::new(AtomicUsize::new(0)),
@@ -104,8 +97,8 @@ impl LocalScheduler {
         // acquiring lock so that only one job can run at same time this lock is just
         // a temporary patch for preventing multiple jobs to update cache locks which affects
         // construction of dag task graph. dag task graph construction needs to be altered
-        let lock = self.scheduler_lock.lock();
-        let mut jt = JobTracker::from_scheduler(&*self, func, final_rdd.clone(), partitions);
+        let _lock = self.scheduler_lock.lock();
+        let jt = JobTracker::from_scheduler(&*self, func, final_rdd.clone(), partitions);
 
         //TODO update cache
 
@@ -143,7 +136,7 @@ impl LocalScheduler {
                 let event_option = self_borrow.wait_for_event(jt.run_id, self_borrow.poll_timeout);
                 let start = Instant::now();
 
-                if let Some(mut evt) = event_option {
+                if let Some(evt) = event_option {
                     log::debug!("event starting");
                     let stage = self_borrow
                         .stage_cache
@@ -220,7 +213,7 @@ impl LocalScheduler {
     fn run_task<T: Data, U: Data, F>(
         event_queues: Arc<DashMap<usize, VecDeque<CompletionEvent>>>,
         task: Vec<u8>,
-        id_in_job: usize,
+        _id_in_job: usize,
         attempt_id: usize,
     ) where
         F: SerFunc((TaskContext, Box<dyn Iterator<Item = T>>)) -> U,
@@ -288,7 +281,7 @@ impl NativeScheduler for LocalScheduler {
         &self,
         task: TaskOption,
         id_in_job: usize,
-        server_address: SocketAddrV4,
+        _server_address: SocketAddrV4,
     ) where
         F: SerFunc((TaskContext, Box<dyn Iterator<Item = T>>)) -> U,
     {

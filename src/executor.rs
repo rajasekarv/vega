@@ -1,7 +1,6 @@
 use std::net::SocketAddr;
 use std::sync::Arc;
-use std::thread;
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
 use crate::env;
 use crate::error::{Error, NetworkError, Result};
@@ -15,7 +14,7 @@ use capnp::{
 use serde::{Deserialize, Serialize};
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt, BufReader},
-    net::{TcpListener, TcpStream},
+    net::TcpListener,
     stream::StreamExt,
     sync::oneshot::{channel, Receiver, Sender},
 };
@@ -25,7 +24,7 @@ const CAPNP_BUF_READ_OPTS: ReaderOptions = ReaderOptions {
     nesting_limit: 64,
 };
 
-pub struct Executor {
+pub(crate) struct Executor {
     port: u16,
 }
 
@@ -62,7 +61,7 @@ impl Executor {
             .await
             .map_err(NetworkError::TcpListener)?;
         while let Some(stream) = listener.incoming().next().await {
-            if let Ok(mut stream) = stream {
+            if let Ok(stream) = stream {
                 if let Ok(Signal::ShutDown) = rcv_main.try_recv() {
                     return Err(Error::ExecutorShutdown);
                 }
@@ -83,7 +82,8 @@ impl Executor {
                         let des_task = self_clone.deserialize_task(message_reader)?;
                         self_clone.run_task(des_task)
                     }?;
-                    serialize_packed::write_message(&mut buf, &message);
+                    serialize_packed::write_message(&mut buf, &message)
+                        .map_err(Error::OutputWrite)?;
                     reader.write_all(&*buf).await.map_err(Error::OutputWrite)?;
                     reader.flush().await.map_err(Error::OutputWrite)?;
                     Ok::<(), Error>(())
@@ -106,7 +106,6 @@ impl Executor {
             self.port,
             task_data.get_msg().unwrap().len()
         );
-        let port = self.port;
         let start = Instant::now();
         // let local_dir_root = "/tmp";
         // let uuid = Uuid::new_v4();
@@ -182,7 +181,7 @@ impl Executor {
     }
 
     /// A listener for exit signal from master to end the whole slave process.
-    async fn signal_handler(self: Arc<Self>, mut send_child: Sender<Signal>) -> Result<()> {
+    async fn signal_handler(self: Arc<Self>, send_child: Sender<Signal>) -> Result<()> {
         let addr = SocketAddr::from(([0, 0, 0, 0], self.port + 10));
         log::debug!("signal handler port open @ {}", addr.port());
         let mut listener = TcpListener::bind(addr)
@@ -190,7 +189,7 @@ impl Executor {
             .map_err(NetworkError::TcpListener)?;
         let mut buf = Vec::new();
         while let Some(stream) = listener.incoming().next().await {
-            let mut stream = stream.unwrap();
+            let stream = stream.unwrap();
             buf.clear();
             let mut reader = BufReader::new(stream);
             reader
@@ -207,7 +206,9 @@ impl Executor {
             if let Signal::ShutDown = data {
                 // signal shut down to the main executor task receiving thread
                 log::debug!("received shutdown signal @ {}", self.port);
-                send_child.send(Signal::ShutDown);
+                send_child
+                    .send(Signal::ShutDown)
+                    .map_err(|_| Error::AsyncRuntimeError)?;
                 break;
             }
         }
@@ -225,9 +226,9 @@ pub(crate) enum Signal {
 mod tests {
     use super::*;
     use crate::task::TaskContext;
-    use crate::task::TaskResult;
     use crate::utils::{get_free_port, test_utils::create_test_task};
-    use std::io::{Read, Write};
+    use std::io::Write;
+    use std::thread;
     use tokio::sync::mpsc::{
         unbounded_channel, UnboundedReceiver as Receiver, UnboundedSender as Sender,
     };
@@ -236,7 +237,7 @@ mod tests {
     type ComputeResult = std::result::Result<(), ()>;
 
     fn initialize_exec() -> (Arc<Executor>, Port) {
-        let mut port = get_free_port().unwrap();
+        let port = get_free_port().unwrap();
         (Arc::new(Executor::new(port)), port)
     }
 
@@ -278,7 +279,7 @@ mod tests {
         let mut message = capnp::message::Builder::new_default();
         let mut msg_data = message.init_root::<serialized_data::Builder>();
         msg_data.set_msg(&signal);
-        serialize_packed::write_message(buf, &message);
+        serialize_packed::write_message(buf, &message).map_err(Error::OutputWrite)?;
         Ok(())
     }
 
@@ -288,12 +289,12 @@ mod tests {
 
         let test = move |mut client_rcv: Receiver<ComputeResult>| -> Result<()> {
             let mut buf = Vec::new();
-            set_shutdown_signal_msg(&mut buf);
+            set_shutdown_signal_msg(&mut buf)?;
             loop {
                 thread::sleep_ms(5);
                 if let Ok(mut stream) = connect_to_executor(port, true) {
                     stream.write_all(&*buf).map_err(Error::OutputWrite)?;
-                    stream.flush();
+                    stream.flush().map_err(Error::OutputWrite)?;
                     match client_rcv.try_recv() {
                         Ok(Ok(_)) => return Ok(()),
                         Ok(Err(_)) => return Err(Error::AsyncRuntimeError),
@@ -301,7 +302,6 @@ mod tests {
                     }
                 }
             }
-            Err(Error::AsyncRuntimeError)
         };
 
         let result_checker = |sender: Sender<ComputeResult>| -> Result<()> {
@@ -338,7 +338,7 @@ mod tests {
             let mut msg_data = message.init_root::<serialized_data::Builder>();
             msg_data.set_msg(&ser_task);
             let mut buf = Vec::new();
-            serialize_packed::write_message(&mut buf, &message);
+            serialize_packed::write_message(&mut buf, &message).map_err(Error::OutputWrite)?;
 
             loop {
                 thread::sleep_ms(5);
@@ -346,7 +346,7 @@ mod tests {
                     // Send task to executor:
                     buf.clear();
                     stream.write_all(&*buf).map_err(Error::OutputWrite)?;
-                    stream.flush().map_err(Error::OutputWrite);
+                    stream.flush().map_err(Error::OutputWrite)?;
                     if let Ok(Err(_)) = client_rcv.try_recv() {
                         return Err(Error::AsyncRuntimeError);
                     }
@@ -370,7 +370,6 @@ mod tests {
                     // }
                 }
             }
-            Err(Error::AsyncRuntimeError)
         };
 
         let result_checker = |sender: Sender<ComputeResult>| -> Result<()> {

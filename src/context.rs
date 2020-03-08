@@ -1,7 +1,6 @@
 use std::fs::File;
 use std::net::{Ipv4Addr, SocketAddrV4, TcpStream};
 use std::ops::Range;
-use std::path::PathBuf;
 use std::process::Command;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
@@ -41,7 +40,7 @@ enum Schedulers {
 impl Default for Schedulers {
     fn default() -> Schedulers {
         //        let map_output_tracker = MapOutputTracker::new(true, "".to_string(), 0);
-        Schedulers::Local(Arc::new(LocalScheduler::new(num_cpus::get(), 20, true)))
+        Schedulers::Local(Arc::new(LocalScheduler::new(20, true)))
     }
 }
 
@@ -94,113 +93,133 @@ impl Context {
 
     // Sends the binary to all nodes present in hosts.conf and starts them
     pub fn with_mode(mode: env::DeploymentMode) -> Result<Arc<Self>> {
-        let next_rdd_id = Arc::new(AtomicUsize::new(0));
-        let next_shuffle_id = Arc::new(AtomicUsize::new(0));
-        use Schedulers::*;
         match mode {
             env::DeploymentMode::Distributed => {
-                let mut port: u16 = 10000;
-                let mut address_map = Vec::new();
                 if env::Configuration::get().is_master {
-                    let uuid = Uuid::new_v4().to_string();
-                    initialize_loggers(format!("/tmp/master-{}", uuid));
-                    let binary_path =
-                        std::env::current_exe().map_err(|_| Error::CurrentBinaryPath)?;
-                    let binary_path_str = binary_path
-                        .to_str()
-                        .ok_or_else(|| Error::PathToString(binary_path.clone()))?
-                        .into();
-                    let binary_name = binary_path
-                        .file_name()
-                        .ok_or(Error::CurrentBinaryName)?
-                        .to_os_string()
-                        .into_string()
-                        .map_err(Error::OsStringToString)?;
-                    for address in &hosts::Hosts::get()?.slaves {
-                        log::debug!("deploying executor at address {:?}", address);
-                        let address_cli: Ipv4Addr = address
-                            .split('@')
-                            .nth(1)
-                            .ok_or_else(|| Error::ParseHostAddress(address.into()))?
-                            .parse()
-                            .map_err(|x| Error::ParseHostAddress(format!("{}", x)))?;
-                        address_map.push(SocketAddrV4::new(address_cli, port));
-                        let local_dir_root = "/tmp";
-                        let uuid = Uuid::new_v4();
-                        let local_dir_uuid = uuid.to_string();
-                        let local_dir =
-                            format!("{}/spark-binary-{}", local_dir_root, local_dir_uuid);
-                        let mkdir_output = Command::new("ssh")
-                            .args(&[address, "mkdir", &local_dir.clone()])
-                            .output()
-                            .map_err(|e| Error::CommandOutput {
-                                source: e,
-                                command: "ssh mkdir".into(),
-                            })?;
-                        let remote_path = format!("{}:{}/{}", address, local_dir, binary_name);
-                        let scp_output = Command::new("scp")
-                            .args(&[&binary_path_str, &remote_path])
-                            .output()
-                            .map_err(|e| Error::CommandOutput {
-                                source: e,
-                                command: "scp executor".into(),
-                            })?;
-                        let path = format!("{}/{}", local_dir, binary_name);
-                        log::debug!("remote path {}", path);
-                        // Deploy a remote slave
-                        Command::new("ssh")
-                            .args(&[
-                                address,
-                                &path,
-                                &env::SLAVE_DEPLOY_CMD.to_string(),
-                                &format!("--port={}", port),
-                            ])
-                            .spawn()
-                            .map_err(|e| Error::CommandOutput {
-                                source: e,
-                                command: "ssh run".into(),
-                            })?;
-                        port += 5000;
-                    }
-                    Ok(Arc::new(Context {
-                        next_rdd_id,
-                        next_shuffle_id,
-                        scheduler: Distributed(Arc::new(DistributedScheduler::new(
-                            20,
-                            true,
-                            Some(address_map.clone()),
-                            10000,
-                        ))),
-                        address_map,
-                        distributed_master: true,
-                    }))
+                    Context::init_distributed_master()
                 } else {
-                    let uuid = Uuid::new_v4().to_string();
-                    initialize_loggers(format!("/tmp/executor-{}", uuid));
-                    log::debug!("started client");
-                    let executor = Arc::new(Executor::new(
-                        env::Configuration::get()
-                            .port
-                            .ok_or(Error::GetOrCreateConfig("executor port not set"))?,
-                    ));
-                    executor.worker();
-                    log::debug!("got executor end signal");
-                    std::process::exit(0);
+                    Context::init_distributed_worker()?
                 }
             }
-            env::DeploymentMode::Local => {
-                let uuid = Uuid::new_v4().to_string();
-                initialize_loggers(format!("/tmp/master-{}", uuid));
-                let scheduler = Local(Arc::new(LocalScheduler::new(num_cpus::get(), 20, true)));
-                Ok(Arc::new(Context {
-                    next_rdd_id,
-                    next_shuffle_id,
-                    scheduler,
-                    address_map: vec![SocketAddrV4::new(Ipv4Addr::LOCALHOST, 0)],
-                    distributed_master: false,
-                }))
-            }
+            env::DeploymentMode::Local => Context::init_local_scheduler(),
         }
+    }
+
+    fn init_local_scheduler() -> Result<Arc<Self>> {
+        let next_rdd_id = Arc::new(AtomicUsize::new(0));
+        let next_shuffle_id = Arc::new(AtomicUsize::new(0));
+        let uuid = Uuid::new_v4().to_string();
+        initialize_loggers(format!("/tmp/master-{}", uuid));
+        let scheduler = Schedulers::Local(Arc::new(LocalScheduler::new(20, true)));
+        Ok(Arc::new(Context {
+            next_rdd_id,
+            next_shuffle_id,
+            scheduler,
+            address_map: vec![SocketAddrV4::new(Ipv4Addr::LOCALHOST, 0)],
+            distributed_master: false,
+        }))
+    }
+
+    fn init_distributed_master() -> Result<Arc<Self>> {
+        let next_rdd_id = Arc::new(AtomicUsize::new(0));
+        let next_shuffle_id = Arc::new(AtomicUsize::new(0));
+        let mut port: u16 = 10000;
+        let mut address_map = Vec::new();
+        let uuid = Uuid::new_v4().to_string();
+
+        initialize_loggers(format!("/tmp/master-{}", uuid));
+        let binary_path = std::env::current_exe().map_err(|_| Error::CurrentBinaryPath)?;
+        let binary_path_str = binary_path
+            .to_str()
+            .ok_or_else(|| Error::PathToString(binary_path.clone()))?
+            .into();
+        let binary_name = binary_path
+            .file_name()
+            .ok_or(Error::CurrentBinaryName)?
+            .to_os_string()
+            .into_string()
+            .map_err(Error::OsStringToString)?;
+
+        for address in &hosts::Hosts::get()?.slaves {
+            log::debug!("deploying executor at address {:?}", address);
+            let address_cli: Ipv4Addr = address
+                .split('@')
+                .nth(1)
+                .ok_or_else(|| Error::ParseHostAddress(address.into()))?
+                .parse()
+                .map_err(|x| Error::ParseHostAddress(format!("{}", x)))?;
+            address_map.push(SocketAddrV4::new(address_cli, port));
+            let local_dir_root = "/tmp";
+            let uuid = Uuid::new_v4();
+            let local_dir_uuid = uuid.to_string();
+            let local_dir = format!("{}/spark-binary-{}", local_dir_root, local_dir_uuid);
+            Command::new("ssh")
+                .args(&[address, "mkdir", &local_dir.clone()])
+                .output()
+                .map_err(|e| Error::CommandOutput {
+                    source: e,
+                    command: "ssh mkdir".into(),
+                })?;
+            let remote_path = format!("{}:{}/{}", address, local_dir, binary_name);
+            Command::new("scp")
+                .args(&[&binary_path_str, &remote_path])
+                .output()
+                .map_err(|e| Error::CommandOutput {
+                    source: e,
+                    command: "scp executor".into(),
+                })?;
+            let path = format!("{}/{}", local_dir, binary_name);
+            log::debug!("remote path {}", path);
+            // Deploy a remote slave
+            Command::new("ssh")
+                .args(&[
+                    address,
+                    &path,
+                    &env::SLAVE_DEPLOY_CMD.to_string(),
+                    &format!("--port={}", port),
+                ])
+                .spawn()
+                .map_err(|e| Error::CommandOutput {
+                    source: e,
+                    command: "ssh run".into(),
+                })?;
+            port += 5000;
+        }
+
+        Ok(Arc::new(Context {
+            next_rdd_id,
+            next_shuffle_id,
+            scheduler: Schedulers::Distributed(Arc::new(DistributedScheduler::new(
+                20,
+                true,
+                Some(address_map.clone()),
+                10000,
+            ))),
+            address_map,
+            distributed_master: true,
+        }))
+    }
+
+    fn init_distributed_worker() -> Result<!> {
+        let uuid = Uuid::new_v4().to_string();
+        initialize_loggers(format!("/tmp/executor-{}", uuid));
+        log::debug!("started client");
+        let port = env::Configuration::get()
+            .port
+            .ok_or(Error::GetOrCreateConfig("executor port not set"))?;
+        let executor = Arc::new(Executor::new(port));
+        match executor.worker() {
+            Err(Error::ExecutorShutdown) => {
+                log::info!("Got executor end signal @ {}", port);
+                std::process::exit(0);
+            }
+            Err(err) => {
+                log::error!("Executor failed with error: {}", err);
+                std::process::exit(1);
+            }
+            _ => {}
+        }
+        unreachable!("Executor should have been terminated!");
     }
 
     fn drop_executors(&self) {
@@ -218,7 +237,7 @@ impl Context {
                 let mut message = ::capnp::message::Builder::new_default();
                 let mut task_data = message.init_root::<serialized_data::Builder>();
                 task_data.set_msg(&signal);
-                serialize_packed::write_message(&mut stream, &message);
+                serialize_packed::write_message(&mut stream, &message).unwrap();
             } else {
                 error!(
                     "Failed to connect to {}:{} in order to stop its executor",
@@ -360,5 +379,5 @@ fn initialize_loggers(file_path: String) {
         let logger: Box<dyn SharedLogger> = logger;
         combined.push(logger);
     }
-    CombinedLogger::init(combined);
+    CombinedLogger::init(combined).unwrap();
 }

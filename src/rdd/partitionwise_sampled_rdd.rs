@@ -6,7 +6,6 @@ use crate::rdd::{Rdd, RddBase, RddVals};
 use crate::serializable_traits::{AnyData, Data};
 use crate::split::Split;
 use crate::utils::random::RandomSampler;
-use log::info;
 use serde_derive::{Deserialize, Serialize};
 use std::marker::PhantomData;
 use std::sync::Arc;

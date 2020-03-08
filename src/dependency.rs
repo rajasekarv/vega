@@ -3,7 +3,6 @@ use crate::env;
 use crate::partitioner::Partitioner;
 use crate::rdd::RddBase;
 use crate::serializable_traits::Data;
-use log::info;
 use serde_derive::{Deserialize, Serialize};
 use serde_traitobject::{Deserialize, Serialize};
 use std::cmp::Ordering;
@@ -216,7 +215,7 @@ impl<K: Data + Eq + Hash, V: Data, C: Data> ShuffleDependencyTrait for ShuffleDe
                 partition,
                 i
             );
-            env::shuffle_cache.insert((self.shuffle_id, partition, i), ser_bytes);
+            env::SHUFFLE_CACHE.insert((self.shuffle_id, partition, i), ser_bytes);
         }
         env::Env::get().shuffle_manager.get_server_uri()
     }

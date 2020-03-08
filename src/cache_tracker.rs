@@ -105,7 +105,7 @@ impl CacheTracker {
         let mut message = ::capnp::message::Builder::new_default();
         let mut shuffle_data = message.init_root::<serialized_data::Builder>();
         shuffle_data.set_msg(&shuffle_id_bytes);
-        serialize_packed::write_message(&mut stream, &message);
+        serialize_packed::write_message(&mut stream, &message).unwrap();
 
         let r = ::capnp::message::ReaderOptions {
             traversal_limit_in_words: std::u64::MAX,
@@ -127,8 +127,6 @@ impl CacheTracker {
             let locs = self.locs.clone();
             let slave_capacity = self.slave_capacity.clone();
             let slave_usage = self.slave_usage.clone();
-            let registered_rdd_ids = self.registered_rdd_ids.clone();
-            let loading = self.loading.clone();
             let master_addr = self.master_addr;
             thread::spawn(move || {
                 let listener = TcpListener::bind(master_addr).unwrap();
@@ -140,8 +138,6 @@ impl CacheTracker {
                             let locs = locs.clone();
                             let slave_capacity = slave_capacity.clone();
                             let slave_usage = slave_usage.clone();
-                            let registered_rdd_ids = registered_rdd_ids.clone();
-                            let loading = loading.clone();
                             thread::spawn(move || {
                                 //reading
                                 let r = ::capnp::message::ReaderOptions {
@@ -265,7 +261,7 @@ impl CacheTracker {
                                 let mut message = ::capnp::message::Builder::new_default();
                                 let mut locs_data = message.init_root::<serialized_data::Builder>();
                                 locs_data.set_msg(&result);
-                                serialize_packed::write_message(&mut stream, &message);
+                                serialize_packed::write_message(&mut stream, &message).unwrap();
                             });
                         }
                     }
@@ -345,9 +341,8 @@ impl CacheTracker {
             }
             self.loading.write().insert(key);
 
-            let mut res: Vec<T> = Vec::new();
             let mut lock = self.loading.write();
-            res = rdd.compute(split.clone()).unwrap().collect();
+            let res: Vec<_> = rdd.compute(split.clone()).unwrap().collect();
             let res_bytes = bincode::serialize(&res).unwrap();
             let put_response = self
                 .cache

@@ -62,7 +62,5 @@ pub trait DAGScheduler: Scheduler {
         reason: TastEndReason,
         result: Box<dyn Any>,
         accum_updates: HashMap<i64, Box<dyn Any>>,
-    ) {
-        unimplemented!()
-    }
+    );
 }

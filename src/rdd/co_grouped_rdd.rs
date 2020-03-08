@@ -1,5 +1,4 @@
 use std::any::Any;
-use std::collections::HashMap;
 use std::hash::Hash;
 use std::hash::Hasher;
 use std::marker::PhantomData;
@@ -12,15 +11,13 @@ use crate::dependency::{
     ShuffleDependencyTrait,
 };
 use crate::env;
-use crate::error::{Error, Result};
+use crate::error::Result;
 use crate::partitioner::Partitioner;
 use crate::rdd::{Rdd, RddBase, RddVals};
 use crate::serializable_traits::{AnyData, Data};
 use crate::shuffle::ShuffleFetcher;
 use crate::split::Split;
-use crate::utils::yield_tokio_futures;
 use dashmap::DashMap;
-use log::info;
 use serde_derive::{Deserialize, Serialize};
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -106,7 +103,7 @@ impl<K: Data + Eq + Hash> CoGroupedRdd<K> {
             ),
         );
         let mut deps = Vec::new();
-        for (index, rdd) in rdds.iter().enumerate() {
+        for (_index, rdd) in rdds.iter().enumerate() {
             let part = part.clone();
             if rdd
                 .partitioner()
@@ -155,7 +152,6 @@ impl<K: Data + Eq + Hash> RddBase for CoGroupedRdd<K> {
     }
 
     fn splits(&self) -> Vec<Box<dyn Split>> {
-        let first_rdd = self.rdds[0].clone();
         let mut splits = Vec::new();
         for i in 0..self.part.get_num_of_partitions() {
             splits.push(Box::new(CoGroupSplit::new(
@@ -212,7 +208,7 @@ impl<K: Data + Eq + Hash> Rdd for CoGroupedRdd<K> {
     #[allow(clippy::type_complexity)]
     fn compute(&self, split: Box<dyn Split>) -> Result<Box<dyn Iterator<Item = Self::Item>>> {
         if let Ok(split) = split.downcast::<CoGroupSplit>() {
-            let mut agg: Arc<DashMap<K, Vec<Vec<Box<dyn AnyData>>>>> = Arc::new(DashMap::new());
+            let agg: Arc<DashMap<K, Vec<Vec<Box<dyn AnyData>>>>> = Arc::new(DashMap::new());
             let executor = env::Env::get_async_handle();
             for (dep_num, dep) in split.clone().deps.into_iter().enumerate() {
                 match dep {

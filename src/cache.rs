@@ -1,9 +1,7 @@
-use std::collections::HashMap;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 
 use dashmap::DashMap;
-use parking_lot::Mutex;
 use serde_derive::{Deserialize, Serialize};
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -65,13 +63,12 @@ impl BoundedMemoryCache {
         }
     }
 
-    fn ensure_free_space(&self, dataset_id: u64, space: u64) -> bool {
+    fn ensure_free_space(&self, _dataset_id: u64, _space: u64) -> bool {
         //TODO logging
-        //        let iter =
         unimplemented!()
     }
 
-    fn report_entry_dropped(data_set_id: usize, partition: usize, entry: (Vec<u8>, usize)) {
+    fn report_entry_dropped(_data_set_id: usize, _partition: usize, _entry: (Vec<u8>, usize)) {
         //TODO loggging
         unimplemented!()
     }
