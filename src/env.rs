@@ -2,30 +2,20 @@ use std::net::Ipv4Addr;
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use self::config_vars::*;
 use crate::cache::BoundedMemoryCache;
 use crate::cache_tracker::CacheTracker;
 use crate::hosts::Hosts;
 use crate::map_output_tracker::MapOutputTracker;
 use crate::shuffle::{ShuffleFetcher, ShuffleManager};
-use clap::{App, Arg, SubCommand};
 use dashmap::DashMap;
-use log::LevelFilter as LogLevel;
+use log::LevelFilter;
 use once_cell::sync::{Lazy, OnceCell};
-use thiserror::Error;
+use serde::Deserialize;
 use tokio::runtime::{Handle, Runtime};
 
 type ShuffleCache = Arc<DashMap<(usize, usize, usize), Vec<u8>>>;
 
-pub(crate) mod config_vars {
-    pub const DEPLOYMENT_MODE: &str = "NS_DEPLOYMENT_MODE";
-    pub const LOCAL_DIR: &str = "NS_LOCAL_DIR";
-    pub const LOCAL_IP: &str = "NS_LOCAL_IP";
-    pub const LOG_LEVEL: &str = "NS_LOG_LEVEL";
-    pub const PORT: &str = "NS_PORT";
-    pub const SHUFFLE_SERVICE_PORT: &str = "NS_SHUFFLE_SERVICE_PORT";
-}
-
+const ENV_VAR_PREFIX: &str = "NS_";
 pub(crate) const THREAD_PREFIX: &str = "_NS";
 static CONF: OnceCell<Configuration> = OnceCell::new();
 static ENV: OnceCell<Env> = OnceCell::new();
@@ -90,7 +80,8 @@ impl Env {
     }
 }
 
-#[derive(Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, PartialEq, Deserialize, Debug)]
+#[serde(rename_all = "lowercase")]
 pub enum DeploymentMode {
     Distributed,
     Local,
@@ -104,8 +95,42 @@ pub(crate) struct Configuration {
     pub local_dir: PathBuf,
     pub port: Option<u16>,
     pub deployment_mode: DeploymentMode,
-    pub log_level: LogLevel,
+    pub log_level: LevelFilter,
     pub shuffle_svc_port: Option<u16>,
+}
+
+/// Struct used for parsing environment vars
+#[derive(Deserialize, Debug)]
+struct EnvConfig {
+    deployment_mode: Option<DeploymentMode>,
+    local_ip: Option<String>,
+    local_dir: Option<String>,
+    log_level: Option<LogLevel>,
+    shuffle_service_port: Option<u16>,
+    slave_deployment: Option<bool>,
+    slave_port: Option<u16>,
+}
+
+#[derive(Deserialize, Debug)]
+#[serde(rename_all = "lowercase")]
+enum LogLevel {
+    Error,
+    Warn,
+    Debug,
+    Trace,
+    Info,
+}
+
+impl Into<LevelFilter> for LogLevel {
+    fn into(self) -> LevelFilter {
+        match self {
+            LogLevel::Error => LevelFilter::Error,
+            LogLevel::Warn => LevelFilter::Warn,
+            LogLevel::Debug => LevelFilter::Debug,
+            LogLevel::Trace => LevelFilter::Trace,
+            _ => LevelFilter::Info,
+        }
+    }
 }
 
 impl Configuration {
@@ -114,97 +139,58 @@ impl Configuration {
     }
 
     fn new() -> Self {
-        let arguments = App::new("NativeSpark")
-            .arg(
-                Arg::with_name(DEPLOYMENT_MODE)
-                    .long("deployment_mode")
-                    .short("d")
-                    .takes_value(true)
-                    .env(DEPLOYMENT_MODE)
-                    .default_value("local"),
-            )
-            .arg(
-                Arg::with_name(LOCAL_IP)
-                    .long("local_ip")
-                    .require_equals(true)
-                    .env(LOCAL_IP)
-                    .takes_value(true)
-                    .required_if(DEPLOYMENT_MODE, "distributed")
-                    .default_value_if(
-                        DEPLOYMENT_MODE,
-                        Some("local"),
-                        &Ipv4Addr::LOCALHOST.to_string(),
-                    ),
-            )
-            .arg(Arg::with_name(LOCAL_DIR).long("local_dir").env(LOCAL_DIR))
-            .arg(
-                Arg::with_name(LOG_LEVEL)
-                    .long("log_level")
-                    .env(LOG_LEVEL)
-                    .takes_value(true)
-                    .require_equals(true),
-            )
-            .arg(
-                Arg::with_name(SHUFFLE_SERVICE_PORT)
-                    .long("shuffle.port")
-                    .env(SHUFFLE_SERVICE_PORT),
-            )
-            .subcommand(
-                SubCommand::with_name(SLAVE_DEPLOY_CMD)
-                    .about("deploys an slave at the executing machine")
-                    .arg(
-                        Arg::with_name(PORT)
-                            .long("port")
-                            .short("p")
-                            .env(PORT)
-                            .takes_value(true)
-                            .require_equals(true)
-                            .required(true),
-                    ),
-            )
-            .get_matches();
+        use DeploymentMode::*;
 
-        let deployment_mode = match arguments.value_of(DEPLOYMENT_MODE) {
-            Some("distributed") => DeploymentMode::Distributed,
-            _ => DeploymentMode::Local,
+        let config = envy::prefixed(ENV_VAR_PREFIX)
+            .from_env::<EnvConfig>()
+            .unwrap();
+
+        let deployment_mode = match config.deployment_mode {
+            Some(Distributed) => Distributed,
+            _ => Local,
         };
 
-        let local_dir = if let Some(dir) = arguments.value_of(LOCAL_DIR) {
-            PathBuf::from(dir.to_owned())
+        let local_dir = if let Some(dir) = config.local_dir {
+            PathBuf::from(dir)
         } else {
             std::env::temp_dir()
         };
 
-        let log_level = match arguments
-            .value_of(LOG_LEVEL)
-            .map(|s| s.to_lowercase())
-            .as_deref()
-        {
-            Some("error") => LogLevel::Error,
-            Some("warn") => LogLevel::Warn,
-            Some("debug") => LogLevel::Debug,
-            Some("trace") => LogLevel::Trace,
-            _ => LogLevel::Info,
+        let log_level: LevelFilter = match config.log_level {
+            Some(val) => val.into(),
+            _ => LogLevel::Info.into(),
         };
         log::set_max_level(log_level);
 
-        let local_ip = arguments.value_of(LOCAL_IP).unwrap().parse().unwrap();
+        let local_ip: Ipv4Addr = {
+            if let Some(ip) = config.local_ip {
+                ip.parse().unwrap()
+            } else if deployment_mode == Distributed {
+                panic!("Local IP required while deploying in distributed mode.")
+            } else {
+                Ipv4Addr::LOCALHOST
+            }
+        };
+
         let port: Option<u16>;
         let is_master;
-        if let Some(slave_deployment) = arguments.subcommand_matches(SLAVE_DEPLOY_CMD) {
-            port = Some(
-                slave_deployment
-                    .value_of(PORT)
-                    .unwrap()
-                    .parse()
-                    .map_err(ConfigurationError::PortParsing)
-                    .unwrap(),
-            );
-            is_master = false;
-        } else {
-            port = None;
-            is_master = true;
+        match config.slave_deployment {
+            Some(true) => {
+                port = {
+                    if let Some(port) = config.slave_port {
+                        Some(port)
+                    } else {
+                        panic!("Port required while deploying a worker.")
+                    }
+                };
+                is_master = false;
+            }
+            _ => {
+                port = None;
+                is_master = true;
+            }
         }
+
         Configuration {
             is_master,
             local_ip,
@@ -212,17 +198,7 @@ impl Configuration {
             port,
             deployment_mode,
             log_level,
-            shuffle_svc_port: arguments.value_of(SHUFFLE_SERVICE_PORT).map(|port| {
-                port.parse()
-                    .map_err(ConfigurationError::PortParsing)
-                    .unwrap()
-            }),
+            shuffle_svc_port: config.shuffle_service_port,
         }
     }
-}
-
-#[derive(Debug, Error)]
-pub enum ConfigurationError {
-    #[error("failed to parse port")]
-    PortParsing(#[source] std::num::ParseIntError),
 }

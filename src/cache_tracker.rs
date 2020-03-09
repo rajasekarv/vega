@@ -129,6 +129,7 @@ impl CacheTracker {
             let slave_usage = self.slave_usage.clone();
             let master_addr = self.master_addr;
             thread::spawn(move || {
+                // TODO: make this use async rt
                 let listener = TcpListener::bind(master_addr).unwrap();
                 //                println!("started mapoutput tracker at {}", port);
                 for stream in listener.incoming() {

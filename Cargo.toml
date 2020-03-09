@@ -15,6 +15,7 @@ aws_connectors = ["rusoto_core", "rusoto_s3"]
 [dependencies]
 crossbeam = "0.7.3"
 dashmap = "^3.5.1"
+envy = "^0.4.1"
 fasthash = "0.4.0"
 futures = "0.3"
 hyper = "0.13.2"
@@ -55,10 +56,6 @@ serde_traitobject = "0.2.4"
 ## aws
 rusoto_core = { version = "0.42", optional = true }
 rusoto_s3 = { version = "0.42", optional = true }
-
-[dependencies.clap]
-version = "2.33"
-default-features = false
 
 [build-dependencies]
 capnpc = "0.12.1"

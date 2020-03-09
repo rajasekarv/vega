@@ -198,18 +198,6 @@ impl LocalScheduler {
             .collect())
     }
 
-    fn wait_for_event(&self, run_id: usize, timeout: u64) -> Option<CompletionEvent> {
-        let end = Instant::now() + Duration::from_millis(timeout);
-        while self.event_queues.get(&run_id).unwrap().is_empty() {
-            if Instant::now() > end {
-                return None;
-            } else {
-                thread::sleep(end - Instant::now());
-            }
-        }
-        self.event_queues.get_mut(&run_id).unwrap().pop_front()
-    }
-
     fn run_task<T: Data, U: Data, F>(
         event_queues: Arc<DashMap<usize, VecDeque<CompletionEvent>>>,
         task: Vec<u8>,
