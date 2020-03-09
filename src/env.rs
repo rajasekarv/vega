@@ -7,17 +7,15 @@ use crate::cache_tracker::CacheTracker;
 use crate::hosts::Hosts;
 use crate::map_output_tracker::MapOutputTracker;
 use crate::shuffle::{ShuffleFetcher, ShuffleManager};
-// use clap::{App, Arg, SubCommand};
 use dashmap::DashMap;
 use log::LevelFilter;
 use once_cell::sync::{Lazy, OnceCell};
 use serde::Deserialize;
-use thiserror::Error;
 use tokio::runtime::{Handle, Runtime};
 
 type ShuffleCache = Arc<DashMap<(usize, usize, usize), Vec<u8>>>;
 
-const ENV_VAR_PREFIX: &str = "NS";
+const ENV_VAR_PREFIX: &str = "NS_";
 pub(crate) const THREAD_PREFIX: &str = "_NS";
 static CONF: OnceCell<Configuration> = OnceCell::new();
 static ENV: OnceCell<Env> = OnceCell::new();
@@ -110,7 +108,7 @@ struct EnvConfig {
     log_level: Option<LogLevel>,
     shuffle_service_port: Option<u16>,
     slave_deployment: Option<bool>,
-    slave_port: Option<String>,
+    slave_port: Option<u16>,
 }
 
 #[derive(Deserialize, Debug)]
@@ -180,11 +178,7 @@ impl Configuration {
             Some(true) => {
                 port = {
                     if let Some(port) = config.slave_port {
-                        Some(
-                            port.parse()
-                                .map_err(ConfigurationError::PortParsing)
-                                .unwrap(),
-                        )
+                        Some(port)
                     } else {
                         panic!("Port required while deploying a worker.")
                     }
@@ -207,10 +201,4 @@ impl Configuration {
             shuffle_svc_port: config.shuffle_service_port,
         }
     }
-}
-
-#[derive(Debug, Error)]
-pub enum ConfigurationError {
-    #[error("failed to parse port")]
-    PortParsing(#[source] std::num::ParseIntError),
 }
