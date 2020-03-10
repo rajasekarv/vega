@@ -65,7 +65,7 @@ impl ShuffleManager {
     ) -> StdResult<String, Box<dyn std::error::Error>> {
         let path = self
             .shuffle_dir
-            .join(format!("/{}/{}", shuffle_id, input_id));
+            .join(format!("{}/{}", shuffle_id, input_id));
         fs::create_dir_all(&path)?;
         let file_path = path.join(format!("{}", output_id));
         fs::File::create(&file_path)?;
@@ -187,7 +187,7 @@ impl ShuffleManager {
         for _ in 0..10 {
             let uuid = Uuid::new_v4();
             let local_dir_uuid = uuid.to_string();
-            let local_dir = local_dir_root.join(format!("/spark-local-{}", local_dir_uuid));
+            let local_dir = local_dir_root.join(format!("spark-local-{}", local_dir_uuid));
             if !local_dir.exists() {
                 log::debug!("creating directory at path: {:?}", &local_dir);
                 fs::create_dir_all(&local_dir)
@@ -327,7 +327,7 @@ mod tests {
     fn start_failure() -> StdResult<(), Box<dyn std::error::Error + 'static>> {
         let port = get_free_port();
         // bind first so it fails while trying to start
-        TcpListener::bind(format!("127.0.0.1:{}", port))?;
+        let _bind = TcpListener::bind(format!("127.0.0.1:{}", port))?;
         assert!(ShuffleManager::start_server(Some(port))
             .unwrap_err()
             .no_port());
