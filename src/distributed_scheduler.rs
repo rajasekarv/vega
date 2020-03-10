@@ -6,7 +6,6 @@ use std::sync::{
     atomic::{AtomicUsize, Ordering},
     Arc,
 };
-use std::thread;
 use std::time::{Duration, Instant};
 
 use crate::dag_scheduler::{CompletionEvent, TastEndReason};
@@ -265,13 +264,13 @@ impl NativeScheduler for DistributedScheduler {
 
             let task_bytes = bincode::serialize(&ser_task).unwrap();
             log::debug!(
-                "task in executor {} {:?} master",
-                target_executor.port(),
-                ser_task.get_task_id()
+                "sending task {} to {} executor",
+                ser_task.get_task_id(),
+                target_executor.port()
             );
             let mut stream = TcpStream::connect(&target_executor).unwrap();
             log::debug!(
-                "task in executor {} {} master task len",
+                "sending task to {} executor, bytes length: {}",
                 target_executor.port(),
                 task_bytes.len()
             );
@@ -291,9 +290,9 @@ impl NativeScheduler for DistributedScheduler {
                 .get_root::<serialized_data::Reader>()
                 .unwrap();
             log::debug!(
-                "task in executor {} {} master task result len",
-                target_executor.port(),
-                task_data.get_msg().unwrap().len()
+                "received task result of {} bytes from executor @{}",
+                task_data.get_msg().unwrap().len(),
+                target_executor.port()
             );
             let result: TaskResult = bincode::deserialize(&task_data.get_msg().unwrap()).unwrap();
             match ser_task {

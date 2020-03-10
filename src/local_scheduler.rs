@@ -7,7 +7,6 @@ use std::sync::{
     atomic::{AtomicUsize, Ordering},
     Arc,
 };
-use std::thread;
 use std::time::{Duration, Instant};
 
 use crate::dag_scheduler::{CompletionEvent, TastEndReason};

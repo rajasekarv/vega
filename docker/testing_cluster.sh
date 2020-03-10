@@ -2,8 +2,8 @@
 SCRIPT_PATH=`dirname $(readlink -f $0)`
 cd $SCRIPT_PATH
 
-# Deploy a testing cluster with one master and 3 workers
-docker-compose up --scale ns_worker=3 -d 
+# Deploy a testing cluster with one master and 2 workers
+docker-compose up --scale ns_worker=2 -d 
 
 # Since we can't resolved domains yet, we have to get each container IP to create the config file
 WORKER_IPS=$(docker-compose ps | grep -oE "docker_ns_worker_[0-9]+" \

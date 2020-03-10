@@ -93,11 +93,7 @@ impl ShuffleManager {
             ShuffleManager::launch_async_server(bind_ip, bind_port)?;
             bind_port
         };
-        let server_uri = format!(
-            "http://{}:{}",
-            env::Configuration::get().local_ip.clone(),
-            port,
-        );
+        let server_uri = format!("http://{}:{}", env::Configuration::get().local_ip, port,);
         log::debug!("server_uri {:?}", server_uri);
         Ok(server_uri)
     }
@@ -192,7 +188,6 @@ impl ShuffleManager {
                 log::debug!("creating directory at path: {:?}", &local_dir);
                 fs::create_dir_all(&local_dir)
                     .map_err(|_| ShuffleError::CouldNotCreateShuffleDir)?;
-                log::debug!("local_dir path: {:?}", local_dir);
                 return Ok(local_dir);
             }
         }

@@ -1,9 +1,13 @@
-use std::fs::File;
+use std::fs;
+use std::io::Write;
 use std::net::{Ipv4Addr, SocketAddrV4, TcpStream};
 use std::ops::Range;
+use std::path::PathBuf;
 use std::process::Command;
-use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::Arc;
+use std::sync::{
+    atomic::{AtomicUsize, Ordering},
+    Arc,
+};
 
 use crate::serialized_data_capnp::serialized_data;
 use capnp::serialize_packed;
@@ -140,19 +144,26 @@ impl Context {
             .into_string()
             .map_err(Error::OsStringToString)?;
 
+        let tmp_work_dir: PathBuf = format!("/tmp/ns-workdir-{}", Uuid::new_v4()).into();
+        fs::create_dir_all(&tmp_work_dir).unwrap();
+        let conf_path = tmp_work_dir.join("config.toml");
+        let conf_path = conf_path.to_str().unwrap();
+
         for address in &hosts::Hosts::get()?.slaves {
             log::debug!("deploying executor at address {:?}", address);
-            let address_cli: Ipv4Addr = address
+            let address_ip: Ipv4Addr = address
                 .split('@')
                 .nth(1)
                 .ok_or_else(|| Error::ParseHostAddress(address.into()))?
                 .parse()
                 .map_err(|x| Error::ParseHostAddress(format!("{}", x)))?;
-            address_map.push(SocketAddrV4::new(address_cli, port));
+            address_map.push(SocketAddrV4::new(address_ip, port));
             let local_dir_root = "/tmp";
             let uuid = Uuid::new_v4();
             let local_dir_uuid = uuid.to_string();
             let local_dir = format!("{}/spark-binary-{}", local_dir_root, local_dir_uuid);
+
+            // Create work dir:
             Command::new("ssh")
                 .args(&[address, "mkdir", &local_dir.clone()])
                 .output()
@@ -160,6 +171,19 @@ impl Context {
                     source: e,
                     command: "ssh mkdir".into(),
                 })?;
+
+            // Copy conf file to remote:
+            Context::create_workers_config_file(address_ip, port, conf_path)?;
+            let remote_path = format!("{}:{}/config.toml", address, local_dir);
+            Command::new("scp")
+                .args(&[conf_path, &remote_path])
+                .output()
+                .map_err(|e| Error::CommandOutput {
+                    source: e,
+                    command: "scp config".into(),
+                })?;
+
+            // Copy binary:
             let remote_path = format!("{}:{}/{}", address, local_dir, binary_name);
             Command::new("scp")
                 .args(&[&binary_path_str, &remote_path])
@@ -170,14 +194,10 @@ impl Context {
                 })?;
             let path = format!("{}/{}", local_dir, binary_name);
             log::debug!("remote path {}", path);
-            // Deploy a remote slave
+
+            // Deploy a remote slave:
             Command::new("ssh")
-                .args(&[
-                    address,
-                    &path,
-                    &env::SLAVE_DEPLOY_CMD.to_string(),
-                    &format!("--port={}", port),
-                ])
+                .args(&[address, &path])
                 .spawn()
                 .map_err(|e| Error::CommandOutput {
                     source: e,
@@ -205,7 +225,9 @@ impl Context {
         initialize_loggers(format!("/tmp/executor-{}", uuid));
         log::debug!("started client");
         let port = env::Configuration::get()
-            .port
+            .slave
+            .as_ref()
+            .map(|c| c.port)
             .ok_or(Error::GetOrCreateConfig("executor port not set"))?;
         let executor = Arc::new(Executor::new(port));
         match executor.worker() {
@@ -220,6 +242,18 @@ impl Context {
             _ => {}
         }
         unreachable!("Executor should have been terminated!");
+    }
+
+    fn create_workers_config_file(local_ip: Ipv4Addr, port: u16, config_path: &str) -> Result<()> {
+        let mut current_config = env::Configuration::get().clone();
+        current_config.local_ip = local_ip;
+        current_config.slave = Some(std::convert::From::<(bool, u16)>::from((true, port)));
+        current_config.is_master = false;
+
+        let config_string = toml::to_string_pretty(&current_config).unwrap();
+        let mut config_file = fs::File::create(config_path).unwrap();
+        config_file.write_all(config_string.as_bytes()).unwrap();
+        Ok(())
     }
 
     fn drop_executors(&self) {
@@ -256,10 +290,8 @@ impl Context {
         self.next_shuffle_id.fetch_add(1, Ordering::SeqCst)
     }
 
-    // currently it accepts only vector.
     // TODO change this to accept any iterator
-    // &Arc<Self> is an unstable feature. used here just to keep the user end context usage same as before.
-    // Can be removed if sc.clone() API seems ok.
+    // currently it accepts only vector.
     pub fn make_rdd<T: Data, I>(
         self: &Arc<Self>,
         seq: I,
@@ -268,7 +300,6 @@ impl Context {
     where
         I: IntoIterator<Item = T>,
     {
-        //let num_slices = seq.len() / num_slices;
         self.parallelize(seq, num_slices)
     }
 
@@ -365,14 +396,14 @@ impl Context {
 
 fn initialize_loggers(file_path: String) {
     let term_logger = TermLogger::new(
-        env::Configuration::get().log_level,
+        env::Configuration::get().log_level.into(),
         Config::default(),
         TerminalMode::Mixed,
     );
     let file_logger: Box<dyn SharedLogger> = WriteLogger::new(
-        env::Configuration::get().log_level,
+        env::Configuration::get().log_level.into(),
         Config::default(),
-        File::create(file_path).expect("not able to create log file"),
+        fs::File::create(file_path).expect("not able to create log file"),
     );
     let mut combined = vec![file_logger];
     if let Some(logger) = term_logger {

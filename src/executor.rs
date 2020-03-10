@@ -66,6 +66,7 @@ impl Executor {
                     return Err(Error::ExecutorShutdown);
                 }
                 let self_clone = Arc::clone(&self);
+                log::debug!("received new task @{} executor", self.port);
                 tokio::spawn(async move {
                     let mut buf: Vec<u8> = Vec::new();
                     let mut reader = BufReader::new(stream);
@@ -102,7 +103,7 @@ impl Executor {
             .get_root::<serialized_data::Reader>()
             .unwrap();
         log::debug!(
-            "task in executor {} {} slave task len",
+            "serialized task @{} executor with {} bytes",
             self.port,
             task_data.get_msg().unwrap().len()
         );
@@ -118,11 +119,11 @@ impl Executor {
         // let mut f = fs::File::create(task_dir_path.clone()).unwrap();
         let msg = match task_data.get_msg() {
             Ok(s) => {
-                log::debug!("got the task in executor",);
+                log::debug!("got the task message in executor {}", self.port);
                 s
             }
             Err(e) => {
-                log::debug!("problem in getting the task in executor {:?}", e);
+                log::debug!("problem while getting the task in executor: {:?}", e);
                 std::process::exit(0);
             }
         };
@@ -134,13 +135,9 @@ impl Executor {
         // f.read(&mut buffer).unwrap();
         let des_task: TaskOption = bincode::deserialize(&msg)?;
         log::debug!(
-            "task in executor {:?} {} slave task id",
+            "deserialized task at executor @{} with id {}, deserialziation took {} ms",
             self.port,
             des_task.get_task_id(),
-        );
-        log::debug!(
-            "time taken in server for deserializing:{} {}",
-            self.port,
             start.elapsed().as_millis(),
         );
         Ok(des_task)

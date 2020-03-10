@@ -52,7 +52,9 @@ examples just run them. In `local`:
 > cargo run --example make_rdd
 
 In `distributed`:
-> cargo run --example make_rdd -d distributed
+> export NS_DEPLOYMENT_MODE=distributed
+>
+> cargo run --example make_rdd
 
 ## Deploying with Docker
 
@@ -68,7 +70,7 @@ and deploying distributed mode on your local host. In order to use them:
 This will execute all the necessary steeps to to deploy a working network of containers where you can execute the tests. When finished you can attach a shell to the master and run the examples:
 ```doc
 $ docker exec -it docker_ns_master_1 bash
-$ ./make_rdd -d distributed
+$ ./make_rdd
 ```
 
 ## Setting execution mode
@@ -81,13 +83,10 @@ In your application you can set the execution mode (`local` or `distributed`) in
 
     let context = Context::with_mode(DeploymentMode::Local)?;
 ```
-2. Execute the application with the `deployment mode` argument set to one of the valid modes (e.g.: `./my_app -d distributed`)
-3. Set the DEPLOYMENT_MODE environment variable (e.g.: `DEPLOYMENT_MODE=local`
+2. Set the DEPLOYMENT_MODE environment variable (e.g.: `DEPLOYMENT_MODE=local`).
 
 ### Additional notes
 
-Since File readers are not done, you have to use manual file reading for now (like manually reading from S3 or hack around local files by distributing copies of all files to all machines and make rdd using filename list).
-
-Ctrl-C and panic handling are not done yet, so if there is some problem during runtime, executors won't shut down automatically and you will have to manually kill the processes.
-
-One of the limitations of current implementation is that the input and return types of all closures and all input to make_rdd should be owned data.
+* Depending on the source you intend to use you may have to write your own source reading rdd (like manually reading from S3) if it's not yet available.
+* Ctrl-C and panic handling are not compeltely done yet, so if there is a problem during runtime, executors won't shut down automatically and you will have to manually kill the processes.
+* One of the limitations of current implementation is that the input and return types of all closures and all input to make_rdd should be owned data.
