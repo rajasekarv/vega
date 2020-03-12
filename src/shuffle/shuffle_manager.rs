@@ -65,7 +65,7 @@ impl ShuffleManager {
     ) -> StdResult<String, Box<dyn std::error::Error>> {
         let path = self
             .shuffle_dir
-            .join(format!("/{}/{}", shuffle_id, input_id));
+            .join(format!("{}/{}", shuffle_id, input_id));
         fs::create_dir_all(&path)?;
         let file_path = path.join(format!("{}", output_id));
         fs::File::create(&file_path)?;
