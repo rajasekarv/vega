@@ -82,7 +82,7 @@ impl Env {
     }
 }
 
-#[derive(Serialize, Deserialize, Clone, Copy, Debug)]
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq)]
 #[serde(rename_all = "lowercase")]
 pub(crate) enum LogLevel {
     Error,
@@ -175,6 +175,7 @@ impl Default for Configuration {
             Some(val) => val,
             _ => LogLevel::Info,
         };
+        log::debug!("Setting max log level to: {:?}", log_level);
         log::set_max_level(log_level.into());
 
         let local_ip: Ipv4Addr = {

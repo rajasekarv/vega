@@ -104,7 +104,7 @@ pub(crate) trait NativeScheduler {
             // TODO CacheTracker register
             for _ in 0..rdd.number_of_splits() {
                 let locs = self.get_cache_locs(rdd.clone());
-                log::debug!("cache locs {:?}", locs);
+                log::debug!("cache locs: {:?}", locs);
                 if locs == None {
                     for dep in rdd.get_dependencies() {
                         log::debug!("for dep in missing stages ");
@@ -400,7 +400,7 @@ pub(crate) trait NativeScheduler {
                 log::debug!("shuffle_stage {}", stage.id);
                 if stage.output_locs[p].is_empty() {
                     let locs = self.get_preferred_locs(stage.get_rdd(), p);
-                    log::debug!("creating task for {} partition  {}", stage.id, p);
+                    log::debug!("creating task for {} partition {}", stage.id, p);
                     let shuffle_map_task = ShuffleMapTask::new(
                         self.get_next_task_id(),
                         jt.run_id,
@@ -411,7 +411,7 @@ pub(crate) trait NativeScheduler {
                         locs,
                     );
                     log::debug!(
-                        "creating task for {} partition  {} and shuffle id {}",
+                        "creating task for stage {}, partition {} and shuffle id {}",
                         stage.id,
                         p,
                         shuffle_map_task.dep.get_shuffle_id()

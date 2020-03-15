@@ -29,12 +29,16 @@ do
     bash -c 'echo "$CONF_FILE" >> hosts.conf && \
     echo "NS_LOCAL_IP=$NS_LOCAL_IP" >> .ssh/environment && \
     echo "PermitUserEnvironment yes" >> /etc/ssh/sshd_config && \
+    echo "AcceptEnv RUST_BACKTRACE" >> /etc/ssh/sshd_config && \
     service ssh start';
     (( count++ ));
 done
 
 docker exec -e CONF_FILE="$CONF_FILE" -e NS_LOCAL_IP="${MASTER_IP}" -w /root/ docker_ns_master_1 \
-    bash -c 'echo "$CONF_FILE" >> hosts.conf && echo "export NS_LOCAL_IP=$NS_LOCAL_IP" >> .bashrc'
+    bash -c 'echo "$CONF_FILE" >> hosts.conf && \
+    echo "export NS_LOCAL_IP=$NS_LOCAL_IP" >> .bashrc &&
+    echo "SendEnv RUST_BACKTRACE" >> ~/.ssh/config
+    ';
 for WORKER_IP in ${WORKER_IPS[@]}
 do
     docker exec docker_ns_master_1 bash -c "ssh-keyscan ${WORKER_IP} >> ~/.ssh/known_hosts"

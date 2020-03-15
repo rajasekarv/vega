@@ -6,6 +6,7 @@ use crate::env;
 use crate::error::{Error, NetworkError, Result};
 use crate::serialized_data_capnp::serialized_data;
 use crate::task::TaskOption;
+use crate::utils::get_message_size;
 use capnp::{
     message::{Builder as MsgBuilder, HeapAllocator, Reader as CpnpReader, ReaderOptions},
     serialize::OwnedSegments,
@@ -61,35 +62,63 @@ impl Executor {
             .await
             .map_err(NetworkError::TcpListener)?;
         while let Some(stream) = listener.incoming().next().await {
-            if let Ok(stream) = stream {
+            if let Ok(mut stream) = stream {
                 if let Ok(Signal::ShutDown) = rcv_main.try_recv() {
                     return Err(Error::ExecutorShutdown);
                 }
                 let self_clone = Arc::clone(&self);
                 log::debug!("received new task @{} executor", self.port);
                 tokio::spawn(async move {
-                    let mut buf: Vec<u8> = Vec::new();
-                    let mut reader = BufReader::new(stream);
-                    reader
-                        .read_to_end(&mut buf)
-                        .await
-                        .map_err(Error::InputRead)?;
-                    let message_reader = {
-                        let mut stream_r = std::io::BufReader::new(&*buf);
-                        serialize_packed::read_message(&mut stream_r, CAPNP_BUF_READ_OPTS)
-                            .map_err(Error::CapnpDeserialization)
-                    }?;
+                    log::debug!("inside executor tp running task");
+                    let (mut receiver, mut writter) = stream.split();
+
+                    let msg_size = get_message_size(&mut receiver).await?;
+                    log::debug!("receiving task of {} bytes", msg_size);
+                    let mut buf: Vec<u8> = vec![0; msg_size];
                     let message = {
+                        receiver
+                            .read_exact(&mut buf)
+                            .await
+                            .map_err(Error::InputRead)?;
+                        log::debug!(
+                            "read {} bytes from stream @{} exec",
+                            buf.len(),
+                            self_clone.port
+                        );
+                        let message_reader = {
+                            let mut stream_r = std::io::BufReader::new(&*buf);
+                            serialize_packed::read_message(&mut stream_r, CAPNP_BUF_READ_OPTS)
+                                .map_err(Error::CapnpDeserialization)
+                        }?;
+
                         let des_task = self_clone.deserialize_task(message_reader)?;
                         self_clone.run_task(des_task)
                     }?;
+                    buf.clear();
                     serialize_packed::write_message(&mut buf, &message)
                         .map_err(Error::OutputWrite)?;
-                    reader.write_all(&*buf).await.map_err(Error::OutputWrite)?;
-                    reader.flush().await.map_err(Error::OutputWrite)?;
+
+                    // send outgoing message size to executor
+                    let msg_len = u64::to_le_bytes(buf.len() as u64);
+                    writter
+                        .write_all(&msg_len)
+                        .await
+                        .map_err(Error::OutputWrite)
+                        .unwrap();
+                    log::debug!(
+                        "sending response bytes ({}) to driver from @{}",
+                        buf.len(),
+                        self_clone.port
+                    );
+
+                    // send the message
+                    writter.write_all(&*buf).await.map_err(Error::OutputWrite)?;
+                    log::debug!("sent data to driver");
+
                     Ok::<(), Error>(())
                 });
             }
+            tokio::task::yield_now().await;
         }
         Err(Error::ExecutorShutdown)
     }
@@ -103,7 +132,7 @@ impl Executor {
             .get_root::<serialized_data::Reader>()
             .unwrap();
         log::debug!(
-            "serialized task @{} executor with {} bytes",
+            "deserialized task @{} executor with {} bytes",
             self.port,
             task_data.get_msg().unwrap().len()
         );
@@ -135,7 +164,7 @@ impl Executor {
         // f.read(&mut buffer).unwrap();
         let des_task: TaskOption = bincode::deserialize(&msg)?;
         log::debug!(
-            "deserialized task at executor @{} with id {}, deserialziation took {} ms",
+            "deserialized task at executor @{} with id {}, deserialization took {}ms",
             self.port,
             des_task.get_task_id(),
             start.elapsed().as_millis(),
@@ -151,20 +180,18 @@ impl Executor {
             //TODO change attempt id from 0 to proper value
             let result = des_task.run(0);
             log::debug!(
-                "time taken in server for running:{} {}",
+                "time taken @{} executor running task #{}: {}ms",
                 self.port,
+                des_task.get_task_id(),
                 start.elapsed().as_millis(),
             );
             let start = Instant::now();
             let result = bincode::serialize(&result)?;
             log::debug!(
-                "task in executor {} {} slave result len",
+                "time taken @{} executor serializing task #{} result of size {}: {}ms",
                 self.port,
-                result.len()
-            );
-            log::debug!(
-                "time taken in server for serializing:{} {}",
-                self.port,
+                des_task.get_task_id(),
+                result.len(),
                 start.elapsed().as_millis(),
             );
             Ok(result)
@@ -172,7 +199,6 @@ impl Executor {
 
         let mut message = capnp::message::Builder::new_default();
         let mut task_data = message.init_root::<serialized_data::Builder>();
-        log::debug!("sending data to master");
         task_data.set_msg(&(result?));
         Ok(message)
     }

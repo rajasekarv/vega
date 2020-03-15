@@ -1,7 +1,7 @@
 use std::any::Any;
 use std::collections::{btree_set::BTreeSet, vec_deque::VecDeque, HashMap, HashSet};
 use std::iter::FromIterator;
-use std::net::{Ipv4Addr, SocketAddrV4, TcpStream};
+use std::net::{Ipv4Addr, SocketAddrV4};
 use std::sync::{
     atomic::{AtomicUsize, Ordering},
     Arc,
@@ -11,7 +11,7 @@ use std::time::{Duration, Instant};
 use crate::dag_scheduler::{CompletionEvent, TastEndReason};
 use crate::dependency::ShuffleDependencyTrait;
 use crate::env;
-use crate::error::Result;
+use crate::error::{Error, Result};
 use crate::job::{Job, JobTracker};
 use crate::local_scheduler::LocalScheduler;
 use crate::map_output_tracker::MapOutputTracker;
@@ -24,9 +24,18 @@ use crate::shuffle::ShuffleMapTask;
 use crate::stage::Stage;
 use crate::task::{TaskBase, TaskContext, TaskOption, TaskResult};
 use crate::utils;
-use capnp::serialize_packed;
+use capnp::{message::ReaderOptions, serialize_packed};
 use dashmap::DashMap;
 use parking_lot::Mutex;
+use tokio::{
+    io::{AsyncReadExt, AsyncWriteExt},
+    net::{tcp::ReadHalf, TcpStream},
+};
+
+const CAPNP_BUF_READ_OPTS: ReaderOptions = ReaderOptions {
+    traversal_limit_in_words: std::u64::MAX,
+    nesting_limit: 64,
+};
 
 //just for now, creating an entire scheduler functions without dag scheduler trait. Later change it to extend from dag scheduler
 #[derive(Clone, Default)]
@@ -67,9 +76,9 @@ impl DistributedScheduler {
         port: u16,
     ) -> Self {
         log::debug!(
-            "starting distributed scheduler in client - {} {}",
+            "starting distributed scheduler @ port {} (in master mode {})",
+            port,
             master,
-            port
         );
         DistributedScheduler {
             max_failures,
@@ -238,6 +247,80 @@ impl DistributedScheduler {
             })
             .collect())
     }
+
+    async fn receive_results<T: Data, U: Data, F>(
+        event_queues: Arc<DashMap<usize, VecDeque<CompletionEvent>>>,
+        mut receiver: ReadHalf<'_>,
+        task: TaskOption,
+        target_port: u16,
+    ) where
+        F: SerFunc((TaskContext, Box<dyn Iterator<Item = T>>)) -> U,
+    {
+        let msg_size = utils::get_message_size(&mut receiver).await.unwrap();
+        log::debug!("receiving task result of {} bytes", msg_size);
+        let mut buf: Vec<u8> = vec![0; msg_size];
+
+        let result: TaskResult = {
+            receiver
+                .read_exact(&mut buf)
+                .await
+                .map_err(Error::InputRead)
+                .unwrap();
+            log::debug!(
+                "finished reading response {} bytes from exec @{}",
+                buf.len(),
+                target_port
+            );
+
+            let mut stream_r = std::io::BufReader::new(&*buf);
+            let message_reader =
+                serialize_packed::read_message(&mut stream_r, CAPNP_BUF_READ_OPTS).unwrap();
+            let task_data = message_reader
+                .get_root::<serialized_data::Reader>()
+                .unwrap();
+            log::debug!(
+                "received task result of {} bytes from executor @{}",
+                task_data.get_msg().unwrap().len(),
+                target_port
+            );
+            bincode::deserialize(&task_data.get_msg().unwrap()).unwrap()
+        };
+
+        match task {
+            TaskOption::ResultTask(tsk) => {
+                let result = match result {
+                    TaskResult::ResultTask(r) => r,
+                    _ => panic!("wrong result type"),
+                };
+                if let Ok(task_final) = tsk.downcast::<ResultTask<T, U, F>>() {
+                    let task_final = task_final as Box<dyn TaskBase>;
+                    DistributedScheduler::task_ended(
+                        event_queues,
+                        task_final,
+                        TastEndReason::Success,
+                        // Can break in future. But actually not needed for distributed scheduler since task runs on different processes.
+                        // Currently using this because local scheduler needs it. It can be solved by refactoring tasks differently for local and distributed scheduler
+                        result.into_any_send_sync(),
+                    );
+                }
+            }
+            TaskOption::ShuffleMapTask(tsk) => {
+                let result = match result {
+                    TaskResult::ShuffleTask(r) => r,
+                    _ => panic!("wrong result type"),
+                };
+                if let Ok(task_final) = tsk.downcast::<ShuffleMapTask>() {
+                    let task_final = task_final as Box<dyn TaskBase>;
+                    DistributedScheduler::task_ended(
+                        event_queues,
+                        task_final,
+                        TastEndReason::Success,
+                        result.into_any_send_sync(),
+                    );
+                }
+            }
+        };
+    }
 }
 
 impl NativeScheduler for DistributedScheduler {
@@ -251,84 +334,76 @@ impl NativeScheduler for DistributedScheduler {
     {
         if !self.master {
             return;
-        }
+        };
         log::debug!("inside submit task");
-        let event_queues = self.event_queues.clone();
-        let event_queues_clone = event_queues;
-        // FIXME: probably does not need to be blocking in distributed mode; test it and change back to normal spawn
-        tokio::task::spawn_blocking(move || {
-            while let Err(_) = TcpStream::connect(&target_executor) {
-                continue;
+        let event_queues_clone = self.event_queues.clone();
+        futures::executor::block_on(async move {
+            let mut num_retries = 0;
+            loop {
+                match TcpStream::connect(&target_executor).await {
+                    Ok(mut stream) => {
+                        tokio::spawn(async move {
+                            let (receiver, mut writter) = stream.split();
+                            let task_bytes = bincode::serialize(&task).unwrap();
+                            log::debug!(
+                                "sending task #{} of {} bytes to exec @{},",
+                                task.get_task_id(),
+                                task_bytes.len(),
+                                target_executor.port(),
+                            );
+
+                            let buf = {
+                                let mut buf = Vec::with_capacity(task_bytes.len() + 64);
+                                let mut message = capnp::message::Builder::new_default();
+                                let mut task_data = message.init_root::<serialized_data::Builder>();
+                                task_data.set_msg(&task_bytes);
+                                serialize_packed::write_message(&mut buf, &message).unwrap();
+                                buf
+                            };
+                            log::debug!(
+                                "total task #{} size after packaging {}",
+                                task.get_task_id(),
+                                buf.len()
+                            );
+
+                            // send incoming message size to executor
+                            let msg_len = u64::to_le_bytes(buf.len() as u64);
+                            writter
+                                .write_all(&msg_len)
+                                .await
+                                .map_err(Error::OutputWrite)
+                                .unwrap();
+
+                            // send the actual message:
+                            writter
+                                .write_all(&*buf)
+                                .await
+                                .map_err(Error::OutputWrite)
+                                .unwrap();
+                            log::debug!("sent data to exec @{}", target_executor.port());
+
+                            // receive results back
+                            DistributedScheduler::receive_results::<T, U, F>(
+                                event_queues_clone,
+                                receiver,
+                                task,
+                                target_executor.port(),
+                            )
+                            .await;
+                            log::debug!("received response from exec @{}", target_executor.port());
+                        });
+                        break;
+                    }
+                    Err(_) => {
+                        if num_retries > 5 {
+                            panic!("executor @{} not initialized", target_executor.port());
+                        }
+                        tokio::time::delay_for(Duration::from_millis(20)).await;
+                        num_retries += 1;
+                        continue;
+                    }
+                }
             }
-            let ser_task = task;
-
-            let task_bytes = bincode::serialize(&ser_task).unwrap();
-            log::debug!(
-                "sending task {} to {} executor",
-                ser_task.get_task_id(),
-                target_executor.port()
-            );
-            let mut stream = TcpStream::connect(&target_executor).unwrap();
-            log::debug!(
-                "sending task to {} executor, bytes length: {}",
-                target_executor.port(),
-                task_bytes.len()
-            );
-            let mut message = ::capnp::message::Builder::new_default();
-            let mut task_data = message.init_root::<serialized_data::Builder>();
-            log::debug!("sending data to server");
-            task_data.set_msg(&task_bytes);
-            serialize_packed::write_message(&mut stream, &message).unwrap();
-
-            let r = ::capnp::message::ReaderOptions {
-                traversal_limit_in_words: std::u64::MAX,
-                nesting_limit: 64,
-            };
-            let mut stream_r = std::io::BufReader::new(&mut stream);
-            let message_reader = serialize_packed::read_message(&mut stream_r, r).unwrap();
-            let task_data = message_reader
-                .get_root::<serialized_data::Reader>()
-                .unwrap();
-            log::debug!(
-                "received task result of {} bytes from executor @{}",
-                task_data.get_msg().unwrap().len(),
-                target_executor.port()
-            );
-            let result: TaskResult = bincode::deserialize(&task_data.get_msg().unwrap()).unwrap();
-            match ser_task {
-                TaskOption::ResultTask(tsk) => {
-                    let result = match result {
-                        TaskResult::ResultTask(r) => r,
-                        _ => panic!("wrong result type"),
-                    };
-                    if let Ok(task_final) = tsk.downcast::<ResultTask<T, U, F>>() {
-                        let task_final = task_final as Box<dyn TaskBase>;
-                        DistributedScheduler::task_ended(
-                            event_queues_clone,
-                            task_final,
-                            TastEndReason::Success,
-                            // Can break in future. But actually not needed for distributed scheduler since task runs on different processes.
-                            // Currently using this because local scheduler needs it. It can be solved by refactoring tasks differently for local and distributed scheduler
-                            result.into_any_send_sync(),
-                        );
-                    }
-                }
-                TaskOption::ShuffleMapTask(tsk) => {
-                    let result = match result {
-                        TaskResult::ShuffleTask(r) => r,
-                        _ => panic!("wrong result type"),
-                    };
-                    if let Ok(task_final) = tsk.downcast::<ShuffleMapTask>() {
-                        let task_final = task_final as Box<dyn TaskBase>;
-                        DistributedScheduler::task_ended(
-                            event_queues_clone,
-                            task_final,
-                            TastEndReason::Success,
-                            result.into_any_send_sync(),
-                        );
-                    }
-                }
-            };
         });
     }
 

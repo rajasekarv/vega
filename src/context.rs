@@ -85,7 +85,11 @@ pub struct Context {
 impl Drop for Context {
     fn drop(&mut self) {
         //TODO clean up temp files
-        log::debug!("inside context drop in master {}", self.distributed_master);
+        if self.distributed_master {
+            log::trace!("inside context drop in master");
+        } else {
+            log::trace!("inside context drop in executor");
+        }
         self.drop_executors();
     }
 }
@@ -223,7 +227,7 @@ impl Context {
     fn init_distributed_worker() -> Result<!> {
         let uuid = Uuid::new_v4().to_string();
         initialize_loggers(format!("/tmp/executor-{}", uuid));
-        log::debug!("started client");
+        log::debug!("starting worker");
         let port = env::Configuration::get()
             .slave
             .as_ref()
