@@ -420,6 +420,19 @@ pub trait Rdd: RddBase + 'static {
             .sum())
     }
 
+    /// Return the count of each unique value in this RDD as a dictionary of (value, count) pairs.	
+    fn count_by_value(&self) -> SerArc<dyn Rdd<Item = (Self::Item, u64)>>
+    where
+        Self: Sized,
+        Self::Item: Data + Eq + Hash,
+    {
+        self.map(Fn!(|x| (x, 1u64)))
+        .reduce_by_key(Box::new(Fn!(|(x, y)| x + y))
+            as Box<
+                dyn Func((u64, u64)) -> u64,
+            >, self.number_of_splits())
+    }
+
     /// Return a new RDD containing the distinct elements in this RDD.
     fn distinct_with_num_partitions(
         &self,
