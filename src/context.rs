@@ -85,10 +85,14 @@ pub struct Context {
 impl Drop for Context {
     fn drop(&mut self) {
         //TODO clean up temp files
-        if self.distributed_master {
-            log::trace!("inside context drop in master");
-        } else {
-            log::trace!("inside context drop in executor");
+        #[cfg(debug_assertions)]
+        {
+            let deployment_mode = env::Configuration::get().deployment_mode;
+            if self.distributed_master && deployment_mode == env::DeploymentMode::Distributed {
+                log::info!("inside context drop in master");
+            } else if deployment_mode == env::DeploymentMode::Distributed {
+                log::info!("inside context drop in executor");
+            }
         }
         self.drop_executors();
     }
@@ -235,17 +239,19 @@ impl Context {
             .ok_or(Error::GetOrCreateConfig("executor port not set"))?;
         let executor = Arc::new(Executor::new(port));
         match executor.worker() {
-            Err(Error::ExecutorShutdown) => {
-                log::info!("Got executor end signal @ {}", port);
-                std::process::exit(0);
-            }
             Err(err) => {
-                log::error!("Executor failed with error: {}", err);
+                log::error!("executor @{} failed with error: {}", port, err);
                 std::process::exit(1);
             }
-            _ => {}
+            Ok(value) => {
+                log::info!(
+                    "executor @{} closed gracefully with signal: {:?}",
+                    port,
+                    value
+                );
+                std::process::exit(0);
+            }
         }
-        unreachable!("Executor should have been terminated!");
     }
 
     fn create_workers_config_file(local_ip: Ipv4Addr, port: u16, config_path: &str) -> Result<()> {
@@ -272,7 +278,7 @@ impl Context {
                 TcpStream::connect(format!("{}:{}", socket_addr.ip(), socket_addr.port() + 10))
             {
                 let buf = {
-                    let signal = bincode::serialize(&Signal::ShutDownGraceful).unwrap();
+                    let signal = bincode::serialize(&Signal::ShutDownGracefully).unwrap();
                     let mut message = ::capnp::message::Builder::new_default();
                     let mut task_data = message.init_root::<serialized_data::Builder>();
                     task_data.set_msg(&signal);

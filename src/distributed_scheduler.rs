@@ -76,7 +76,7 @@ impl DistributedScheduler {
         port: u16,
     ) -> Self {
         log::debug!(
-            "starting distributed scheduler @ port {} (in master mode {})",
+            "starting distributed scheduler @ port {} (in master mode: {})",
             port,
             master,
         );
@@ -279,7 +279,8 @@ impl DistributedScheduler {
                 .get_root::<serialized_data::Reader>()
                 .unwrap();
             log::debug!(
-                "received task result of {} bytes from executor @{}",
+                "received task #{} result of {} bytes from executor @{}",
+                task.get_task_id(),
                 task_data.get_msg().unwrap().len(),
                 target_port
             );
@@ -390,7 +391,6 @@ impl NativeScheduler for DistributedScheduler {
                                 target_executor.port(),
                             )
                             .await;
-                            log::debug!("received response from exec @{}", target_executor.port());
                         });
                         break;
                     }

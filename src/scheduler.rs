@@ -96,7 +96,7 @@ pub(crate) trait NativeScheduler {
             missing.iter().map(|x| x.id).collect::<Vec<_>>()
         );
         log::debug!(
-            "visisted stages {:?}",
+            "visited stages {:?}",
             visited.iter().map(|x| x.get_rdd_id()).collect::<Vec<_>>()
         );
         if !visited.contains(&rdd) {
@@ -146,7 +146,7 @@ pub(crate) trait NativeScheduler {
             parents.iter().map(|x| x.id).collect::<Vec<_>>()
         );
         log::debug!(
-            "visisted stages {:?}",
+            "visited stages {:?}",
             visited.iter().map(|x| x.get_rdd_id()).collect::<Vec<_>>()
         );
         if !visited.contains(&rdd) {
@@ -339,7 +339,7 @@ pub(crate) trait NativeScheduler {
     where
         F: SerFunc((TaskContext, Box<dyn Iterator<Item = T>>)) -> U,
     {
-        log::debug!("submiting stage {}", stage.id);
+        log::debug!("submitting stage {}", stage.id);
         if !jt.waiting.lock().contains(&stage) && !jt.running.lock().contains(&stage) {
             let missing = self.get_missing_parent_stages(stage.clone());
             log::debug!(

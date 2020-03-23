@@ -63,8 +63,14 @@ impl Executor {
         while let Some(stream) = listener.incoming().next().await {
             if let Ok(mut stream) = stream {
                 match rcv_main.try_recv() {
-                    Ok(Signal::ShutDownError) => return Err(Error::ExecutorShutdown),
-                    Ok(Signal::ShutDownGraceful) => return Ok(Signal::ShutDownGraceful),
+                    Ok(Signal::ShutDownError) => {
+                        log::info!("shutting down executor @{} due to error", self.port);
+                        return Err(Error::ExecutorShutdown);
+                    }
+                    Ok(Signal::ShutDownGracefully) => {
+                        log::info!("shutting down executor @{} gracefully", self.port);
+                        return Ok(Signal::ShutDownGracefully);
+                    }
                     _ => {}
                 }
                 let self_clone = Arc::clone(&self);
@@ -229,19 +235,19 @@ impl Executor {
             )?;
             match data {
                 Signal::ShutDownError => {
-                    log::debug!("received error shutdown signal @ {}", self.port);
+                    log::info!("received error shutdown signal @ {}", self.port);
                     send_child
                         .send(Signal::ShutDownError)
                         .map_err(|_| Error::AsyncRuntimeError)?;
                     signal = Err(Error::ExecutorShutdown);
                     break;
                 }
-                Signal::ShutDownGraceful => {
-                    log::debug!("received graceful shutdown signal @ {}", self.port);
+                Signal::ShutDownGracefully => {
+                    log::info!("received graceful shutdown signal @ {}", self.port);
                     send_child
-                        .send(Signal::ShutDownGraceful)
+                        .send(Signal::ShutDownGracefully)
                         .map_err(|_| Error::AsyncRuntimeError)?;
-                    signal = Ok(Signal::ShutDownGraceful);
+                    signal = Ok(Signal::ShutDownGracefully);
                     break;
                 }
                 _ => {}
@@ -251,10 +257,10 @@ impl Executor {
     }
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Debug)]
 pub(crate) enum Signal {
     ShutDownError,
-    ShutDownGraceful,
+    ShutDownGracefully,
     Continue,
 }
 
@@ -313,7 +319,7 @@ mod tests {
 
     fn send_shutdown_signal_msg(stream: &mut std::net::TcpStream) -> Result<()> {
         let mut buf = Vec::new();
-        let signal = bincode::serialize(&Signal::ShutDownGraceful)?;
+        let signal = bincode::serialize(&Signal::ShutDownGracefully)?;
         let mut message = capnp::message::Builder::new_default();
         let mut msg_data = message.init_root::<serialized_data::Builder>();
         msg_data.set_msg(&signal);
@@ -362,7 +368,7 @@ mod tests {
 
         fn result_checker(sender: Sender<ComputeResult>, result: Result<Signal>) -> Result<()> {
             match result {
-                Ok(Signal::ShutDownGraceful) => {
+                Ok(Signal::ShutDownGracefully) => {
                     sender.send(Ok(()));
                     Ok(())
                 }
@@ -442,7 +448,7 @@ mod tests {
 
         fn result_checker(sender: Sender<ComputeResult>, result: Result<Signal>) -> Result<()> {
             match result {
-                Ok(Signal::ShutDownGraceful) => Ok(()),
+                Ok(Signal::ShutDownGracefully) => Ok(()),
                 Ok(_) => {
                     sender.send(Ok(()));
                     Err(Error::AsyncRuntimeError)
