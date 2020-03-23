@@ -334,13 +334,11 @@ mod tests {
         let port = executor.port;
         let (send_exec, client_rcv) = unbounded::<ComputeResult>();
 
-        let test = tokio::task::spawn_blocking(move || test_func(client_rcv, port));
-        let worker = tokio::task::spawn_blocking(move || executor.worker());
-
-        tokio::select! {
-            test_res = test => test_res?,
-            worker_res = worker => checker_func(send_exec, worker_res?),
-        }
+        let test_fut = tokio::task::spawn_blocking(move || test_func(client_rcv, port));
+        let worker_fut = tokio::task::spawn_blocking(move || executor.worker());
+        let (test_res, worker_res) = tokio::join!(test_fut, worker_fut);
+        checker_func(send_exec, worker_res?)?;
+        test_res?
     }
 
     #[tokio::test]
@@ -427,7 +425,7 @@ mod tests {
 
                         match bincode::deserialize::<TaskResult>(&*task_data.get_msg().unwrap())? {
                             TaskResult::ResultTask(_) => {}
-                            _ => panic!("wrong result type"),
+                            _ => return Err(Error::DowncastFailure("incorrect task result")),
                         }
 
                         let mut signal_handler = connect_to_executor(port, true)?;

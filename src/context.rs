@@ -9,12 +9,6 @@ use std::sync::{
     Arc,
 };
 
-use crate::serialized_data_capnp::serialized_data;
-use capnp::serialize_packed;
-use log::error;
-use simplelog::*;
-use uuid::Uuid;
-
 use crate::distributed_scheduler::DistributedScheduler;
 use crate::error::{Error, Result};
 use crate::executor::Executor;
@@ -25,8 +19,14 @@ use crate::rdd::union_rdd::UnionRdd;
 use crate::rdd::{Rdd, RddBase};
 use crate::scheduler::NativeScheduler;
 use crate::serializable_traits::{Data, SerFunc};
+use crate::serialized_data_capnp::serialized_data;
 use crate::task::TaskContext;
 use crate::{env, hosts};
+use capnp::serialize_packed;
+use log::error;
+use once_cell::sync::OnceCell;
+use simplelog::*;
+use uuid::Uuid;
 
 // there is a problem with this approach since T needs to satisfy PartialEq, Eq for Range
 // No such restrictions are needed for Vec
@@ -408,18 +408,26 @@ impl Context {
     }
 }
 
+static LOGGER: OnceCell<()> = OnceCell::new();
+
 fn initialize_loggers(file_path: String) {
-    let log_level = env::Configuration::get().log_level.into();
-    let term_logger = TermLogger::new(log_level, Config::default(), TerminalMode::Mixed);
-    let file_logger: Box<dyn SharedLogger> = WriteLogger::new(
-        log_level,
-        Config::default(),
-        fs::File::create(file_path).expect("not able to create log file"),
-    );
-    let mut combined = vec![file_logger];
-    if let Some(logger) = term_logger {
-        let logger: Box<dyn SharedLogger> = logger;
-        combined.push(logger);
+    fn _initializer(file_path: String) {
+        let log_level = env::Configuration::get().log_level.into();
+        log::info!("path for file logger: {}", file_path);
+        let file_logger: Box<dyn SharedLogger> = WriteLogger::new(
+            log_level,
+            Config::default(),
+            fs::File::create(file_path).expect("not able to create log file"),
+        );
+        let mut combined = vec![file_logger];
+        if let Some(term_logger) =
+            TermLogger::new(log_level, Config::default(), TerminalMode::Mixed)
+        {
+            let logger: Box<dyn SharedLogger> = term_logger;
+            combined.push(logger);
+        }
         CombinedLogger::init(combined).unwrap();
     }
+
+    LOGGER.get_or_init(move || _initializer(file_path));
 }
