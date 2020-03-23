@@ -41,7 +41,7 @@ fn get_dynamic_port() -> u16 {
     FIRST_DYNAMIC_PORT + rand::thread_rng().gen_range(0, LAST_DYNAMIC_PORT - FIRST_DYNAMIC_PORT)
 }
 
-/// Get an incomign IPC size in the system word size
+/// Get an incoming IPC size in the system word size
 pub(crate) async fn get_message_size<R: tokio::io::AsyncReadExt + Unpin>(
     receiver: &mut R,
 ) -> error::Result<usize> {

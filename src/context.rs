@@ -271,11 +271,21 @@ impl Context {
             if let Ok(mut stream) =
                 TcpStream::connect(format!("{}:{}", socket_addr.ip(), socket_addr.port() + 10))
             {
-                let signal = bincode::serialize(&Signal::ShutDown).unwrap();
-                let mut message = ::capnp::message::Builder::new_default();
-                let mut task_data = message.init_root::<serialized_data::Builder>();
-                task_data.set_msg(&signal);
-                serialize_packed::write_message(&mut stream, &message).unwrap();
+                let buf = {
+                    let signal = bincode::serialize(&Signal::ShutDownGraceful).unwrap();
+                    let mut message = ::capnp::message::Builder::new_default();
+                    let mut task_data = message.init_root::<serialized_data::Builder>();
+                    task_data.set_msg(&signal);
+                    let mut buf = Vec::with_capacity(signal.len() + 64);
+                    serialize_packed::write_message(&mut buf, &message).unwrap();
+                    buf
+                };
+                let msg_size = u64::to_le_bytes(buf.len() as u64);
+                stream
+                    .write_all(&msg_size)
+                    .map_err(Error::InputRead)
+                    .unwrap();
+                stream.write_all(&buf).map_err(Error::InputRead).unwrap();
             } else {
                 error!(
                     "Failed to connect to {}:{} in order to stop its executor",
@@ -399,13 +409,10 @@ impl Context {
 }
 
 fn initialize_loggers(file_path: String) {
-    let term_logger = TermLogger::new(
-        env::Configuration::get().log_level.into(),
-        Config::default(),
-        TerminalMode::Mixed,
-    );
+    let log_level = env::Configuration::get().log_level.into();
+    let term_logger = TermLogger::new(log_level, Config::default(), TerminalMode::Mixed);
     let file_logger: Box<dyn SharedLogger> = WriteLogger::new(
-        env::Configuration::get().log_level.into(),
+        log_level,
         Config::default(),
         fs::File::create(file_path).expect("not able to create log file"),
     );
@@ -413,6 +420,6 @@ fn initialize_loggers(file_path: String) {
     if let Some(logger) = term_logger {
         let logger: Box<dyn SharedLogger> = logger;
         combined.push(logger);
+        CombinedLogger::init(combined).unwrap();
     }
-    CombinedLogger::init(combined).unwrap();
 }

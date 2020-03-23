@@ -96,11 +96,10 @@ impl From<ShuffleMapTask> for TaskOption {
 
 #[derive(Serialize, Deserialize)]
 pub enum TaskResult {
-    //    //    #[serde(with = "serde_traitobject")]
     ResultTask(serde_traitobject::Box<dyn serde_traitobject::Any + Send + Sync>),
     ShuffleTask(serde_traitobject::Box<dyn serde_traitobject::Any + Send + Sync>),
 }
-//
+
 impl TaskOption {
     pub fn run(&self, id: usize) -> TaskResult {
         match self {
@@ -108,18 +107,21 @@ impl TaskOption {
             TaskOption::ShuffleMapTask(tsk) => TaskResult::ShuffleTask(tsk.run(id)),
         }
     }
+
     pub fn get_task_id(&self) -> usize {
         match self {
             TaskOption::ResultTask(tsk) => tsk.get_task_id(),
             TaskOption::ShuffleMapTask(tsk) => tsk.get_task_id(),
         }
     }
+
     pub fn get_run_id(&self) -> usize {
         match self {
             TaskOption::ResultTask(tsk) => tsk.get_run_id(),
             TaskOption::ShuffleMapTask(tsk) => tsk.get_run_id(),
         }
     }
+
     pub fn get_stage_id(&self) -> usize {
         match self {
             TaskOption::ResultTask(tsk) => tsk.get_stage_id(),

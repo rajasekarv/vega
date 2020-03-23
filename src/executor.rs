@@ -14,7 +14,7 @@ use capnp::{
 };
 use serde::{Deserialize, Serialize};
 use tokio::{
-    io::{AsyncReadExt, AsyncWriteExt, BufReader},
+    io::{AsyncReadExt, AsyncWriteExt},
     net::TcpListener,
     stream::StreamExt,
     sync::oneshot::{channel, Receiver, Sender},
@@ -39,9 +39,9 @@ impl Executor {
     ///
     /// This will spawn it's own Tokio runtime to run the tasks on.
     #[allow(clippy::drop_copy)]
-    pub fn worker(self: Arc<Self>) -> Result<()> {
+    pub fn worker(self: Arc<Self>) -> Result<Signal> {
         let executor = env::Env::get_async_handle();
-        executor.enter(move || -> Result<()> {
+        executor.enter(move || -> Result<Signal> {
             futures::executor::block_on(async move {
                 let (send_child, rcv_main) = channel::<Signal>();
                 let process_err = Arc::clone(&self).process_stream(rcv_main);
@@ -51,20 +51,21 @@ impl Executor {
                     err = handler_err => err?,
                 }
             })
-        })?;
-        Err(Error::ExecutorShutdown)
+        })
     }
 
     #[allow(clippy::drop_copy)]
-    async fn process_stream(self: Arc<Self>, mut rcv_main: Receiver<Signal>) -> Result<()> {
+    async fn process_stream(self: Arc<Self>, mut rcv_main: Receiver<Signal>) -> Result<Signal> {
         let addr = SocketAddr::from(([0, 0, 0, 0], self.port));
         let mut listener = TcpListener::bind(addr)
             .await
             .map_err(NetworkError::TcpListener)?;
         while let Some(stream) = listener.incoming().next().await {
             if let Ok(mut stream) = stream {
-                if let Ok(Signal::ShutDown) = rcv_main.try_recv() {
-                    return Err(Error::ExecutorShutdown);
+                match rcv_main.try_recv() {
+                    Ok(Signal::ShutDownError) => return Err(Error::ExecutorShutdown),
+                    Ok(Signal::ShutDownGraceful) => return Ok(Signal::ShutDownGraceful),
+                    _ => {}
                 }
                 let self_clone = Arc::clone(&self);
                 log::debug!("received new task @{} executor", self.port);
@@ -99,9 +100,9 @@ impl Executor {
                         .map_err(Error::OutputWrite)?;
 
                     // send outgoing message size to executor
-                    let msg_len = u64::to_le_bytes(buf.len() as u64);
+                    let msg_size = u64::to_le_bytes(buf.len() as u64);
                     writter
-                        .write_all(&msg_len)
+                        .write_all(&msg_size)
                         .await
                         .map_err(Error::OutputWrite)
                         .unwrap();
@@ -204,19 +205,19 @@ impl Executor {
     }
 
     /// A listener for exit signal from master to end the whole slave process.
-    async fn signal_handler(self: Arc<Self>, send_child: Sender<Signal>) -> Result<()> {
+    async fn signal_handler(self: Arc<Self>, send_child: Sender<Signal>) -> Result<Signal> {
         let addr = SocketAddr::from(([0, 0, 0, 0], self.port + 10));
         log::debug!("signal handler port open @ {}", addr.port());
         let mut listener = TcpListener::bind(addr)
             .await
             .map_err(NetworkError::TcpListener)?;
-        let mut buf = Vec::new();
+        let mut signal: Result<Signal> = Err(Error::ExecutorShutdown);
         while let Some(stream) = listener.incoming().next().await {
-            let stream = stream.unwrap();
-            buf.clear();
-            let mut reader = BufReader::new(stream);
-            reader
-                .read_to_end(&mut buf)
+            let mut stream = stream.unwrap();
+            let msg_size = get_message_size(&mut stream).await?;
+            let mut buf: Vec<u8> = vec![0; msg_size];
+            stream
+                .read_exact(&mut buf)
                 .await
                 .map_err(Error::InputRead)?;
             let mut stream_r = std::io::BufReader::new(&*buf);
@@ -226,42 +227,65 @@ impl Executor {
                     .get_root::<serialized_data::Reader>()?
                     .get_msg()?,
             )?;
-            if let Signal::ShutDown = data {
-                // signal shut down to the main executor task receiving thread
-                log::debug!("received shutdown signal @ {}", self.port);
-                send_child
-                    .send(Signal::ShutDown)
-                    .map_err(|_| Error::AsyncRuntimeError)?;
-                break;
+            match data {
+                Signal::ShutDownError => {
+                    log::debug!("received error shutdown signal @ {}", self.port);
+                    send_child
+                        .send(Signal::ShutDownError)
+                        .map_err(|_| Error::AsyncRuntimeError)?;
+                    signal = Err(Error::ExecutorShutdown);
+                    break;
+                }
+                Signal::ShutDownGraceful => {
+                    log::debug!("received graceful shutdown signal @ {}", self.port);
+                    send_child
+                        .send(Signal::ShutDownGraceful)
+                        .map_err(|_| Error::AsyncRuntimeError)?;
+                    signal = Ok(Signal::ShutDownGraceful);
+                    break;
+                }
+                _ => {}
             }
         }
-        Err(Error::ExecutorShutdown)
+        signal
     }
 }
 
 #[derive(Serialize, Deserialize)]
 pub(crate) enum Signal {
-    ShutDown,
+    ShutDownError,
+    ShutDownGraceful,
     Continue,
 }
 
 #[cfg(test)]
 mod tests {
+    #![allow(unused_must_use)]
+
     use super::*;
-    use crate::task::TaskContext;
+    use crate::task::{TaskContext, TaskResult};
     use crate::utils::{get_free_port, test_utils::create_test_task};
-    use std::io::Write;
+    use crossbeam::channel::{unbounded, Receiver, Sender};
+    use std::io::{Read, Write};
     use std::thread;
-    use tokio::sync::mpsc::{
-        unbounded_channel, UnboundedReceiver as Receiver, UnboundedSender as Sender,
-    };
+    use std::time::Duration;
 
     type Port = u16;
     type ComputeResult = std::result::Result<(), ()>;
 
-    fn initialize_exec() -> (Arc<Executor>, Port) {
+    /// Get an incoming IPC size in the system word size
+    fn get_message_size<R: std::io::Read>(receiver: &mut R) -> Result<usize> {
+        let mut msg_size = [0u8; 8];
+        receiver
+            .read_exact(&mut msg_size)
+            .map_err(Error::InputRead)?;
+        let msg_size_word = u64::from_le_bytes(msg_size);
+        Ok(msg_size_word as usize)
+    }
+
+    fn initialize_exec() -> Arc<Executor> {
         let port = get_free_port().unwrap();
-        (Arc::new(Executor::new(port)), port)
+        Arc::new(Executor::new(port))
     }
 
     fn connect_to_executor(mut port: u16, signal_handler: bool) -> Result<std::net::TcpStream> {
@@ -287,65 +311,76 @@ mod tests {
         Err(Error::AsyncRuntimeError)
     }
 
-    fn _start_test<TF, CF, R>(test_func: TF, checker_func: CF) -> Result<R>
-    where
-        TF: FnOnce(Receiver<ComputeResult>) -> Result<()> + Send + 'static,
-        CF: FnOnce(Sender<ComputeResult>) -> Result<R>,
-    {
-        let (send_exec, client_rcv) = unbounded_channel::<ComputeResult>();
-        thread::spawn(move || test_func(client_rcv));
-        checker_func(send_exec)
-    }
-
-    fn set_shutdown_signal_msg(buf: &mut Vec<u8>) -> Result<()> {
-        let signal = bincode::serialize(&Signal::ShutDown)?;
+    fn send_shutdown_signal_msg(stream: &mut std::net::TcpStream) -> Result<()> {
+        let mut buf = Vec::new();
+        let signal = bincode::serialize(&Signal::ShutDownGraceful)?;
         let mut message = capnp::message::Builder::new_default();
         let mut msg_data = message.init_root::<serialized_data::Builder>();
         msg_data.set_msg(&signal);
-        serialize_packed::write_message(buf, &message).map_err(Error::OutputWrite)?;
+        serialize_packed::write_message(&mut buf, &message).map_err(Error::OutputWrite)?;
+
+        let msg_size = u64::to_le_bytes(buf.len() as u64);
+        stream.write_all(&msg_size).map_err(Error::OutputWrite)?;
+        stream.write_all(&*buf).map_err(Error::OutputWrite)?;
         Ok(())
     }
 
-    #[test]
-    fn send_shutdown_signal() -> Result<()> {
-        let (executor, port) = initialize_exec();
+    async fn _start_test<TF, CF>(test_func: TF, checker_func: CF) -> Result<()>
+    where
+        TF: FnOnce(Receiver<ComputeResult>, Port) -> Result<()> + Send + 'static,
+        CF: FnOnce(Sender<ComputeResult>, Result<Signal>) -> Result<()>,
+    {
+        let executor = initialize_exec();
+        let port = executor.port;
+        let (send_exec, client_rcv) = unbounded::<ComputeResult>();
 
-        let test = move |mut client_rcv: Receiver<ComputeResult>| -> Result<()> {
-            let mut buf = Vec::new();
-            set_shutdown_signal_msg(&mut buf)?;
-            loop {
-                thread::sleep_ms(5);
-                if let Ok(mut stream) = connect_to_executor(port, true) {
-                    stream.write_all(&*buf).map_err(Error::OutputWrite)?;
-                    stream.flush().map_err(Error::OutputWrite)?;
-                    match client_rcv.try_recv() {
-                        Ok(Ok(_)) => return Ok(()),
-                        Ok(Err(_)) => return Err(Error::AsyncRuntimeError),
-                        _ => {}
-                    }
-                }
-            }
-        };
+        let test = tokio::task::spawn_blocking(move || test_func(client_rcv, port));
+        let worker = tokio::task::spawn_blocking(move || executor.worker());
 
-        let result_checker = |sender: Sender<ComputeResult>| -> Result<()> {
-            let result = match executor.worker() {
-                Err(Error::ExecutorShutdown) => Ok(()),
-                Err(err) => Err(err),
-                _ => Err(Error::AsyncRuntimeError),
-            };
-            sender.send(Ok(())).map_err(|_| Error::AsyncRuntimeError)?;
-            result
-        };
-
-        _start_test(test, result_checker)
+        tokio::select! {
+            test_res = test => test_res?,
+            worker_res = worker => checker_func(send_exec, worker_res?),
+        }
     }
 
-    #[test]
-    #[ignore] // requires fixing
-    fn send_task() -> Result<()> {
-        let (executor, port) = initialize_exec();
+    #[tokio::test]
+    async fn send_shutdown_signal() -> Result<()> {
+        fn test(client_rcv: Receiver<ComputeResult>, port: Port) -> Result<()> {
+            let end = Instant::now() + Duration::from_millis(150);
+            while Instant::now() < end {
+                match client_rcv.try_recv() {
+                    Ok(Ok(_)) => return Ok(()),
+                    Ok(Err(_)) => return Err(Error::AsyncRuntimeError),
+                    _ => {}
+                }
+                if let Ok(mut stream) = connect_to_executor(port, true) {
+                    send_shutdown_signal_msg(&mut stream)?;
+                    return Ok(());
+                }
+                thread::sleep_ms(5);
+            }
+            Err(Error::AsyncRuntimeError)
+        }
 
-        let test = move |mut client_rcv: Receiver<ComputeResult>| -> Result<()> {
+        fn result_checker(sender: Sender<ComputeResult>, result: Result<Signal>) -> Result<()> {
+            match result {
+                Ok(Signal::ShutDownGraceful) => {
+                    sender.send(Ok(()));
+                    Ok(())
+                }
+                Ok(_) | Err(_) => {
+                    sender.send(Err(()));
+                    Err(Error::AsyncRuntimeError)
+                }
+            }
+        }
+
+        _start_test(test, result_checker).await
+    }
+
+    #[tokio::test]
+    async fn send_task() -> Result<()> {
+        fn test(client_rcv: Receiver<ComputeResult>, port: Port) -> Result<()> {
             // Mock data:
             let func =
                 Fn!(
@@ -362,53 +397,65 @@ mod tests {
             msg_data.set_msg(&ser_task);
             let mut buf = Vec::new();
             serialize_packed::write_message(&mut buf, &message).map_err(Error::OutputWrite)?;
+            let msg_size = u64::to_le_bytes(buf.len() as u64);
 
-            loop {
-                thread::sleep_ms(5);
+            let end = Instant::now() + Duration::from_millis(150);
+            while Instant::now() < end {
+                match client_rcv.try_recv() {
+                    Ok(Ok(_)) => return Ok(()),
+                    Ok(Err(_)) => return Err(Error::AsyncRuntimeError),
+                    _ => {}
+                }
                 if let Ok(mut stream) = connect_to_executor(port, false) {
+                    // Send task len to executor:
+                    stream.write_all(&msg_size).map_err(Error::OutputWrite)?;
                     // Send task to executor:
-                    buf.clear();
                     stream.write_all(&*buf).map_err(Error::OutputWrite)?;
-                    stream.flush().map_err(Error::OutputWrite)?;
                     if let Ok(Err(_)) = client_rcv.try_recv() {
                         return Err(Error::AsyncRuntimeError);
                     }
-                    // Get the results back:
-                    // buf.clear();
-                    // stream.read_to_end(&mut buf);
-                    // let mut stream_r = std::io::BufReader::new(&*buf);
-                    // if let Ok(res) =
-                    //     serialize_packed::read_message(&mut stream_r, CAPNP_BUF_READ_OPTS)
-                    // {
-                    //     let task_data = res.get_root::<serialized_data::Reader>().unwrap();
-                    //     let des_task: TaskResult =
-                    //         bincode::deserialize(&*task_data.get_msg().unwrap())?;
 
-                    //     if let Ok(mut stream) = connect_to_executor(port, true) {
-                    //         buf.clear();
-                    //         set_shutdown_signal_msg(&mut buf);
-                    //         stream.write_all(&*buf).map_err(Error::OutputWrite)?;
-                    //         stream.flush();
-                    //     }
-                    // }
+                    // Get the results back:
+                    let result_size = get_message_size(&mut stream)?;
+                    let mut buf2 = vec![0; result_size];
+                    stream.read_exact(&mut buf2).map_err(Error::InputRead)?;
+                    let mut stream_r = std::io::BufReader::new(&*buf2);
+                    if let Ok(res) =
+                        serialize_packed::read_message(&mut stream_r, CAPNP_BUF_READ_OPTS)
+                    {
+                        let task_data = res.get_root::<serialized_data::Reader>().unwrap();
+
+                        match bincode::deserialize::<TaskResult>(&*task_data.get_msg().unwrap())? {
+                            TaskResult::ResultTask(_) => {}
+                            _ => panic!("wrong result type"),
+                        }
+
+                        let mut signal_handler = connect_to_executor(port, true)?;
+                        send_shutdown_signal_msg(&mut signal_handler)?;
+                        return Ok(());
+                    } else {
+                        return Err(Error::AsyncRuntimeError);
+                    }
+                }
+                thread::sleep_ms(5);
+            }
+            Err(Error::AsyncRuntimeError)
+        };
+
+        fn result_checker(sender: Sender<ComputeResult>, result: Result<Signal>) -> Result<()> {
+            match result {
+                Ok(Signal::ShutDownGraceful) => Ok(()),
+                Ok(_) => {
+                    sender.send(Ok(()));
+                    Err(Error::AsyncRuntimeError)
+                }
+                Err(err) => {
+                    sender.send(Err(()));
+                    Err(err)
                 }
             }
-        };
+        }
 
-        let result_checker = |sender: Sender<ComputeResult>| -> Result<()> {
-            let result = match executor.worker() {
-                Err(Error::ExecutorShutdown) => Ok(()),
-                Err(err) => Err(err),
-                _ => Err(Error::AsyncRuntimeError),
-            };
-            if result.is_err() {
-                sender.send(Err(())).map_err(|_| Error::AsyncRuntimeError)?;
-            } else {
-                sender.send(Ok(())).map_err(|_| Error::AsyncRuntimeError)?;
-            }
-            result
-        };
-
-        _start_test(test, result_checker)
+        _start_test(test, result_checker).await
     }
 }

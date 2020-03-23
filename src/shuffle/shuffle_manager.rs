@@ -337,7 +337,7 @@ mod tests {
         for _ in 0..parallelism {
             let manager = manager.clone();
             threads.push(thread::spawn(move || -> Result<()> {
-                for _ in 0..1_000 {
+                for _ in 0..10 {
                     match manager.check_status() {
                         Ok(StatusCode::OK) => {}
                         _ => return Err(ShuffleError::AsyncRuntimeError),

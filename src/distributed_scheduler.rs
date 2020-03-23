@@ -367,9 +367,9 @@ impl NativeScheduler for DistributedScheduler {
                             );
 
                             // send incoming message size to executor
-                            let msg_len = u64::to_le_bytes(buf.len() as u64);
+                            let msg_size = u64::to_le_bytes(buf.len() as u64);
                             writter
-                                .write_all(&msg_len)
+                                .write_all(&msg_size)
                                 .await
                                 .map_err(Error::OutputWrite)
                                 .unwrap();
