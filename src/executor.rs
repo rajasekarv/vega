@@ -6,7 +6,6 @@ use crate::env;
 use crate::error::{Error, NetworkError, Result};
 use crate::serialized_data_capnp::serialized_data;
 use crate::task::TaskOption;
-use async_std::net::TcpListener;
 use capnp::{
     message::{Builder as MsgBuilder, HeapAllocator, Reader as CpnpReader, ReaderOptions},
     serialize::OwnedSegments,
@@ -14,9 +13,11 @@ use capnp::{
 use capnp_futures::serialize as capnp_serialize;
 use serde::{Deserialize, Serialize};
 use tokio::{
+    net::TcpListener,
     stream::StreamExt,
     sync::oneshot::{channel, Receiver, Sender},
 };
+use tokio_util::compat::{Tokio02AsyncReadCompatExt, Tokio02AsyncWriteCompatExt};
 
 const CAPNP_BUF_READ_OPTS: ReaderOptions = ReaderOptions {
     traversal_limit_in_words: std::u64::MAX,
@@ -55,10 +56,13 @@ impl Executor {
     #[allow(clippy::drop_copy)]
     async fn process_stream(self: Arc<Self>, mut rcv_main: Receiver<Signal>) -> Result<Signal> {
         let addr = SocketAddr::from(([0, 0, 0, 0], self.port));
-        let listener = TcpListener::bind(addr)
+        let mut listener = TcpListener::bind(addr)
             .await
             .map_err(NetworkError::TcpListener)?;
         while let Some(Ok(mut stream)) = listener.incoming().next().await {
+            let (reader, writer) = stream.split();
+            let reader = reader.compat();
+            let mut writer = writer.compat_write();
             match rcv_main.try_recv() {
                 Ok(Signal::ShutDownError) => {
                     log::info!("shutting down executor @{} due to error", self.port);
@@ -76,7 +80,7 @@ impl Executor {
             let message = {
                 let message_reader = {
                     if let Some(data) =
-                        capnp_serialize::read_message(&stream, CAPNP_BUF_READ_OPTS).await?
+                        capnp_serialize::read_message(reader, CAPNP_BUF_READ_OPTS).await?
                     {
                         data
                     } else {
@@ -87,7 +91,7 @@ impl Executor {
                 let des_task = self_clone.deserialize_task(message_reader)?;
                 self_clone.run_task(des_task)
             }?;
-            capnp_serialize::write_message(&mut stream, &message)
+            capnp_serialize::write_message(&mut writer, &message)
                 .await
                 .map_err(Error::CapnpDeserialization)?;
             log::debug!("sent result data to driver");
@@ -179,11 +183,12 @@ impl Executor {
     async fn signal_handler(self: Arc<Self>, send_child: Sender<Signal>) -> Result<Signal> {
         let addr = SocketAddr::from(([0, 0, 0, 0], self.port + 10));
         log::debug!("signal handler port open @ {}", addr.port());
-        let listener = TcpListener::bind(addr)
+        let mut listener = TcpListener::bind(addr)
             .await
             .map_err(NetworkError::TcpListener)?;
         let mut signal: Result<Signal> = Err(Error::ExecutorShutdown);
         while let Some(Ok(stream)) = listener.incoming().next().await {
+            let stream = stream.compat();
             let signal_data = if let Some(data) =
                 capnp_serialize::read_message(stream, CAPNP_BUF_READ_OPTS).await?
             {

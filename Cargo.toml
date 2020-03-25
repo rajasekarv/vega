@@ -13,8 +13,6 @@ name = "native_spark"
 aws_connectors = ["rusoto_core", "rusoto_s3"]
 
 [dependencies]
-# temporal until tokio implements futures::AsyncRead/Write :
-async-std = { version = "1.5.0", features = ["attributes"] } 
 crossbeam = "0.7.3"
 dashmap = "^3.5.1"
 envy = "^0.4.1"
@@ -32,6 +30,7 @@ thiserror = "1.0.13"
 threadpool = "1.7.1"
 toml = "0.5.6"
 tokio = { version = "^0.2", features = ["rt-threaded", "stream", "sync", "time"] }
+tokio-util = { version = "0.3.1", features = ["compat"] }
 uuid = { version = "0.8", features = ["v4"] }
 regex = "1.3.6"
 
@@ -63,6 +62,7 @@ rusoto_s3 = { version = "0.43", optional = true }
 capnpc = "0.12.1"
 
 [dev-dependencies]
+async-std = { version = "1.5.0", features = ["attributes"] } 
 chrono = "0.4.11"
 parquet = "0.15.1"
 tempfile = "3"
