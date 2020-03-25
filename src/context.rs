@@ -2,7 +2,7 @@ use std::fs;
 use std::io::Write;
 use std::net::{Ipv4Addr, SocketAddrV4, TcpStream};
 use std::ops::Range;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::{
     atomic::{AtomicUsize, Ordering},
@@ -80,6 +80,8 @@ pub struct Context {
     scheduler: Schedulers,
     pub(crate) address_map: Vec<SocketAddrV4>,
     distributed_driver: bool,
+    /// the executing job tmp work_dir
+    work_dir: PathBuf,
 }
 
 impl Drop for Context {
@@ -95,6 +97,7 @@ impl Drop for Context {
             }
         }
         self.drop_executors();
+        Context::clean_up_work_dir(&self.work_dir);
     }
 }
 
@@ -117,17 +120,19 @@ impl Context {
     }
 
     fn init_local_scheduler() -> Result<Arc<Self>> {
-        let next_rdd_id = Arc::new(AtomicUsize::new(0));
-        let next_shuffle_id = Arc::new(AtomicUsize::new(0));
-        let uuid = Uuid::new_v4().to_string();
-        initialize_loggers(format!("/tmp/ns-driver-log-{}", uuid));
+        let job_id = Uuid::new_v4().to_string();
+        let job_work_dir: PathBuf = format!("/tmp/ns-job-{}", job_id).into();
+
+        initialize_loggers(job_work_dir.join("ns-driver.log"));
         let scheduler = Schedulers::Local(Arc::new(LocalScheduler::new(20, true)));
+
         Ok(Arc::new(Context {
-            next_rdd_id,
-            next_shuffle_id,
+            next_rdd_id: Arc::new(AtomicUsize::new(0)),
+            next_shuffle_id: Arc::new(AtomicUsize::new(0)),
             scheduler,
             address_map: vec![SocketAddrV4::new(Ipv4Addr::LOCALHOST, 0)],
             distributed_driver: false,
+            work_dir: job_work_dir,
         }))
     }
 
@@ -226,19 +231,21 @@ impl Context {
             ))),
             address_map,
             distributed_driver: true,
+            work_dir: job_work_dir,
         }))
     }
 
     fn init_distributed_worker() -> Result<!> {
+        let mut work_dir = PathBuf::from("");
         match std::env::current_exe().map_err(|_| Error::CurrentBinaryPath) {
             Ok(binary_path) => {
-                let work_dir = match binary_path.parent().ok_or_else(|| Error::CurrentBinaryPath) {
-                    Ok(dir) => dir,
-                    Err(err) => Context::worker_clean_up(Err(err))?,
+                match binary_path.parent().ok_or_else(|| Error::CurrentBinaryPath) {
+                    Ok(dir) => work_dir = dir.into(),
+                    Err(err) => Context::worker_clean_up(Err(err), work_dir)?,
                 };
                 initialize_loggers(work_dir.join("ns-executor.log"));
             }
-            Err(err) => Context::worker_clean_up(Err(err))?,
+            Err(err) => Context::worker_clean_up(Err(err), work_dir)?,
         }
 
         log::debug!("starting worker");
@@ -249,21 +256,52 @@ impl Context {
             .ok_or(Error::GetOrCreateConfig("executor port not set"))
         {
             Ok(port) => port,
-            Err(err) => Context::worker_clean_up(Err(err))?,
+            Err(err) => Context::worker_clean_up(Err(err), work_dir)?,
         };
         let executor = Arc::new(Executor::new(port));
-        Context::worker_clean_up(executor.worker())
+        Context::worker_clean_up(executor.worker(), work_dir)
     }
 
-    fn worker_clean_up(run_result: Result<Signal>) -> Result<!> {
+    fn worker_clean_up(run_result: Result<Signal>, work_dir: PathBuf) -> Result<!> {
         match run_result {
             Err(err) => {
                 log::error!("executor failed with error: {}", err);
+                Context::clean_up_work_dir(&work_dir);
                 std::process::exit(1);
             }
             Ok(value) => {
                 log::info!("executor closed gracefully with signal: {:?}", value);
+                Context::clean_up_work_dir(&work_dir);
                 std::process::exit(0);
+            }
+        }
+    }
+
+    #[allow(unused_must_use)]
+    fn clean_up_work_dir(work_dir: &Path) {
+        if env::Configuration::get().loggin.log_cleanup {
+            // Remove created files.
+            if fs::remove_dir_all(&work_dir).is_err() {
+                log::error!("failed removing tmp work dir")
+            }
+        } else if let Ok(dir) = fs::read_dir(work_dir) {
+            for e in dir {
+                if let Ok(p) = e {
+                    if let Ok(m) = p.metadata() {
+                        if m.is_dir() {
+                            fs::remove_dir_all(p.path());
+                        } else {
+                            let file = p.path();
+                            if let Some(ext) = file.extension() {
+                                if ext.to_str() != "log".into() {
+                                    fs::remove_file(file);
+                                }
+                            } else {
+                                fs::remove_file(file);
+                            }
+                        }
+                    }
+                }
             }
         }
     }
@@ -429,7 +467,7 @@ static LOGGER: OnceCell<()> = OnceCell::new();
 
 fn initialize_loggers<P: Into<PathBuf>>(file_path: P) {
     fn _initializer(file_path: PathBuf) {
-        let log_level = env::Configuration::get().log_level.into();
+        let log_level = env::Configuration::get().loggin.log_level.into();
         log::info!("path for file logger: {}", file_path.display());
         let file_logger: Box<dyn SharedLogger> = WriteLogger::new(
             log_level,

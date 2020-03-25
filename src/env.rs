@@ -111,6 +111,7 @@ struct EnvConfig {
     local_ip: Option<String>,
     local_dir: Option<String>,
     log_level: Option<LogLevel>,
+    log_cleanup: Option<bool>,
     shuffle_service_port: Option<u16>,
     slave_deployment: Option<bool>,
     slave_port: Option<u16>,
@@ -129,15 +130,21 @@ pub(crate) struct Configuration {
     pub local_ip: Ipv4Addr,
     pub local_dir: PathBuf,
     pub deployment_mode: DeploymentMode,
-    pub log_level: LogLevel,
     pub shuffle_svc_port: Option<u16>,
     pub slave: Option<SlaveConfig>,
+    pub loggin: LogConfig,
 }
 
 #[derive(Serialize, Deserialize, Clone)]
 pub(crate) struct SlaveConfig {
     pub deployment: bool,
     pub port: u16,
+}
+
+#[derive(Serialize, Deserialize, Clone)]
+pub(crate) struct LogConfig {
+    pub log_level: LogLevel,
+    pub log_cleanup: bool,
 }
 
 impl From<(bool, u16)> for SlaveConfig {
@@ -156,6 +163,7 @@ impl Default for Configuration {
             return config;
         }
 
+        // get config from env vars:
         let config = envy::prefixed(ENV_VAR_PREFIX)
             .from_env::<EnvConfig>()
             .unwrap();
@@ -171,9 +179,14 @@ impl Default for Configuration {
             std::env::temp_dir()
         };
 
+        // loggin config:
         let log_level = match config.log_level {
             Some(val) => val,
             _ => LogLevel::Info,
+        };
+        let log_cleanup = match config.log_cleanup {
+            Some(cond) => cond,
+            _ => !cfg!(debug_assertions),
         };
         log::debug!("Setting max log level to: {:?}", log_level);
         log::set_max_level(log_level.into());
@@ -188,6 +201,7 @@ impl Default for Configuration {
             }
         };
 
+        // master/slave config:
         let is_master;
         let slave: Option<SlaveConfig>;
         match config.slave_deployment {
@@ -213,7 +227,10 @@ impl Default for Configuration {
             local_ip,
             local_dir,
             deployment_mode,
-            log_level,
+            loggin: LogConfig {
+                log_level,
+                log_cleanup,
+            },
             shuffle_svc_port: config.shuffle_service_port,
             slave,
         }
