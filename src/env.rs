@@ -68,11 +68,11 @@ impl Env {
         let conf = Configuration::get();
         let master_addr = Hosts::get().unwrap().master;
         Env {
-            map_output_tracker: MapOutputTracker::new(conf.is_master, master_addr),
+            map_output_tracker: MapOutputTracker::new(conf.is_driver, master_addr),
             shuffle_manager: ShuffleManager::new().unwrap(),
             shuffle_fetcher: ShuffleFetcher,
             cache_tracker: CacheTracker::new(
-                conf.is_master,
+                conf.is_driver,
                 master_addr,
                 conf.local_ip,
                 &BOUNDED_MEM_CACHE,
@@ -125,7 +125,7 @@ pub enum DeploymentMode {
 
 #[derive(Serialize, Deserialize, Clone)]
 pub(crate) struct Configuration {
-    pub is_master: bool,
+    pub is_driver: bool,
     pub local_ip: Ipv4Addr,
     pub local_dir: PathBuf,
     pub deployment_mode: DeploymentMode,
@@ -209,7 +209,7 @@ impl Default for Configuration {
         }
 
         Configuration {
-            is_master,
+            is_driver: is_master,
             local_ip,
             local_dir,
             deployment_mode,

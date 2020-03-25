@@ -11,7 +11,7 @@ use std::sync::{
 
 use crate::distributed_scheduler::DistributedScheduler;
 use crate::error::{Error, Result};
-use crate::executor::Executor;
+use crate::executor::{Executor, Signal};
 use crate::io::ReaderConfiguration;
 use crate::local_scheduler::LocalScheduler;
 use crate::parallel_collection_rdd::ParallelCollection;
@@ -79,7 +79,7 @@ pub struct Context {
     next_shuffle_id: Arc<AtomicUsize>,
     scheduler: Schedulers,
     pub(crate) address_map: Vec<SocketAddrV4>,
-    distributed_master: bool,
+    distributed_driver: bool,
 }
 
 impl Drop for Context {
@@ -88,7 +88,7 @@ impl Drop for Context {
         #[cfg(debug_assertions)]
         {
             let deployment_mode = env::Configuration::get().deployment_mode;
-            if self.distributed_master && deployment_mode == env::DeploymentMode::Distributed {
+            if self.distributed_driver && deployment_mode == env::DeploymentMode::Distributed {
                 log::info!("inside context drop in master");
             } else if deployment_mode == env::DeploymentMode::Distributed {
                 log::info!("inside context drop in executor");
@@ -103,12 +103,11 @@ impl Context {
         Context::with_mode(env::Configuration::get().deployment_mode)
     }
 
-    // Sends the binary to all nodes present in hosts.conf and starts them
     pub fn with_mode(mode: env::DeploymentMode) -> Result<Arc<Self>> {
         match mode {
             env::DeploymentMode::Distributed => {
-                if env::Configuration::get().is_master {
-                    Context::init_distributed_master()
+                if env::Configuration::get().is_driver {
+                    Context::init_distributed_driver()
                 } else {
                     Context::init_distributed_worker()?
                 }
@@ -121,25 +120,31 @@ impl Context {
         let next_rdd_id = Arc::new(AtomicUsize::new(0));
         let next_shuffle_id = Arc::new(AtomicUsize::new(0));
         let uuid = Uuid::new_v4().to_string();
-        initialize_loggers(format!("/tmp/master-{}", uuid));
+        initialize_loggers(format!("/tmp/ns-driver-log-{}", uuid));
         let scheduler = Schedulers::Local(Arc::new(LocalScheduler::new(20, true)));
         Ok(Arc::new(Context {
             next_rdd_id,
             next_shuffle_id,
             scheduler,
             address_map: vec![SocketAddrV4::new(Ipv4Addr::LOCALHOST, 0)],
-            distributed_master: false,
+            distributed_driver: false,
         }))
     }
 
-    fn init_distributed_master() -> Result<Arc<Self>> {
-        let next_rdd_id = Arc::new(AtomicUsize::new(0));
-        let next_shuffle_id = Arc::new(AtomicUsize::new(0));
+    /// Initialization function for the application driver.
+    /// * Distributes the configuration setup to the workers.
+    /// * Distributes a copy of the application binary to all the active worker host nodes.
+    /// * Launches the workers in the remote machine using the same binary (required).
+    /// * Creates and returns a working Context.
+    fn init_distributed_driver() -> Result<Arc<Self>> {
         let mut port: u16 = 10000;
         let mut address_map = Vec::new();
-        let uuid = Uuid::new_v4().to_string();
+        let job_id = Uuid::new_v4().to_string();
+        let job_work_dir: PathBuf = format!("/tmp/ns-job-{}", job_id).into();
+        let job_work_dir_str = job_work_dir
+            .to_str()
+            .ok_or_else(|| Error::PathToString(job_work_dir.clone()))?;
 
-        initialize_loggers(format!("/tmp/master-{}", uuid));
         let binary_path = std::env::current_exe().map_err(|_| Error::CurrentBinaryPath)?;
         let binary_path_str = binary_path
             .to_str()
@@ -152,10 +157,10 @@ impl Context {
             .into_string()
             .map_err(Error::OsStringToString)?;
 
-        let tmp_work_dir: PathBuf = format!("/tmp/ns-workdir-{}", Uuid::new_v4()).into();
-        fs::create_dir_all(&tmp_work_dir).unwrap();
-        let conf_path = tmp_work_dir.join("config.toml");
+        fs::create_dir_all(&job_work_dir).unwrap();
+        let conf_path = job_work_dir.join("config.toml");
         let conf_path = conf_path.to_str().unwrap();
+        initialize_loggers(job_work_dir.join("ns-driver.log"));
 
         for address in &hosts::Hosts::get()?.slaves {
             log::debug!("deploying executor at address {:?}", address);
@@ -166,14 +171,10 @@ impl Context {
                 .parse()
                 .map_err(|x| Error::ParseHostAddress(format!("{}", x)))?;
             address_map.push(SocketAddrV4::new(address_ip, port));
-            let local_dir_root = "/tmp";
-            let uuid = Uuid::new_v4();
-            let local_dir_uuid = uuid.to_string();
-            let local_dir = format!("{}/spark-binary-{}", local_dir_root, local_dir_uuid);
 
             // Create work dir:
             Command::new("ssh")
-                .args(&[address, "mkdir", &local_dir.clone()])
+                .args(&[address, "mkdir", &job_work_dir_str])
                 .output()
                 .map_err(|e| Error::CommandOutput {
                     source: e,
@@ -182,7 +183,7 @@ impl Context {
 
             // Copy conf file to remote:
             Context::create_workers_config_file(address_ip, port, conf_path)?;
-            let remote_path = format!("{}:{}/config.toml", address, local_dir);
+            let remote_path = format!("{}:{}/config.toml", address, job_work_dir_str);
             Command::new("scp")
                 .args(&[conf_path, &remote_path])
                 .output()
@@ -192,7 +193,7 @@ impl Context {
                 })?;
 
             // Copy binary:
-            let remote_path = format!("{}:{}/{}", address, local_dir, binary_name);
+            let remote_path = format!("{}:{}/{}", address, job_work_dir_str, binary_name);
             Command::new("scp")
                 .args(&[&binary_path_str, &remote_path])
                 .output()
@@ -200,10 +201,10 @@ impl Context {
                     source: e,
                     command: "scp executor".into(),
                 })?;
-            let path = format!("{}/{}", local_dir, binary_name);
-            log::debug!("remote path {}", path);
 
             // Deploy a remote slave:
+            let path = format!("{}/{}", job_work_dir_str, binary_name);
+            log::debug!("remote path {}", path);
             Command::new("ssh")
                 .args(&[address, &path])
                 .spawn()
@@ -215,8 +216,8 @@ impl Context {
         }
 
         Ok(Arc::new(Context {
-            next_rdd_id,
-            next_shuffle_id,
+            next_rdd_id: Arc::new(AtomicUsize::new(0)),
+            next_shuffle_id: Arc::new(AtomicUsize::new(0)),
             scheduler: Schedulers::Distributed(Arc::new(DistributedScheduler::new(
                 20,
                 true,
@@ -224,31 +225,44 @@ impl Context {
                 10000,
             ))),
             address_map,
-            distributed_master: true,
+            distributed_driver: true,
         }))
     }
 
     fn init_distributed_worker() -> Result<!> {
-        let uuid = Uuid::new_v4().to_string();
-        initialize_loggers(format!("/tmp/executor-{}", uuid));
+        match std::env::current_exe().map_err(|_| Error::CurrentBinaryPath) {
+            Ok(binary_path) => {
+                let work_dir = match binary_path.parent().ok_or_else(|| Error::CurrentBinaryPath) {
+                    Ok(dir) => dir,
+                    Err(err) => Context::worker_clean_up(Err(err))?,
+                };
+                initialize_loggers(work_dir.join("ns-executor.log"));
+            }
+            Err(err) => Context::worker_clean_up(Err(err))?,
+        }
+
         log::debug!("starting worker");
-        let port = env::Configuration::get()
+        let port = match env::Configuration::get()
             .slave
             .as_ref()
             .map(|c| c.port)
-            .ok_or(Error::GetOrCreateConfig("executor port not set"))?;
+            .ok_or(Error::GetOrCreateConfig("executor port not set"))
+        {
+            Ok(port) => port,
+            Err(err) => Context::worker_clean_up(Err(err))?,
+        };
         let executor = Arc::new(Executor::new(port));
-        match executor.worker() {
+        Context::worker_clean_up(executor.worker())
+    }
+
+    fn worker_clean_up(run_result: Result<Signal>) -> Result<!> {
+        match run_result {
             Err(err) => {
-                log::error!("executor @{} failed with error: {}", port, err);
+                log::error!("executor failed with error: {}", err);
                 std::process::exit(1);
             }
             Ok(value) => {
-                log::info!(
-                    "executor @{} closed gracefully with signal: {:?}",
-                    port,
-                    value
-                );
+                log::info!("executor closed gracefully with signal: {:?}", value);
                 std::process::exit(0);
             }
         }
@@ -258,7 +272,7 @@ impl Context {
         let mut current_config = env::Configuration::get().clone();
         current_config.local_ip = local_ip;
         current_config.slave = Some(std::convert::From::<(bool, u16)>::from((true, port)));
-        current_config.is_master = false;
+        current_config.is_driver = false;
 
         let config_string = toml::to_string_pretty(&current_config).unwrap();
         let mut config_file = fs::File::create(config_path).unwrap();
@@ -267,7 +281,6 @@ impl Context {
     }
 
     fn drop_executors(&self) {
-        use crate::executor::Signal;
         for socket_addr in self.address_map.clone() {
             log::debug!(
                 "dropping executor in {:?}:{:?}",
@@ -310,8 +323,6 @@ impl Context {
         self.next_shuffle_id.fetch_add(1, Ordering::SeqCst)
     }
 
-    // TODO change this to accept any iterator
-    // currently it accepts only vector.
     pub fn make_rdd<T: Data, I>(
         self: &Arc<Self>,
         seq: I,
@@ -416,10 +427,10 @@ impl Context {
 
 static LOGGER: OnceCell<()> = OnceCell::new();
 
-fn initialize_loggers(file_path: String) {
-    fn _initializer(file_path: String) {
+fn initialize_loggers<P: Into<PathBuf>>(file_path: P) {
+    fn _initializer(file_path: PathBuf) {
         let log_level = env::Configuration::get().log_level.into();
-        log::info!("path for file logger: {}", file_path);
+        log::info!("path for file logger: {}", file_path.display());
         let file_logger: Box<dyn SharedLogger> = WriteLogger::new(
             log_level,
             Config::default(),
@@ -435,5 +446,5 @@ fn initialize_loggers(file_path: String) {
         CombinedLogger::init(combined).unwrap();
     }
 
-    LOGGER.get_or_init(move || _initializer(file_path));
+    LOGGER.get_or_init(move || _initializer(file_path.into()));
 }

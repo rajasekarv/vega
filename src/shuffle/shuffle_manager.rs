@@ -181,9 +181,7 @@ impl ShuffleManager {
     fn get_local_work_dir() -> Result<PathBuf> {
         let local_dir_root = &env::Configuration::get().local_dir;
         for _ in 0..10 {
-            let uuid = Uuid::new_v4();
-            let local_dir_uuid = uuid.to_string();
-            let local_dir = local_dir_root.join(format!("spark-local-{}", local_dir_uuid));
+            let local_dir = local_dir_root.join(format!("ns-local-{}", Uuid::new_v4().to_string()));
             if !local_dir.exists() {
                 log::debug!("creating directory at path: {:?}", &local_dir);
                 fs::create_dir_all(&local_dir)
