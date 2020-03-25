@@ -41,19 +41,6 @@ fn get_dynamic_port() -> u16 {
     FIRST_DYNAMIC_PORT + rand::thread_rng().gen_range(0, LAST_DYNAMIC_PORT - FIRST_DYNAMIC_PORT)
 }
 
-/// Get an incoming IPC size in the system word size
-pub(crate) async fn get_message_size<R: tokio::io::AsyncReadExt + Unpin>(
-    receiver: &mut R,
-) -> error::Result<usize> {
-    let mut msg_size = [0u8; 8];
-    receiver
-        .read_exact(&mut msg_size)
-        .await
-        .map_err(error::Error::InputRead)?;
-    let msg_size_word = u64::from_le_bytes(msg_size);
-    Ok(msg_size_word as usize)
-}
-
 #[test]
 #[cfg(test)]
 fn test_randomize_in_place() {

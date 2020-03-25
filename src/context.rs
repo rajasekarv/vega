@@ -22,7 +22,6 @@ use crate::serializable_traits::{Data, SerFunc};
 use crate::serialized_data_capnp::serialized_data;
 use crate::task::TaskContext;
 use crate::{env, hosts};
-use capnp::serialize_packed;
 use log::error;
 use once_cell::sync::OnceCell;
 use simplelog::*;
@@ -328,21 +327,13 @@ impl Context {
             if let Ok(mut stream) =
                 TcpStream::connect(format!("{}:{}", socket_addr.ip(), socket_addr.port() + 10))
             {
-                let buf = {
-                    let signal = bincode::serialize(&Signal::ShutDownGracefully).unwrap();
-                    let mut message = ::capnp::message::Builder::new_default();
-                    let mut task_data = message.init_root::<serialized_data::Builder>();
-                    task_data.set_msg(&signal);
-                    let mut buf = Vec::with_capacity(signal.len() + 64);
-                    serialize_packed::write_message(&mut buf, &message).unwrap();
-                    buf
-                };
-                let msg_size = u64::to_le_bytes(buf.len() as u64);
-                stream
-                    .write_all(&msg_size)
+                let signal = bincode::serialize(&Signal::ShutDownGracefully).unwrap();
+                let mut message = capnp::message::Builder::new_default();
+                let mut task_data = message.init_root::<serialized_data::Builder>();
+                task_data.set_msg(&signal);
+                capnp::serialize::write_message(&mut stream, &message)
                     .map_err(Error::InputRead)
                     .unwrap();
-                stream.write_all(&buf).map_err(Error::InputRead).unwrap();
             } else {
                 error!(
                     "Failed to connect to {}:{} in order to stop its executor",

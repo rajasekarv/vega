@@ -24,13 +24,11 @@ use crate::shuffle::ShuffleMapTask;
 use crate::stage::Stage;
 use crate::task::{TaskBase, TaskContext, TaskOption, TaskResult};
 use crate::utils;
-use capnp::{message::ReaderOptions, serialize_packed};
+use async_std::net::TcpStream;
+use capnp::message::ReaderOptions;
+use capnp_futures::serialize as capnp_serialize;
 use dashmap::DashMap;
 use parking_lot::Mutex;
-use tokio::{
-    io::{AsyncReadExt, AsyncWriteExt},
-    net::{tcp::ReadHalf, TcpStream},
-};
 
 const CAPNP_BUF_READ_OPTS: ReaderOptions = ReaderOptions {
     traversal_limit_in_words: std::u64::MAX,
@@ -250,34 +248,18 @@ impl DistributedScheduler {
 
     async fn receive_results<T: Data, U: Data, F>(
         event_queues: Arc<DashMap<usize, VecDeque<CompletionEvent>>>,
-        mut receiver: ReadHalf<'_>,
+        receiver: &TcpStream,
         task: TaskOption,
         target_port: u16,
     ) where
         F: SerFunc((TaskContext, Box<dyn Iterator<Item = T>>)) -> U,
     {
-        let msg_size = utils::get_message_size(&mut receiver).await.unwrap();
-        log::debug!("receiving task result of {} bytes", msg_size);
-        let mut buf: Vec<u8> = vec![0; msg_size];
-
         let result: TaskResult = {
-            receiver
-                .read_exact(&mut buf)
+            let message = capnp_futures::serialize::read_message(receiver, CAPNP_BUF_READ_OPTS)
                 .await
-                .map_err(Error::InputRead)
+                .unwrap()
                 .unwrap();
-            log::debug!(
-                "finished reading response {} bytes from exec @{}",
-                buf.len(),
-                target_port
-            );
-
-            let mut stream_r = std::io::BufReader::new(&*buf);
-            let message_reader =
-                serialize_packed::read_message(&mut stream_r, CAPNP_BUF_READ_OPTS).unwrap();
-            let task_data = message_reader
-                .get_root::<serialized_data::Reader>()
-                .unwrap();
+            let task_data = message.get_root::<serialized_data::Reader>().unwrap();
             log::debug!(
                 "received task #{} result of {} bytes from executor @{}",
                 task.get_task_id(),
@@ -335,7 +317,7 @@ impl NativeScheduler for DistributedScheduler {
     {
         if !self.master {
             return;
-        };
+        }
         log::debug!("inside submit task");
         let event_queues_clone = self.event_queues.clone();
         futures::executor::block_on(async move {
@@ -343,55 +325,32 @@ impl NativeScheduler for DistributedScheduler {
             loop {
                 match TcpStream::connect(&target_executor).await {
                     Ok(mut stream) => {
-                        tokio::spawn(async move {
-                            let (receiver, mut writter) = stream.split();
-                            let task_bytes = bincode::serialize(&task).unwrap();
-                            log::debug!(
-                                "sending task #{} of {} bytes to exec @{},",
-                                task.get_task_id(),
-                                task_bytes.len(),
-                                target_executor.port(),
-                            );
+                        let task_bytes = bincode::serialize(&task).unwrap();
+                        log::debug!(
+                            "sending task #{} of {} bytes to exec @{},",
+                            task.get_task_id(),
+                            task_bytes.len(),
+                            target_executor.port(),
+                        );
 
-                            let buf = {
-                                let mut buf = Vec::with_capacity(task_bytes.len() + 64);
-                                let mut message = capnp::message::Builder::new_default();
-                                let mut task_data = message.init_root::<serialized_data::Builder>();
-                                task_data.set_msg(&task_bytes);
-                                serialize_packed::write_message(&mut buf, &message).unwrap();
-                                buf
-                            };
-                            log::debug!(
-                                "total task #{} size after packaging {}",
-                                task.get_task_id(),
-                                buf.len()
-                            );
+                        let mut message = capnp::message::Builder::new_default();
+                        let mut task_data = message.init_root::<serialized_data::Builder>();
+                        task_data.set_msg(&task_bytes);
+                        capnp_serialize::write_message(&mut stream, &message)
+                            .await
+                            .map_err(Error::CapnpDeserialization)
+                            .unwrap();
 
-                            // send incoming message size to executor
-                            let msg_size = u64::to_le_bytes(buf.len() as u64);
-                            writter
-                                .write_all(&msg_size)
-                                .await
-                                .map_err(Error::OutputWrite)
-                                .unwrap();
+                        log::debug!("sent data to exec @{}", target_executor.port());
 
-                            // send the actual message:
-                            writter
-                                .write_all(&*buf)
-                                .await
-                                .map_err(Error::OutputWrite)
-                                .unwrap();
-                            log::debug!("sent data to exec @{}", target_executor.port());
-
-                            // receive results back
-                            DistributedScheduler::receive_results::<T, U, F>(
-                                event_queues_clone,
-                                receiver,
-                                task,
-                                target_executor.port(),
-                            )
-                            .await;
-                        });
+                        // receive results back
+                        DistributedScheduler::receive_results::<T, U, F>(
+                            event_queues_clone,
+                            &stream,
+                            task,
+                            target_executor.port(),
+                        )
+                        .await;
                         break;
                     }
                     Err(_) => {

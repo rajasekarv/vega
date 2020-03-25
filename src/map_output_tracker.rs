@@ -59,12 +59,12 @@ impl MapOutputTracker {
         }
         let mut stream = TcpStream::connect(self.master_addr).unwrap();
         let shuffle_id_bytes = bincode::serialize(&shuffle_id).unwrap();
-        let mut message = ::capnp::message::Builder::new_default();
+        let mut message = capnp::message::Builder::new_default();
         let mut shuffle_data = message.init_root::<serialized_data::Builder>();
         shuffle_data.set_msg(&shuffle_id_bytes);
         serialize_packed::write_message(&mut stream, &message).unwrap();
 
-        let r = ::capnp::message::ReaderOptions {
+        let r = capnp::message::ReaderOptions {
             traversal_limit_in_words: std::u64::MAX,
             nesting_limit: 64,
         };
@@ -106,7 +106,7 @@ impl MapOutputTracker {
                             let server_uris_clone = server_uris.clone();
                             thread::spawn(move || {
                                 //reading
-                                let r = ::capnp::message::ReaderOptions {
+                                let r = capnp::message::ReaderOptions {
                                     traversal_limit_in_words: std::u64::MAX,
                                     nesting_limit: 64,
                                 };
@@ -143,7 +143,7 @@ impl MapOutputTracker {
 
                                 //writing
                                 let result = bincode::serialize(&locs).unwrap();
-                                let mut message = ::capnp::message::Builder::new_default();
+                                let mut message = capnp::message::Builder::new_default();
                                 let mut locs_data = message.init_root::<serialized_data::Builder>();
                                 locs_data.set_msg(&result);
                                 serialize_packed::write_message(&mut stream, &message).unwrap();
