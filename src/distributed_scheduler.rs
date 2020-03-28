@@ -17,7 +17,7 @@ use crate::local_scheduler::LocalScheduler;
 use crate::map_output_tracker::MapOutputTracker;
 use crate::rdd::{Rdd, RddBase};
 use crate::result_task::ResultTask;
-use crate::scheduler::NativeScheduler;
+use crate::scheduler::{EventQueue, NativeScheduler};
 use crate::serializable_traits::{Data, SerFunc};
 use crate::serialized_data_capnp::serialized_data;
 use crate::shuffle::ShuffleMapTask;
@@ -43,7 +43,7 @@ pub struct DistributedScheduler {
     attempt_id: Arc<AtomicUsize>,
     resubmit_timeout: u128,
     poll_timeout: u64,
-    event_queues: Arc<DashMap<usize, VecDeque<CompletionEvent>>>,
+    event_queues: EventQueue,
     next_job_id: Arc<AtomicUsize>,
     next_run_id: Arc<AtomicUsize>,
     next_task_id: Arc<AtomicUsize>,
@@ -317,7 +317,7 @@ impl NativeScheduler for DistributedScheduler {
     ) where
         F: SerFunc((TaskContext, Box<dyn Iterator<Item = T>>)) -> U,
     {
-        if !self.master {
+        if !env::Configuration::get().is_driver {
             return;
         }
         log::debug!("inside submit task");

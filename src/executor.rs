@@ -16,6 +16,7 @@ use tokio::{
     net::TcpListener,
     stream::StreamExt,
     sync::oneshot::{channel, Receiver, Sender},
+    task::{spawn, spawn_blocking},
 };
 use tokio_util::compat::{Tokio02AsyncReadCompatExt, Tokio02AsyncWriteCompatExt};
 
@@ -44,7 +45,7 @@ impl Executor {
             futures::executor::block_on(async move {
                 let (send_child, rcv_main) = channel::<Signal>();
                 let process_err = Arc::clone(&self).process_stream(rcv_main);
-                let handler_err = tokio::spawn(Arc::clone(&self).signal_handler(send_child));
+                let handler_err = spawn(Arc::clone(&self).signal_handler(send_child));
                 tokio::select! {
                     err = process_err => err,
                     err = handler_err => err?,
@@ -74,7 +75,6 @@ impl Executor {
                 }
                 _ => {}
             }
-            let self_clone = Arc::clone(&self);
             log::debug!("received new task @{} executor", self.port);
             log::debug!("inside executor tp running task");
             let message = {
@@ -88,9 +88,13 @@ impl Executor {
                     }
                 };
 
-                let des_task = self_clone.deserialize_task(message_reader)?;
-                self_clone.run_task(des_task)
-            }?;
+                let self_clone = Arc::clone(&self);
+                spawn_blocking(move || -> Result<_> {
+                    let des_task = self_clone.deserialize_task(message_reader)?;
+                    self_clone.run_task(des_task)
+                })
+                .await??
+            };
             capnp_serialize::write_message(&mut writer, &message)
                 .await
                 .map_err(Error::CapnpDeserialization)?;
@@ -293,8 +297,8 @@ mod tests {
         let port = executor.port;
         let (send_exec, client_rcv) = unbounded::<ComputeResult>();
 
-        let test_fut = tokio::task::spawn_blocking(move || test_func(client_rcv, port));
-        let worker_fut = tokio::task::spawn_blocking(move || executor.worker());
+        let test_fut = spawn_blocking(move || test_func(client_rcv, port));
+        let worker_fut = spawn_blocking(move || executor.worker());
         let (test_res, worker_res) = tokio::join!(test_fut, worker_fut);
         checker_func(send_exec, worker_res?)?;
         test_res?

@@ -34,6 +34,8 @@ pub trait Scheduler {
     fn default_parallelism(&self) -> i64;
 }
 
+pub(crate) type EventQueue = Arc<DashMap<usize, VecDeque<CompletionEvent>>>;
+
 /// Functionality by the library built-in schedulers
 pub(crate) trait NativeScheduler {
     /// Fast path for execution. Runs the DD in the driver main thread if possible.
@@ -393,7 +395,7 @@ pub(crate) trait NativeScheduler {
                     TaskOption::ResultTask(Box::new(result_task)),
                     id_in_job,
                     executor,
-                );
+                )
             }
         } else {
             for p in 0..stage.num_partitions {

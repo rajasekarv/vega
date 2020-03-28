@@ -17,7 +17,7 @@ use crate::job::{Job, JobTracker};
 use crate::map_output_tracker::MapOutputTracker;
 use crate::rdd::{Rdd, RddBase};
 use crate::result_task::ResultTask;
-use crate::scheduler::NativeScheduler;
+use crate::scheduler::{EventQueue, NativeScheduler};
 use crate::serializable_traits::{Data, SerFunc};
 use crate::shuffle::ShuffleMapTask;
 use crate::stage::Stage;
@@ -32,7 +32,7 @@ pub struct LocalScheduler {
     attempt_id: Arc<AtomicUsize>,
     resubmit_timeout: u128,
     poll_timeout: u64,
-    event_queues: Arc<DashMap<usize, VecDeque<CompletionEvent>>>,
+    event_queues: EventQueue,
     pub(crate) next_job_id: Arc<AtomicUsize>,
     next_run_id: Arc<AtomicUsize>,
     next_task_id: Arc<AtomicUsize>,

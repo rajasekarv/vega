@@ -27,8 +27,8 @@ use once_cell::sync::OnceCell;
 use simplelog::*;
 use uuid::Uuid;
 
-// there is a problem with this approach since T needs to satisfy PartialEq, Eq for Range
-// No such restrictions are needed for Vec
+// There is a problem with this approach since T needs to satisfy PartialEq, Eq for Range.
+// No such restrictions are needed for Vec.
 pub enum Sequence<T> {
     Range(Range<T>),
     Vec(Vec<T>),
@@ -42,7 +42,6 @@ enum Schedulers {
 
 impl Default for Schedulers {
     fn default() -> Schedulers {
-        //        let map_output_tracker = MapOutputTracker::new(true, "".to_string(), 0);
         Schedulers::Local(Arc::new(LocalScheduler::new(20, true)))
     }
 }
@@ -120,7 +119,10 @@ impl Context {
 
     fn init_local_scheduler() -> Result<Arc<Self>> {
         let job_id = Uuid::new_v4().to_string();
-        let job_work_dir: PathBuf = format!("/tmp/ns-job-{}", job_id).into();
+        let job_work_dir = env::Configuration::get()
+            .local_dir
+            .join(format!("ns-job-{}", job_id));
+        fs::create_dir_all(&job_work_dir).unwrap();
 
         initialize_loggers(job_work_dir.join("ns-driver.log"));
         let scheduler = Schedulers::Local(Arc::new(LocalScheduler::new(20, true)));
@@ -144,7 +146,9 @@ impl Context {
         let mut port: u16 = 10000;
         let mut address_map = Vec::new();
         let job_id = Uuid::new_v4().to_string();
-        let job_work_dir: PathBuf = format!("/tmp/ns-job-{}", job_id).into();
+        let job_work_dir = env::Configuration::get()
+            .local_dir
+            .join(format!("ns-job-{}", job_id));
         let job_work_dir_str = job_work_dir
             .to_str()
             .ok_or_else(|| Error::PathToString(job_work_dir.clone()))?;
@@ -281,7 +285,7 @@ impl Context {
         if env::Configuration::get().loggin.log_cleanup {
             // Remove created files.
             if fs::remove_dir_all(&work_dir).is_err() {
-                log::error!("failed removing tmp work dir")
+                log::error!("failed removing tmp work dir: {}", work_dir.display());
             }
         } else if let Ok(dir) = fs::read_dir(work_dir) {
             for e in dir {
@@ -318,6 +322,10 @@ impl Context {
     }
 
     fn drop_executors(&self) {
+        if env::Configuration::get().deployment_mode.is_local() {
+            return;
+        }
+
         for socket_addr in self.address_map.clone() {
             log::debug!(
                 "dropping executor in {:?}:{:?}",

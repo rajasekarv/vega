@@ -124,6 +124,16 @@ pub enum DeploymentMode {
     Local,
 }
 
+impl DeploymentMode {
+    pub fn is_local(self) -> bool {
+        if let DeploymentMode::Local = self {
+            true
+        } else {
+            false
+        }
+    }
+}
+
 #[derive(Serialize, Deserialize, Clone)]
 pub(crate) struct Configuration {
     pub is_driver: bool,
