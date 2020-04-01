@@ -195,14 +195,12 @@ impl MapOutputTracker {
             shuffle_id,
             self.server_uris
         );
+
         if self
             .server_uris
             .get(&shuffle_id)
-            .unwrap()
-            .iter()
-            .filter(|x| !x.is_none())
-            .map(|x| x.clone().unwrap())
-            .next()
+            .map(|some| some.iter().filter_map(|x| x.clone()).next())
+            .flatten()
             .is_none()
         {
             if self.fetching.read().contains(&shuffle_id) {
