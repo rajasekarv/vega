@@ -93,7 +93,7 @@ impl DistributedScheduler {
             shuffle_to_map_stage: Arc::new(DashMap::new()),
             cache_locs: Arc::new(DashMap::new()),
             master,
-            framework_name: "spark".to_string(),
+            framework_name: "native_spark".to_string(),
             is_registered: true, //TODO check if it is necessary
             active_jobs: HashMap::new(),
             active_job_queue: Vec::new(),
@@ -171,7 +171,7 @@ impl DistributedScheduler {
             self_borrow.submit_stage(jt.final_stage.clone(), jt.clone());
             utils::yield_tokio_futures();
             log::debug!(
-                "pending stages and tasks {:?}",
+                "pending stages and tasks: {:?}",
                 jt.pending_tasks
                     .lock()
                     .iter()
@@ -192,7 +192,7 @@ impl DistributedScheduler {
                         .unwrap()
                         .clone();
                     log::debug!(
-                        "removing stage task from pending tasks {} {}",
+                        "removing stage #{} task from pending task #{}",
                         stage.id,
                         evt.task.get_task_id()
                     );

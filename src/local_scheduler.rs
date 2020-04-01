@@ -122,7 +122,7 @@ impl LocalScheduler {
             self_borrow.submit_stage(jt.final_stage.clone(), jt.clone());
             utils::yield_tokio_futures();
             log::debug!(
-                "pending stages and tasks {:?}",
+                "pending stages and tasks: {:?}",
                 jt.pending_tasks
                     .lock()
                     .iter()
@@ -143,7 +143,7 @@ impl LocalScheduler {
                         .unwrap()
                         .clone();
                     log::debug!(
-                        "removing stage task from pending tasks {} {}",
+                        "removing stage #{} task from pending task #{}",
                         stage.id,
                         evt.task.get_task_id()
                     );

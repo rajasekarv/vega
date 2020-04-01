@@ -92,6 +92,16 @@ pub(crate) enum LogLevel {
     Info,
 }
 
+impl LogLevel {
+    pub fn is_debug_or_lower(self) -> bool {
+        use LogLevel::*;
+        match self {
+            Debug | Trace => true,
+            _ => false,
+        }
+    }
+}
+
 impl Into<LevelFilter> for LogLevel {
     fn into(self) -> LevelFilter {
         match self {

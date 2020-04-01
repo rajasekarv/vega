@@ -230,7 +230,13 @@ impl ShuffleService {
             }
             Ok(parts) => parts,
         };
-        if let Some(cached_data) = env::SHUFFLE_CACHE.get(&(parts[0], parts[1], parts[2])) {
+        let params = &(parts[0], parts[1], parts[2]);
+        if let Some(cached_data) = env::SHUFFLE_CACHE.get(params) {
+            log::debug!(
+                "got a request @ `{}`, params: {:?}, returning data",
+                uri,
+                params
+            );
             Ok(Vec::from(&cached_data[..]))
         } else {
             Err(ShuffleError::RequestedCacheNotFound)

@@ -76,7 +76,6 @@ impl Executor {
                 _ => {}
             }
             log::debug!("received new task @{} executor", self.port);
-            log::debug!("inside executor tp running task");
             let message = {
                 let message_reader = {
                     if let Some(data) =
@@ -108,15 +107,16 @@ impl Executor {
         self: &Arc<Self>,
         message_reader: CpnpReader<OwnedSegments>,
     ) -> Result<TaskOption> {
+        let start = Instant::now();
         let task_data = message_reader
             .get_root::<serialized_data::Reader>()
             .unwrap();
         log::debug!(
-            "deserialized task @{} executor with {} bytes",
+            "deserialized data task @{} executor with {} bytes, took {}ms",
             self.port,
-            task_data.get_msg().unwrap().len()
+            task_data.get_msg().unwrap().len(),
+            start.elapsed().as_millis()
         );
-        let start = Instant::now();
         // let local_dir_root = "/tmp";
         // let uuid = Uuid::new_v4();
         // let local_dir_uuid = uuid.to_string();
@@ -142,9 +142,10 @@ impl Executor {
         // let mut f = fs::File::open(task_dir_path).unwrap();
         // let mut buffer = vec![0; msg.len()];
         // f.read(&mut buffer).unwrap();
+        let start = Instant::now();
         let des_task: TaskOption = bincode::deserialize(&msg)?;
         log::debug!(
-            "deserialized task at executor @{} with id {}, deserialization took {}ms",
+            "deserialized task at executor @{} with id #{}, deserialization, took {}ms",
             self.port,
             des_task.get_task_id(),
             start.elapsed().as_millis(),
@@ -168,7 +169,7 @@ impl Executor {
             let start = Instant::now();
             let result = bincode::serialize(&result)?;
             log::debug!(
-                "time taken @{} executor serializing task #{} result of size {}: {}ms",
+                "time taken @{} executor serializing task #{} result of size {} bytes: {}ms",
                 self.port,
                 des_task.get_task_id(),
                 result.len(),

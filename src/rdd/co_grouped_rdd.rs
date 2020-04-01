@@ -213,10 +213,10 @@ impl<K: Data + Eq + Hash> Rdd for CoGroupedRdd<K> {
             for (dep_num, dep) in split.clone().deps.into_iter().enumerate() {
                 match dep {
                     CoGroupSplitDep::NarrowCoGroupSplitDep { rdd, split } => {
-                        log::debug!("inside iterator cogrouprdd  narrow dep");
+                        log::debug!("inside iterator CoGroupedRdd narrow dep");
                         for i in rdd.iterator_any(split)? {
                             log::debug!(
-                                "inside iterator cogrouprdd  narrow dep iterator any {:?}",
+                                "inside iterator CoGroupedRdd narrow dep iterator any: {:?}",
                                 i
                             );
                             let b = i
@@ -231,7 +231,7 @@ impl<K: Data + Eq + Hash> Rdd for CoGroupedRdd<K> {
                         }
                     }
                     CoGroupSplitDep::ShuffleCoGroupSplitDep { shuffle_id } => {
-                        log::debug!("inside iterator cogrouprdd  shuffle dep agg {:?}", agg);
+                        log::debug!("inside iterator CoGroupedRdd shuffle dep, agg: {:?}", agg);
                         let num_rdds = self.rdds.len();
                         let agg_clone = agg.clone();
                         let merge_pair = move |(k, c): (K, Vec<Box<dyn AnyData>>)| {

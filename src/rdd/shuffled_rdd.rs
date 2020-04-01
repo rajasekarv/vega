@@ -93,7 +93,7 @@ impl<K: Data + Eq + Hash, V: Data, C: Data> RddBase for ShuffledRdd<K, V, C> {
     }
 
     fn get_context(&self) -> Arc<Context> {
-        self.vals.context.upgrade().unwrap().clone()
+        self.vals.context.upgrade().unwrap()
     }
 
     fn get_dependencies(&self) -> Vec<Dependency> {
