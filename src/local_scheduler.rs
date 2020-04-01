@@ -7,7 +7,6 @@ use std::sync::{
     atomic::{AtomicUsize, Ordering},
     Arc,
 };
-use std::thread;
 use std::time::{Duration, Instant};
 
 use crate::dag_scheduler::{CompletionEvent, TastEndReason};
@@ -18,7 +17,7 @@ use crate::job::{Job, JobTracker};
 use crate::map_output_tracker::MapOutputTracker;
 use crate::rdd::{Rdd, RddBase};
 use crate::result_task::ResultTask;
-use crate::scheduler::NativeScheduler;
+use crate::scheduler::{EventQueue, NativeScheduler};
 use crate::serializable_traits::{Data, SerFunc};
 use crate::shuffle::ShuffleMapTask;
 use crate::stage::Stage;
@@ -33,7 +32,7 @@ pub struct LocalScheduler {
     attempt_id: Arc<AtomicUsize>,
     resubmit_timeout: u128,
     poll_timeout: u64,
-    event_queues: Arc<DashMap<usize, VecDeque<CompletionEvent>>>,
+    event_queues: EventQueue,
     pub(crate) next_job_id: Arc<AtomicUsize>,
     next_run_id: Arc<AtomicUsize>,
     next_task_id: Arc<AtomicUsize>,
@@ -123,7 +122,7 @@ impl LocalScheduler {
             self_borrow.submit_stage(jt.final_stage.clone(), jt.clone());
             utils::yield_tokio_futures();
             log::debug!(
-                "pending stages and tasks {:?}",
+                "pending stages and tasks: {:?}",
                 jt.pending_tasks
                     .lock()
                     .iter()
@@ -144,7 +143,7 @@ impl LocalScheduler {
                         .unwrap()
                         .clone();
                     log::debug!(
-                        "removing stage task from pending tasks {} {}",
+                        "removing stage #{} task from pending task #{}",
                         stage.id,
                         evt.task.get_task_id()
                     );

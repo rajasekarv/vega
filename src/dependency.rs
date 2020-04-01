@@ -162,21 +162,21 @@ impl<K: Data + Eq + Hash, V: Data, C: Data> ShuffleDependencyTrait for ShuffleDe
     }
 
     fn do_shuffle_task(&self, rdd_base: Arc<dyn RddBase>, partition: usize) -> String {
-        log::debug!("doing shuffle_task for partition {}", partition);
+        log::debug!("executing shuffle task for partition #{}", partition);
         let split = rdd_base.splits()[partition].clone();
         let aggregator = self.aggregator.clone();
         let num_output_splits = self.partitioner.get_num_of_partitions();
-        log::debug!("is cogroup rdd{}", self.is_cogroup);
-        log::debug!("num of output splits{}", num_output_splits);
+        log::debug!("is cogroup rdd: {}", self.is_cogroup);
+        log::debug!("number of output splits: {}", num_output_splits);
         let partitioner = self.partitioner.clone();
         let mut buckets: Vec<HashMap<K, C>> = (0..num_output_splits)
             .map(|_| HashMap::new())
             .collect::<Vec<_>>();
         log::debug!(
-            "before rdd base iterator in shuffle map task for partition {}",
+            "before iterating while executing shuffle map task for partition #{}",
             partition
         );
-        log::debug!("split index {}", split.get_index());
+        log::debug!("split index: {}", split.get_index());
 
         let iter = if self.is_cogroup {
             rdd_base.cogroup_iterator_any(split)
@@ -189,7 +189,7 @@ impl<K: Data + Eq + Hash, V: Data, C: Data> ShuffleDependencyTrait for ShuffleDe
             let (k, v) = *b;
             if count == 0 {
                 log::debug!(
-                    "iterator inside dependency map task after downcasting {:?} {:?}",
+                    "iterating inside dependency map task after downcasting: key: {:?}, value: {:?}",
                     k,
                     v
                 );
@@ -209,11 +209,11 @@ impl<K: Data + Eq + Hash, V: Data, C: Data> ShuffleDependencyTrait for ShuffleDe
             let set: Vec<(K, C)> = bucket.into_iter().collect();
             let ser_bytes = bincode::serialize(&set).unwrap();
             log::debug!(
-                "shuffle dependency map task set in shuffle id, partition,i  {:?} {:?} {:?} {:?} ",
-                set.get(0),
+                "shuffle dependency map task set from bucket #{} in shuffle id #{}, partition #{}: {:?}",
+                i,
                 self.shuffle_id,
                 partition,
-                i
+                set.get(0)
             );
             env::SHUFFLE_CACHE.insert((self.shuffle_id, partition, i), ser_bytes);
         }

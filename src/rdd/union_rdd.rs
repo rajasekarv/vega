@@ -200,8 +200,8 @@ impl<T: Data> RddBase for UnionRdd<T> {
 
     fn get_context(&self) -> Arc<Context> {
         match &self.0 {
-            NonUniquePartitioner { vals, .. } => vals.context.clone(),
-            PartitionerAware { vals, .. } => vals.context.clone(),
+            NonUniquePartitioner { vals, .. } => vals.context.upgrade().unwrap(),
+            PartitionerAware { vals, .. } => vals.context.upgrade().unwrap(),
         }
     }
 

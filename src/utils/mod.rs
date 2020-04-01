@@ -35,7 +35,6 @@ pub(crate) fn get_free_port() -> Result<u16, error::NetworkError> {
     }
     Err(error::NetworkError::FreePortNotFound(port, 100))
 }
-
 fn get_dynamic_port() -> u16 {
     const FIRST_DYNAMIC_PORT: u16 = 49152;
     const LAST_DYNAMIC_PORT: u16 = 65535;

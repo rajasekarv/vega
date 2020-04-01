@@ -4,7 +4,7 @@ use std::hash::Hash;
 use std::io::{BufWriter, Write};
 use std::net::Ipv4Addr;
 use std::path::Path;
-use std::sync::Arc;
+use std::sync::{Arc, Weak};
 
 use crate::context::Context;
 use crate::dependency::Dependency;
@@ -47,12 +47,12 @@ pub use union_rdd::*;
 
 // Values which are needed for all RDDs
 #[derive(Serialize, Deserialize)]
-pub struct RddVals {
+pub(crate) struct RddVals {
     pub id: usize,
     pub dependencies: Vec<Dependency>,
     should_cache: bool,
     #[serde(skip_serializing, skip_deserializing)]
-    pub context: Arc<Context>,
+    pub context: Weak<Context>,
 }
 
 impl RddVals {
@@ -61,7 +61,7 @@ impl RddVals {
             id: sc.new_rdd_id(),
             dependencies: Vec::new(),
             should_cache: false,
-            context: sc,
+            context: Arc::downgrade(&sc),
         }
     }
 

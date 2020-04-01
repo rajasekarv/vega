@@ -93,11 +93,7 @@ impl ShuffleManager {
             ShuffleManager::launch_async_server(bind_ip, bind_port)?;
             bind_port
         };
-        let server_uri = format!(
-            "http://{}:{}",
-            env::Configuration::get().local_ip.clone(),
-            port,
-        );
+        let server_uri = format!("http://{}:{}", env::Configuration::get().local_ip, port,);
         log::debug!("server_uri {:?}", server_uri);
         Ok(server_uri)
     }
@@ -185,14 +181,11 @@ impl ShuffleManager {
     fn get_local_work_dir() -> Result<PathBuf> {
         let local_dir_root = &env::Configuration::get().local_dir;
         for _ in 0..10 {
-            let uuid = Uuid::new_v4();
-            let local_dir_uuid = uuid.to_string();
-            let local_dir = local_dir_root.join(format!("spark-local-{}", local_dir_uuid));
+            let local_dir = local_dir_root.join(format!("ns-local-{}", Uuid::new_v4().to_string()));
             if !local_dir.exists() {
                 log::debug!("creating directory at path: {:?}", &local_dir);
                 fs::create_dir_all(&local_dir)
                     .map_err(|_| ShuffleError::CouldNotCreateShuffleDir)?;
-                log::debug!("local_dir path: {:?}", local_dir);
                 return Ok(local_dir);
             }
         }
@@ -237,7 +230,13 @@ impl ShuffleService {
             }
             Ok(parts) => parts,
         };
-        if let Some(cached_data) = env::SHUFFLE_CACHE.get(&(parts[0], parts[1], parts[2])) {
+        let params = &(parts[0], parts[1], parts[2]);
+        if let Some(cached_data) = env::SHUFFLE_CACHE.get(params) {
+            log::debug!(
+                "got a request @ `{}`, params: {:?}, returning data",
+                uri,
+                params
+            );
             Ok(Vec::from(&cached_data[..]))
         } else {
             Err(ShuffleError::RequestedCacheNotFound)
@@ -342,7 +341,7 @@ mod tests {
         for _ in 0..parallelism {
             let manager = manager.clone();
             threads.push(thread::spawn(move || -> Result<()> {
-                for _ in 0..1_000 {
+                for _ in 0..10 {
                     match manager.check_status() {
                         Ok(StatusCode::OK) => {}
                         _ => return Err(ShuffleError::AsyncRuntimeError),

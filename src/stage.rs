@@ -78,7 +78,7 @@ impl Stage {
             true
         } else {
             log::debug!(
-                "num available outputs and num partitions in is available method in stage{} {:?}",
+                "num available outputs {}, and num partitions {}, in is available method in stage",
                 self.num_available_outputs,
                 self.num_partitions
             );
@@ -88,7 +88,7 @@ impl Stage {
 
     pub fn add_output_loc(&mut self, partition: usize, host: String) {
         log::debug!(
-            "adding loc for partition inside stage {} {:?}",
+            "adding loc for partition inside stage {} @{}",
             partition,
             host
         );
