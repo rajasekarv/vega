@@ -363,8 +363,12 @@ fn test_union() -> Result<()> {
     };
     let join1 = join();
     let join2 = join();
-    let res = join1.union(join2.get_rdd()).unwrap().collect().unwrap();
+    let res = join1.union(join2.get_rdd())?.collect()?;
     assert_eq!(res.len(), 12);
+
+    let nums = sc.make_rdd(vec![1i32, 2, 3, 4], 2);
+    assert_eq!(Context::union(&[nums.get_rdd()])?.collect()?,vec![1i32,2,3,4]);
+    assert_eq!(Context::union(&[nums.get_rdd(),nums.get_rdd()])?.collect()?,vec![1i32,2,3,4,1,2,3,4]);
 
     Ok(())
 }
