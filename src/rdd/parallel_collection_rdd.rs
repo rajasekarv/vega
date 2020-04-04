@@ -1,14 +1,13 @@
+//! This module implements parallel collection RDD for dividing the input collection for parallel processing.
+use std::sync::{Arc, Weak};
+
 use crate::context::Context;
 use crate::dependency::Dependency;
 use crate::error::Result;
 use crate::rdd::{Rdd, RddBase, RddVals};
 use crate::serializable_traits::{AnyData, Data};
 use crate::split::Split;
-use log::info;
 use serde_derive::{Deserialize, Serialize};
-use std::hash::Hash;
-use std::sync::Arc;
-// This module implements parallel collection RDD for dividing the input collection for parallel processing
 
 /// A collection of objects which can be sliced into partitions with a partitioning function.
 pub trait Chunkable<D>
@@ -64,8 +63,7 @@ impl<T: Data> ParallelCollectionSplit<T> {
 pub struct ParallelCollectionVals<T> {
     vals: Arc<RddVals>,
     #[serde(skip_serializing, skip_deserializing)]
-    context: Arc<Context>,
-    //    data: Option<Vec<T>>,
+    context: Weak<Context>,
     splits_: Vec<Arc<Vec<T>>>,
     num_slices: usize,
 }
@@ -84,11 +82,14 @@ impl<T: Data> Clone for ParallelCollection<T> {
 }
 
 impl<T: Data> ParallelCollection<T> {
-    pub fn new(context: Arc<Context>, data: Vec<T>, num_slices: usize) -> Self {
+    pub fn new<I>(context: Arc<Context>, data: I, num_slices: usize) -> Self
+    where
+        I: IntoIterator<Item = T>,
+    {
         ParallelCollection {
             rdd_vals: Arc::new(ParallelCollectionVals {
+                context: Arc::downgrade(&context),
                 vals: Arc::new(RddVals::new(context.clone())),
-                context,
                 splits_: ParallelCollection::slice(data, num_slices),
                 num_slices,
             }),
@@ -101,8 +102,8 @@ impl<T: Data> ParallelCollection<T> {
     {
         let splits_ = data.slice();
         let rdd_vals = ParallelCollectionVals {
+            context: Arc::downgrade(&context),
             vals: Arc::new(RddVals::new(context.clone())),
-            context,
             num_slices: splits_.len(),
             splits_,
         };
@@ -152,7 +153,7 @@ impl<K: Data, V: Data> RddBase for ParallelCollection<(K, V)> {
         &self,
         split: Box<dyn Split>,
     ) -> Result<Box<dyn Iterator<Item = Box<dyn AnyData>>>> {
-        info!("inside iterator_any parallel collection",);
+        log::debug!("inside iterator_any parallel collection",);
         Ok(Box::new(self.iterator(split)?.map(|(k, v)| {
             Box::new((k, Box::new(v) as Box<dyn AnyData>)) as Box<dyn AnyData>
         })))
@@ -164,7 +165,7 @@ impl<T: Data> RddBase for ParallelCollection<T> {
         self.rdd_vals.vals.id
     }
     fn get_context(&self) -> Arc<Context> {
-        self.rdd_vals.vals.context.clone()
+        self.rdd_vals.vals.context.upgrade().unwrap()
     }
     fn get_dependencies(&self) -> Vec<Dependency> {
         self.rdd_vals.vals.dependencies.clone()
@@ -196,7 +197,7 @@ impl<T: Data> RddBase for ParallelCollection<T> {
         &self,
         split: Box<dyn Split>,
     ) -> Result<Box<dyn Iterator<Item = Box<dyn AnyData>>>> {
-        info!("inside iterator_any parallel collection",);
+        log::debug!("inside iterator_any parallel collection",);
         Ok(Box::new(
             self.iterator(split)?
                 .map(|x| Box::new(x) as Box<dyn AnyData>),

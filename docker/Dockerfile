@@ -12,13 +12,14 @@ ENV tempPkgs='\
     file \
     capnproto \
     '
+ENV PATH="/root/.cargo/bin:$PATH"
+ARG RUST_VERSION
 RUN set -e; \
     apt-get update -yq; \
-    apt-get install -yq --no-install-recommends $tempPkgs; \
-    # Install and set up rustup
-    curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain nightly-2019-09-11 --no-modify-path; 
+    apt-get install -yq --no-install-recommends $tempPkgs; 
+# Install and set up rustup
+RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain $RUST_VERSION --no-modify-path; 
 WORKDIR /home
-ENV PATH="/root/.cargo/bin:$PATH"
 COPY . native_spark
 RUN set -e; cd native_spark; \
     echo "PATH: ${PATH}"; \

@@ -3,7 +3,6 @@ use crate::env;
 use crate::partitioner::Partitioner;
 use crate::rdd::RddBase;
 use crate::serializable_traits::Data;
-use log::info;
 use serde_derive::{Deserialize, Serialize};
 use serde_traitobject::{Deserialize, Serialize};
 use std::cmp::Ordering;
@@ -163,21 +162,21 @@ impl<K: Data + Eq + Hash, V: Data, C: Data> ShuffleDependencyTrait for ShuffleDe
     }
 
     fn do_shuffle_task(&self, rdd_base: Arc<dyn RddBase>, partition: usize) -> String {
-        info!("doing shuffle_task for partition {}", partition);
+        log::debug!("executing shuffle task for partition #{}", partition);
         let split = rdd_base.splits()[partition].clone();
         let aggregator = self.aggregator.clone();
         let num_output_splits = self.partitioner.get_num_of_partitions();
-        info!("is cogroup rdd{}", self.is_cogroup);
-        info!("num of output splits{}", num_output_splits);
+        log::debug!("is cogroup rdd: {}", self.is_cogroup);
+        log::debug!("number of output splits: {}", num_output_splits);
         let partitioner = self.partitioner.clone();
-        let mut buckets = (0..num_output_splits)
+        let mut buckets: Vec<HashMap<K, C>> = (0..num_output_splits)
             .map(|_| HashMap::new())
             .collect::<Vec<_>>();
-        info!(
-            "before rdd base iterator in shuffle map task for partition {}",
+        log::debug!(
+            "before iterating while executing shuffle map task for partition #{}",
             partition
         );
-        info!("split index {}", split.get_index());
+        log::debug!("split index: {}", split.get_index());
 
         let iter = if self.is_cogroup {
             rdd_base.cogroup_iterator_any(split)
@@ -189,38 +188,34 @@ impl<K: Data + Eq + Hash, V: Data, C: Data> ShuffleDependencyTrait for ShuffleDe
             let b = i.into_any().downcast::<(K, V)>().unwrap();
             let (k, v) = *b;
             if count == 0 {
-                info!(
-                    "iterator inside dependency map task after downcasting {:?} {:?}",
-                    k, v
+                log::debug!(
+                    "iterating inside dependency map task after downcasting: key: {:?}, value: {:?}",
+                    k,
+                    v
                 );
             }
             let bucket_id = partitioner.get_partition(&k);
             let bucket = &mut buckets[bucket_id];
-            let old_v = bucket.get_mut(&k);
-            if old_v.is_none() {
-                bucket.insert(k, Some(aggregator.create_combiner.call((v,))));
-            } else {
-                let old_v = old_v.unwrap();
-                let old = old_v.take().unwrap();
-                let input = ((old, v),);
+            if let Some(old_v) = bucket.get_mut(&k) {
+                let input = ((old_v.clone(), v),);
                 let output = aggregator.merge_value.call(input);
-                *old_v = Some(output);
+                *old_v = output;
+            } else {
+                bucket.insert(k, aggregator.create_combiner.call((v,)));
             }
         }
 
         for (i, bucket) in buckets.into_iter().enumerate() {
-            let set: Vec<(K, C)> = bucket.into_iter().map(|(k, v)| (k, v.unwrap())).collect();
+            let set: Vec<(K, C)> = bucket.into_iter().collect();
             let ser_bytes = bincode::serialize(&set).unwrap();
-            info!(
-                "shuffle dependency map task set in shuffle id, partition,i  {:?} {:?} {:?} {:?} ",
-                set.get(0),
+            log::debug!(
+                "shuffle dependency map task set from bucket #{} in shuffle id #{}, partition #{}: {:?}",
+                i,
                 self.shuffle_id,
                 partition,
-                i
+                set.get(0)
             );
-            env::shuffle_cache
-                .write()
-                .insert((self.shuffle_id, partition, i), ser_bytes);
+            env::SHUFFLE_CACHE.insert((self.shuffle_id, partition, i), ser_bytes);
         }
         env::Env::get().shuffle_manager.get_server_uri()
     }

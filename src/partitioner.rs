@@ -8,12 +8,14 @@ use std::hash::{Hash, Hasher};
 use std::marker::PhantomData;
 
 /// Partitioner trait for creating Rdd partitions
-pub trait Partitioner: Downcast + Send + Sync + objekt::Clone + Serialize + Deserialize {
+pub trait Partitioner:
+    Downcast + Send + Sync + dyn_clone::DynClone + Serialize + Deserialize
+{
     fn equals(&self, other: &dyn Any) -> bool;
     fn get_num_of_partitions(&self) -> usize;
     fn get_partition(&self, key: &dyn Any) -> usize;
 }
-objekt::clone_trait_object!(Partitioner);
+dyn_clone::clone_trait_object!(Partitioner);
 
 fn hash<T: Hash>(t: &T) -> u64 {
     let mut s: MetroHasher = Default::default();
@@ -108,10 +110,10 @@ mod tests {
             .clone()
             .map_or(false, |p| (&p).equals(&p1.clone().unwrap())));
         assert!(!p1.clone().map_or(false, |p| p.equals(&p2_1.clone())));
-        assert!(!p1.clone().map_or(false, |p| p.equals(&p2_2.clone())));
+        assert!(!p1.map_or(false, |p| p.equals(&p2_2.clone())));
 
-        let p2_1 = Box::new(p2_1.clone()) as Box<dyn Partitioner>;
-        let p2_2 = Box::new(p2_2.clone()) as Box<dyn Partitioner>;
+        let p2_1 = Box::new(p2_1) as Box<dyn Partitioner>;
+        let p2_2 = Box::new(p2_2) as Box<dyn Partitioner>;
         assert!(p2_1.equals((&*p2_2).as_any()))
     }
 }

@@ -1,8 +1,6 @@
 use std::cmp::Ordering;
 use std::collections::{HashMap, HashSet};
-use std::iter::FromIterator;
 use std::net::Ipv4Addr;
-use std::rc::Rc;
 use std::sync::atomic::{AtomicUsize, Ordering as SyncOrd};
 use std::sync::Arc;
 
@@ -67,7 +65,7 @@ impl CoalescedRddSplit {
     fn downcasting(split: Box<dyn Split>) -> Box<CoalescedRddSplit> {
         split
             .downcast::<CoalescedRddSplit>()
-            .or(Err(Error::SplitDowncast("CoalescedRddSplit")))
+            .or(Err(Error::DowncastFailure("CoalescedRddSplit")))
             .unwrap()
     }
 }
@@ -133,7 +131,7 @@ impl<T: Data> CoalescedRdd<T> {
     ///
     /// max_partitions: number of desired partitions in the coalesced RDD
     pub(crate) fn new(prev: Arc<dyn Rdd<Item = T>>, max_partitions: usize) -> Self {
-        let mut vals = RddVals::new(prev.get_context());
+        let vals = RddVals::new(prev.get_context());
         CoalescedRdd {
             vals: Arc::new(vals),
             parent: prev,
@@ -144,7 +142,7 @@ impl<T: Data> CoalescedRdd<T> {
 
 impl<T: Data> RddBase for CoalescedRdd<T> {
     fn splits(&self) -> Vec<Box<dyn Split>> {
-        let mut partition_coalescer = DefaultPartitionCoalescer::default();
+        let partition_coalescer = DefaultPartitionCoalescer::default();
         partition_coalescer
             .coalesce(self.max_partitions, self.parent.get_rdd_base())
             .into_iter()
@@ -166,7 +164,7 @@ impl<T: Data> RddBase for CoalescedRdd<T> {
     }
 
     fn get_context(&self) -> Arc<Context> {
-        self.vals.context.clone()
+        self.vals.context.upgrade().unwrap()
     }
 
     fn get_dependencies(&self) -> Vec<Dependency> {
@@ -481,11 +479,11 @@ impl DefaultPartitionCoalescer {
     #[allow(clippy::map_entry)]
     fn setup_groups(&mut self, target_len: usize, partition_locs: &mut PartitionLocations) {
         let mut rng = utils::random::get_default_rng();
-        let mut part_cnt = AtomicUsize::new(0);
+        let part_cnt = AtomicUsize::new(0);
 
         // deal with empty case, just create target_len partition groups with no preferred location
         if partition_locs.parts_with_locs.is_empty() {
-            for i in 1..=target_len {
+            for _ in 1..=target_len {
                 self.group_arr
                     .push(SerArc::new(PSyncGroup(Mutex::new(PartitionGroup::new(
                         None,
@@ -518,7 +516,7 @@ impl DefaultPartitionCoalescer {
             if !self.group_hash.contains_key(&nxt_replica) {
                 let mut pgroup =
                     PartitionGroup::new(Some(*nxt_replica), part_cnt.fetch_add(1, SyncOrd::SeqCst));
-                self.add_part_to_pgroup(objekt::clone_box(&**nxt_part).into(), &mut pgroup);
+                self.add_part_to_pgroup(dyn_clone::clone_box(&**nxt_part).into(), &mut pgroup);
                 self.group_hash.insert(
                     *nxt_replica,
                     vec![SerArc::new(PSyncGroup(Mutex::new(pgroup)))],
@@ -533,11 +531,14 @@ impl DefaultPartitionCoalescer {
             // This helps in avoiding skew when the input partitions are clustered by preferred location.
             let (nxt_replica, nxt_part) = &partition_locs.parts_with_locs
                 [rng.gen_range(0, partition_locs.parts_with_locs.len()) as usize];
-            let mut pgroup = SerArc::new(PSyncGroup(Mutex::new(PartitionGroup::new(
+            let pgroup = SerArc::new(PSyncGroup(Mutex::new(PartitionGroup::new(
                 Some(*nxt_replica),
                 part_cnt.fetch_add(1, SyncOrd::SeqCst),
             ))));
-            self.add_part_to_pgroup(objekt::clone_box(&**nxt_part).into(), &mut *pgroup.lock());
+            self.add_part_to_pgroup(
+                dyn_clone::clone_box(&**nxt_part).into(),
+                &mut *pgroup.lock(),
+            );
             self.group_hash
                 .entry(*nxt_replica)
                 .or_insert_with(Vec::new)
@@ -564,7 +565,7 @@ impl DefaultPartitionCoalescer {
         balance_slack: f64,
     ) -> SerArc<PSyncGroup> {
         let mut rnd = utils::random::get_default_rng();
-        let slack = (balance_slack * prev.number_of_splits() as f64);
+        let slack = balance_slack * prev.number_of_splits() as f64;
 
         // least loaded pref_locs
         let pref: Vec<_> = PartitionLocations::current_pref_locs(p, prev)
@@ -696,7 +697,7 @@ impl DefaultPartitionCoalescer {
         }
     }
 
-    fn get_partitions(mut self) -> Vec<PartitionGroup> {
+    fn get_partitions(self) -> Vec<PartitionGroup> {
         self.group_arr
             .into_iter()
             .filter(|pg| pg.lock().num_partitions() > 0)

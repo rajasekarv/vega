@@ -1,4 +1,4 @@
-#![allow(where_clauses_object_safety)]
+#![allow(where_clauses_object_safety, clippy::single_component_path_imports)]
 #[macro_use]
 extern crate serde_closure;
 #[macro_use]

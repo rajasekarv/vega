@@ -13,10 +13,9 @@ use crate::rdd::{MapPartitionsRdd, MapperRdd, Rdd, RddBase};
 use crate::serializable_traits::{AnyData, Data, SerFunc};
 use crate::split::Split;
 use log::debug;
-use log::info;
 use rand::prelude::*;
 use serde_derive::{Deserialize, Serialize};
-use serde_traitobject::{Arc as SerArc, Box as SerBox};
+use serde_traitobject::Arc as SerArc;
 
 pub struct LocalFsReaderConfig {
     filter_ext: Option<std::ffi::OsString>,
@@ -62,7 +61,7 @@ impl ReaderConfiguration<Vec<u8>> for LocalFsReaderConfig {
         F: SerFunc(Vec<u8>) -> U,
         U: Data,
     {
-        let reader = LocalFsReader::<BytesReader>::new(self, context.clone());
+        let reader = LocalFsReader::<BytesReader>::new(self, context);
         let read_files = Fn!(
             |part: usize, readers: Box<dyn Iterator<Item = BytesReader>>| {
                 Box::new(readers.into_iter().map(|file| file.into_iter()).flatten())
@@ -82,7 +81,7 @@ impl ReaderConfiguration<PathBuf> for LocalFsReaderConfig {
         F: SerFunc(PathBuf) -> U,
         U: Data,
     {
-        let reader = LocalFsReader::<FileReader>::new(self, context.clone());
+        let reader = LocalFsReader::<FileReader>::new(self, context);
         let read_files = Fn!(
             |part: usize, readers: Box<dyn Iterator<Item = FileReader>>| {
                 Box::new(readers.map(|reader| reader.into_iter()).flatten())
@@ -146,8 +145,6 @@ impl<T: Data> LocalFsReader<T> {
     fn load_local_files(&self) -> Result<Vec<Vec<PathBuf>>> {
         let mut total_size = 0_u64;
         if self.is_single_file {
-            let size = fs::metadata(&self.path).map_err(Error::ReadFile)?.len();
-            total_size += size;
             let files = vec![vec![self.path.clone()]];
             return Ok(files);
         }
@@ -162,10 +159,10 @@ impl<T: Data> LocalFsReader<T> {
         let mut ex2 = 0.0;
 
         for (i, entry) in fs::read_dir(&self.path)
-            .map_err(Error::ReadFile)?
+            .map_err(Error::InputRead)?
             .enumerate()
         {
-            let path = entry.map_err(Error::ReadFile)?.path();
+            let path = entry.map_err(Error::InputRead)?.path();
             if path.is_file() {
                 let is_proper_file = {
                     self.filter_ext.is_none()
@@ -174,7 +171,7 @@ impl<T: Data> LocalFsReader<T> {
                 if !is_proper_file {
                     continue;
                 }
-                let size = fs::metadata(&path).map_err(Error::ReadFile)?.len();
+                let size = fs::metadata(&path).map_err(Error::InputRead)?.len();
                 if i == 0 {
                     // assign first file size as reference sample
                     k = size;
@@ -393,7 +390,7 @@ impl Rdd for LocalFsReader<BytesReader> {
 
     fn compute(&self, split: Box<dyn Split>) -> Result<Box<dyn Iterator<Item = Self::Item>>> {
         let split = split.downcast_ref::<BytesReader>().unwrap();
-        let mut files_by_part = self.load_local_files()?;
+        let files_by_part = self.load_local_files()?;
         let idx = split.idx;
         let host = split.host;
         Ok(Box::new(
@@ -411,7 +408,7 @@ impl Rdd for LocalFsReader<FileReader> {
 
     fn compute(&self, split: Box<dyn Split>) -> Result<Box<dyn Iterator<Item = Self::Item>>> {
         let split = split.downcast_ref::<FileReader>().unwrap();
-        let mut files_by_part = self.load_local_files()?;
+        let files_by_part = self.load_local_files()?;
         let idx = split.idx;
         let host = split.host;
         Ok(Box::new(
@@ -439,10 +436,10 @@ impl Iterator for BytesReader {
     type Item = Vec<u8>;
     fn next(&mut self) -> Option<Self::Item> {
         if let Some(path) = self.files.pop() {
-            let mut file = fs::File::open(path).unwrap();
+            let file = fs::File::open(path).unwrap();
             let mut content = vec![];
             let mut reader = BufReader::new(file);
-            reader.read_to_end(&mut content);
+            reader.read_to_end(&mut content).unwrap();
             Some(content)
         } else {
             None

@@ -1,18 +1,19 @@
-use crate::aggregator::Aggregator;
-use crate::context::Context;
-use crate::dependency::{Dependency, ShuffleDependency};
-use crate::error::{Error, Result};
-use crate::partitioner::Partitioner;
-use crate::rdd::{Rdd, RddBase, RddVals};
-use crate::serializable_traits::{AnyData, Data};
-use crate::shuffle_fetcher::ShuffleFetcher;
-use crate::split::Split;
-use log::info;
-use serde_derive::{Deserialize, Serialize};
-use std::collections::HashMap;
 use std::hash::Hash;
 use std::sync::Arc;
 use std::time::Instant;
+
+use crate::aggregator::Aggregator;
+use crate::context::Context;
+use crate::dependency::{Dependency, ShuffleDependency};
+use crate::env;
+use crate::error::Result;
+use crate::partitioner::Partitioner;
+use crate::rdd::{Rdd, RddBase, RddVals};
+use crate::serializable_traits::{AnyData, Data};
+use crate::shuffle::ShuffleFetcher;
+use crate::split::Split;
+use dashmap::DashMap;
+use serde_derive::{Deserialize, Serialize};
 
 #[derive(Clone, Serialize, Deserialize)]
 struct ShuffledRddSplit {
@@ -61,8 +62,9 @@ impl<K: Data + Eq + Hash, V: Data, C: Data> ShuffledRdd<K, V, C> {
         aggregator: Arc<Aggregator<K, V, C>>,
         part: Box<dyn Partitioner>,
     ) -> Self {
-        let mut vals = RddVals::new(parent.get_context());
-        let shuffle_id = vals.context.new_shuffle_id();
+        let ctx = parent.get_context();
+        let shuffle_id = ctx.new_shuffle_id();
+        let mut vals = RddVals::new(ctx);
 
         vals.dependencies
             .push(Dependency::ShuffleDependency(Arc::new(
@@ -91,7 +93,7 @@ impl<K: Data + Eq + Hash, V: Data, C: Data> RddBase for ShuffledRdd<K, V, C> {
     }
 
     fn get_context(&self) -> Arc<Context> {
-        self.vals.context.clone()
+        self.vals.context.upgrade().unwrap()
     }
 
     fn get_dependencies(&self) -> Vec<Dependency> {
@@ -116,7 +118,7 @@ impl<K: Data + Eq + Hash, V: Data, C: Data> RddBase for ShuffledRdd<K, V, C> {
         &self,
         split: Box<dyn Split>,
     ) -> Result<Box<dyn Iterator<Item = Box<dyn AnyData>>>> {
-        info!("inside iterator_any shuffledrdd",);
+        log::debug!("inside iterator_any shuffledrdd",);
         Ok(Box::new(
             self.iterator(split)?
                 .map(|(k, v)| Box::new((k, v)) as Box<dyn AnyData>),
@@ -127,7 +129,7 @@ impl<K: Data + Eq + Hash, V: Data, C: Data> RddBase for ShuffledRdd<K, V, C> {
         &self,
         split: Box<dyn Split>,
     ) -> Result<Box<dyn Iterator<Item = Box<dyn AnyData>>>> {
-        info!("inside cogroup iterator_any shuffledrdd",);
+        log::debug!("inside cogroup iterator_any shuffledrdd",);
         Ok(Box::new(self.iterator(split)?.map(|(k, v)| {
             Box::new((k, Box::new(v) as Box<dyn AnyData>)) as Box<dyn AnyData>
         })))
@@ -146,28 +148,34 @@ impl<K: Data + Eq + Hash, V: Data, C: Data> Rdd for ShuffledRdd<K, V, C> {
     }
 
     fn compute(&self, split: Box<dyn Split>) -> Result<Box<dyn Iterator<Item = Self::Item>>> {
-        info!("compute inside shuffled rdd");
-        let mut combiners: HashMap<K, Option<C>> = HashMap::new();
-        let merge_pair = |(k, c): (K, C)| {
-            if let Some(old_c) = combiners.get_mut(&k) {
+        log::debug!("compute inside shuffled rdd");
+        let combiners: Arc<DashMap<K, Option<C>>> = Arc::new(DashMap::new());
+        let comb_clone = combiners.clone();
+        let agg = self.aggregator.clone();
+        let merge_pair = move |(k, c): (K, C)| {
+            if let Some(mut old_c) = comb_clone.get_mut(&k) {
                 let old = old_c.take().unwrap();
                 let input = ((old, c),);
-                let output = self.aggregator.merge_combiners.call(input);
+                let output = agg.merge_combiners.call(input);
                 *old_c = Some(output);
             } else {
-                combiners.insert(k, Some(c));
+                comb_clone.insert(k, Some(c));
             }
         };
 
         let start = Instant::now();
-        let fetcher = ShuffleFetcher;
-        fetcher.fetch(
-            self.vals.context.clone(),
-            self.shuffle_id,
-            split.get_index(),
-            merge_pair,
-        );
-        info!("time taken for fetching {}", start.elapsed().as_millis());
+
+        let shuffle_id = self.shuffle_id;
+        let split_idx = split.get_index();
+        let executor = env::Env::get_async_handle();
+        executor.enter(|| -> Result<()> {
+            let fut = ShuffleFetcher::fetch(shuffle_id, split_idx, merge_pair);
+            Ok(futures::executor::block_on(fut)?)
+        })?;
+
+        log::debug!("time taken for fetching {}", start.elapsed().as_millis());
+
+        let combiners = Arc::try_unwrap(combiners).unwrap();
         Ok(Box::new(
             combiners.into_iter().map(|(k, v)| (k, v.unwrap())),
         ))

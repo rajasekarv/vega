@@ -12,7 +12,6 @@ use crate::rdd::shuffled_rdd::ShuffledRdd;
 use crate::rdd::{Rdd, RddBase, RddVals};
 use crate::serializable_traits::{AnyData, Data, Func, SerFunc};
 use crate::split::Split;
-use log::info;
 use serde_derive::{Deserialize, Serialize};
 use serde_traitobject::{Arc as SerArc, Deserialize, Serialize};
 
@@ -236,7 +235,7 @@ where
         self.vals.id
     }
     fn get_context(&self) -> Arc<Context> {
-        self.vals.context.clone()
+        self.vals.context.upgrade().unwrap()
     }
     fn get_dependencies(&self) -> Vec<Dependency> {
         self.vals.dependencies.clone()
@@ -252,7 +251,7 @@ where
         &self,
         split: Box<dyn Split>,
     ) -> Result<Box<dyn Iterator<Item = Box<dyn AnyData>>>> {
-        info!("inside iterator_any mapvaluesrdd",);
+        log::debug!("inside iterator_any mapvaluesrdd");
         Ok(Box::new(
             self.iterator(split)?
                 .map(|(k, v)| Box::new((k, v)) as Box<dyn AnyData>),
@@ -262,7 +261,7 @@ where
         &self,
         split: Box<dyn Split>,
     ) -> Result<Box<dyn Iterator<Item = Box<dyn AnyData>>>> {
-        info!("inside iterator_any mapvaluesrdd",);
+        log::debug!("inside cogroup_iterator_any mapvaluesrdd");
         Ok(Box::new(self.iterator(split)?.map(|(k, v)| {
             Box::new((k, Box::new(v) as Box<dyn AnyData>)) as Box<dyn AnyData>
         })))
@@ -348,7 +347,7 @@ where
         self.vals.id
     }
     fn get_context(&self) -> Arc<Context> {
-        self.vals.context.clone()
+        self.vals.context.upgrade().unwrap()
     }
     fn get_dependencies(&self) -> Vec<Dependency> {
         self.vals.dependencies.clone()
@@ -364,7 +363,7 @@ where
         &self,
         split: Box<dyn Split>,
     ) -> Result<Box<dyn Iterator<Item = Box<dyn AnyData>>>> {
-        info!("inside iterator_any flatmapvaluesrdd",);
+        log::debug!("inside iterator_any flatmapvaluesrdd",);
         Ok(Box::new(
             self.iterator(split)?
                 .map(|(k, v)| Box::new((k, v)) as Box<dyn AnyData>),
@@ -374,7 +373,7 @@ where
         &self,
         split: Box<dyn Split>,
     ) -> Result<Box<dyn Iterator<Item = Box<dyn AnyData>>>> {
-        info!("inside iterator_any flatmapvaluesrdd",);
+        log::debug!("inside iterator_any flatmapvaluesrdd",);
         Ok(Box::new(self.iterator(split)?.map(|(k, v)| {
             Box::new((k, Box::new(v) as Box<dyn AnyData>)) as Box<dyn AnyData>
         })))

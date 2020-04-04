@@ -1,11 +1,9 @@
-use std::any::Any;
 use std::net::Ipv4Addr;
 use std::sync::Arc;
 
 use itertools::{Itertools, MinMaxResult};
-use log::{debug, info};
 use serde_derive::{Deserialize, Serialize};
-use serde_traitobject::{Arc as SerArc, Box as SerBox};
+use serde_traitobject::Arc as SerArc;
 
 use crate::context::Context;
 use crate::dependency::{Dependency, NarrowDependencyTrait, OneToOneDependency, RangeDependency};
@@ -110,7 +108,7 @@ impl<T: Data> Clone for UnionVariants<T> {
 impl<T: Data> UnionVariants<T> {
     fn new(rdds: &[Arc<dyn Rdd<Item = T>>]) -> Result<Self> {
         let context = rdds[0].get_context();
-        let mut vals = RddVals::new(context.clone());
+        let mut vals = RddVals::new(context);
 
         let mut pos = 0;
         let final_rdds: Vec<_> = rdds.iter().map(|rdd| rdd.clone().into()).collect();
@@ -130,14 +128,14 @@ impl<T: Data> UnionVariants<T> {
                 .collect();
             vals.dependencies = deps;
             let vals = Arc::new(vals);
-            info!("inside unique partitioner constructor");
+            log::debug!("inside unique partitioner constructor");
             Ok(NonUniquePartitioner {
                 rdds: final_rdds,
                 vals,
             })
         } else {
             let part = rdds[0].partitioner().ok_or(Error::LackingPartitioner)?;
-            info!("inside partition aware constructor");
+            log::debug!("inside partition aware constructor");
             let deps = rdds
                 .iter()
                 .map(|x| {
@@ -202,8 +200,8 @@ impl<T: Data> RddBase for UnionRdd<T> {
 
     fn get_context(&self) -> Arc<Context> {
         match &self.0 {
-            NonUniquePartitioner { vals, .. } => vals.context.clone(),
-            PartitionerAware { vals, .. } => vals.context.clone(),
+            NonUniquePartitioner { vals, .. } => vals.context.upgrade().unwrap(),
+            PartitionerAware { vals, .. } => vals.context.upgrade().unwrap(),
         }
     }
 
@@ -218,14 +216,14 @@ impl<T: Data> RddBase for UnionRdd<T> {
         match &self.0 {
             NonUniquePartitioner { .. } => Vec::new(),
             PartitionerAware { rdds, .. } => {
-                debug!(
+                log::debug!(
                     "finding preferred location for PartitionerAwareUnionRdd, partition {}",
                     split.get_index()
                 );
 
                 let split = &*split
                     .downcast::<PartitionerAwareUnionSplit>()
-                    .or(Err(Error::SplitDowncast("UnionSplit")))
+                    .or(Err(Error::DowncastFailure("UnionSplit")))
                     .unwrap();
 
                 let locations =
@@ -237,7 +235,7 @@ impl<T: Data> RddBase for UnionRdd<T> {
                                 &*part,
                                 self.get_context(),
                             );
-                            debug!("location of {} partition {} = {}", 1, 2, 3);
+                            log::debug!("location of {} partition {} = {}", 1, 2, 3);
                             parent_locations
                         });
 
@@ -248,7 +246,7 @@ impl<T: Data> RddBase for UnionRdd<T> {
                     MinMaxResult::NoElements => None,
                 };
 
-                debug!(
+                log::debug!(
                     "selected location for PartitionerAwareRdd, partition {} = {:?}",
                     split.get_index(),
                     location
@@ -280,7 +278,7 @@ impl<T: Data> RddBase for UnionRdd<T> {
                     }) as Box<dyn Split>
                 })
                 .collect(),
-            PartitionerAware { rdds, part, .. } => {
+            PartitionerAware { part, .. } => {
                 let num_partitions = part.get_num_of_partitions();
                 (0..num_partitions)
                     .map(|idx| Box::new(PartitionerAwareUnionSplit { idx }) as Box<dyn Split>)
@@ -293,7 +291,7 @@ impl<T: Data> RddBase for UnionRdd<T> {
         &self,
         split: Box<dyn Split>,
     ) -> Result<Box<dyn Iterator<Item = Box<dyn AnyData>>>> {
-        info!("inside iterator_any union_rdd",);
+        log::debug!("inside iterator_any union_rdd",);
         Ok(Box::new(
             self.iterator(split)?
                 .map(|x| Box::new(x) as Box<dyn AnyData>),
@@ -320,19 +318,18 @@ impl<T: Data> Rdd for UnionRdd<T> {
     }
 
     fn compute(&self, split: Box<dyn Split>) -> Result<Box<dyn Iterator<Item = T>>> {
-        let context = self.get_context();
         match &self.0 {
             NonUniquePartitioner { rdds, .. } => {
                 let part = &*split
                     .downcast::<UnionSplit<T>>()
-                    .or(Err(Error::SplitDowncast("UnionSplit")))?;
-                let parent = (&rdds[part.parent_rdd_index]);
+                    .or(Err(Error::DowncastFailure("UnionSplit")))?;
+                let parent = &rdds[part.parent_rdd_index];
                 parent.iterator(part.parent_partition())
             }
             PartitionerAware { rdds, .. } => {
                 let split = split
                     .downcast::<PartitionerAwareUnionSplit>()
-                    .or(Err(Error::SplitDowncast("PartitionerAwareUnionSplit")))?;
+                    .or(Err(Error::DowncastFailure("PartitionerAwareUnionSplit")))?;
                 let iter: Result<Vec<_>> = rdds
                     .iter()
                     .zip(split.parents(&rdds))

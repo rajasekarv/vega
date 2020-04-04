@@ -2,39 +2,57 @@ use std::cmp::Ordering;
 use std::fs;
 use std::hash::Hash;
 use std::io::{BufWriter, Write};
-use std::marker::PhantomData;
 use std::net::Ipv4Addr;
 use std::path::Path;
-use std::sync::{atomic::AtomicBool, atomic::Ordering::SeqCst, Arc};
+use std::sync::{Arc, Weak};
 
 use crate::context::Context;
-use crate::dependency::{Dependency, OneToOneDependency};
+use crate::dependency::Dependency;
 use crate::error::{Error, Result};
 use crate::partitioner::{HashPartitioner, Partitioner};
-use crate::rdd::cartesian_rdd::CartesianRdd;
-use crate::rdd::coalesced_rdd::CoalescedRdd;
-use crate::rdd::map_partitions_rdd::MapPartitionsRdd;
-use crate::rdd::pair_rdd::PairRdd;
-use crate::rdd::partitionwise_sampled_rdd::PartitionwiseSampledRdd;
 use crate::serializable_traits::{AnyData, Data, Func, SerFunc};
 use crate::split::Split;
 use crate::task::TaskContext;
 use crate::utils;
 use crate::utils::random::{BernoulliSampler, PoissonSampler, RandomSampler};
 use fasthash::MetroHasher;
-use log::info;
 use rand::{Rng, SeedableRng};
 use serde_derive::{Deserialize, Serialize};
 use serde_traitobject::{Arc as SerArc, Deserialize, Serialize};
 
+pub mod parallel_collection_rdd;
+pub use parallel_collection_rdd::*;
+pub mod cartesian_rdd;
+pub use cartesian_rdd::*;
+pub mod co_grouped_rdd;
+pub use co_grouped_rdd::*;
+pub mod coalesced_rdd;
+pub use coalesced_rdd::*;
+pub mod mapper_rdd;
+pub use mapper_rdd::*;
+pub mod flatmap_rdd;
+pub use flatmap_rdd::*;
+pub mod pair_rdd;
+pub use pair_rdd::*;
+pub mod partitionwise_sampled_rdd;
+pub use partitionwise_sampled_rdd::*;
+pub mod shuffled_rdd;
+pub use shuffled_rdd::*;
+pub mod map_partitions_rdd;
+pub use map_partitions_rdd::*;
+pub mod zip_rdd;
+pub use zip_rdd::*;
+pub mod union_rdd;
+pub use union_rdd::*;
+
 // Values which are needed for all RDDs
 #[derive(Serialize, Deserialize)]
-pub struct RddVals {
+pub(crate) struct RddVals {
     pub id: usize,
     pub dependencies: Vec<Dependency>,
     should_cache: bool,
     #[serde(skip_serializing, skip_deserializing)]
-    pub context: Arc<Context>,
+    pub context: Weak<Context>,
 }
 
 impl RddVals {
@@ -43,7 +61,7 @@ impl RddVals {
             id: sc.new_rdd_id(),
             dependencies: Vec::new(),
             should_cache: false,
-            context: sc,
+            context: Arc::downgrade(&sc),
         }
     }
 
@@ -61,7 +79,7 @@ pub trait RddBase: Send + Sync + Serialize + Deserialize {
     fn get_rdd_id(&self) -> usize;
     fn get_context(&self) -> Arc<Context>;
     fn get_dependencies(&self) -> Vec<Dependency>;
-    fn preferred_locations(&self, split: Box<dyn Split>) -> Vec<Ipv4Addr> {
+    fn preferred_locations(&self, _split: Box<dyn Split>) -> Vec<Ipv4Addr> {
         Vec::new()
     }
     fn partitioner(&self) -> Option<Box<dyn Partitioner>> {
@@ -212,7 +230,7 @@ pub trait Rdd: RddBase + 'static {
         Self: Sized,
     {
         fn save<R: Data>(ctx: TaskContext, iter: Box<dyn Iterator<Item = R>>, path: String) {
-            fs::create_dir_all(&path);
+            fs::create_dir_all(&path).unwrap();
             let id = ctx.split_id;
             let file_path = Path::new(&path).join(format!("part-{}", id));
             let f = fs::File::create(file_path).expect("unable to create file");
@@ -353,8 +371,8 @@ pub trait Rdd: RddBase + 'static {
                     let mut rand = utils::random::get_default_rng_from_seed(hasher.finish());
                     let mut position = rand.gen_range(0, num_partitions);
                     Box::new(items.map(move |t| {
-                        // Note that the hash code of the key will just be the key itself. The HashPartitioner
-                        // will mod it with the number of total partitions.
+                        // Note that the hash code of the key will just be the key itself.
+                        // The HashPartitioner will mod it with the number of total partitions.
                         position += 1;
                         (position, t)
                     })) as Box<dyn Iterator<Item = (usize, Self::Item)>>
@@ -393,13 +411,26 @@ pub trait Rdd: RddBase + 'static {
     where
         Self: Sized,
     {
-        let mut context = self.get_context();
+        let context = self.get_context();
         let counting_func =
             Fn!(|iter: Box<dyn Iterator<Item = Self::Item>>| { iter.count() as u64 });
         Ok(context
             .run_job(self.get_rdd(), counting_func)?
             .into_iter()
             .sum())
+    }
+
+    /// Return the count of each unique value in this RDD as a dictionary of (value, count) pairs.	
+    fn count_by_value(&self) -> SerArc<dyn Rdd<Item = (Self::Item, u64)>>
+    where
+        Self: Sized,
+        Self::Item: Data + Eq + Hash,
+    {
+        self.map(Fn!(|x| (x, 1u64)))
+        .reduce_by_key(Box::new(Fn!(|(x, y)| x + y))
+            as Box<
+                dyn Func((u64, u64)) -> u64,
+            >, self.number_of_splits())
     }
 
     /// Return a new RDD containing the distinct elements in this RDD.
@@ -472,29 +503,29 @@ pub trait Rdd: RddBase + 'static {
     {
         //TODO: in original spark this is configurable; see rdd/RDD.scala:1397
         // Math.max(conf.get(RDD_LIMIT_SCALE_UP_FACTOR), 2)
-        const scale_up_factor: f64 = 2.0;
+        const SCALE_UP_FACTOR: f64 = 2.0;
         if num == 0 {
             return Ok(vec![]);
         }
         let mut buf = vec![];
         let total_parts = self.number_of_splits() as u32;
         let mut parts_scanned = 0_u32;
-        while (buf.len() < num && parts_scanned < total_parts) {
+        while buf.len() < num && parts_scanned < total_parts {
             // The number of partitions to try in this iteration. It is ok for this number to be
             // greater than total_parts because we actually cap it at total_parts in run_job.
             let mut num_parts_to_try = 1u32;
             let left = num - buf.len();
-            if (parts_scanned > 0) {
+            if parts_scanned > 0 {
                 // If we didn't find any rows after the previous iteration, quadruple and retry.
                 // Otherwise, interpolate the number of partitions we need to try, but overestimate
                 // it by 50%. We also cap the estimation in the end.
                 let parts_scanned = f64::from(parts_scanned);
                 num_parts_to_try = if buf.is_empty() {
-                    (parts_scanned * scale_up_factor).ceil() as u32
+                    (parts_scanned * SCALE_UP_FACTOR).ceil() as u32
                 } else {
                     let num_parts_to_try =
                         (1.5 * left as f64 * parts_scanned / (buf.len() as f64)).ceil();
-                    num_parts_to_try.min(parts_scanned * scale_up_factor) as u32
+                    num_parts_to_try.min(parts_scanned * SCALE_UP_FACTOR) as u32
                 };
             }
 
@@ -616,7 +647,7 @@ pub trait Rdd: RddBase + 'static {
             // If the first sample didn't turn out large enough, keep trying to take samples;
             // this shouldn't happen often because we use a big multiplier for the initial size.
             let mut num_iters = 0;
-            while (samples.len() < num as usize && num_iters < REPETITION_GUARD) {
+            while samples.len() < num as usize && num_iters < REPETITION_GUARD {
                 log::warn!(
                     "Needed to re-sample due to insufficient sample size. Repeat #{}",
                     num_iters
@@ -666,266 +697,77 @@ pub trait Rdd: RddBase + 'static {
             other,
         ])?))
     }
-}
 
-#[derive(Serialize, Deserialize)]
-pub struct MapperRdd<T: Data, U: Data, F>
-where
-    F: Func(T) -> U + Clone,
-{
-    #[serde(with = "serde_traitobject")]
-    prev: Arc<dyn Rdd<Item = T>>,
-    vals: Arc<RddVals>,
-    f: F,
-    pinned: AtomicBool,
-    _marker_t: PhantomData<T>, // phantom data is necessary because of type parameter T
-}
-
-// Can't derive clone automatically
-impl<T: Data, U: Data, F> Clone for MapperRdd<T, U, F>
-where
-    F: Func(T) -> U + Clone,
-{
-    fn clone(&self) -> Self {
-        MapperRdd {
-            prev: self.prev.clone(),
-            vals: self.vals.clone(),
-            f: self.f.clone(),
-            pinned: AtomicBool::new(self.pinned.load(SeqCst)),
-            _marker_t: PhantomData,
-        }
-    }
-}
-
-impl<T: Data, U: Data, F> MapperRdd<T, U, F>
-where
-    F: SerFunc(T) -> U,
-{
-    pub(crate) fn new(prev: Arc<dyn Rdd<Item = T>>, f: F) -> Self {
-        let mut vals = RddVals::new(prev.get_context());
-        vals.dependencies
-            .push(Dependency::NarrowDependency(Arc::new(
-                OneToOneDependency::new(prev.get_rdd_base()),
-            )));
-        let vals = Arc::new(vals);
-        MapperRdd {
-            prev,
-            vals,
-            f,
-            pinned: AtomicBool::new(false),
-            _marker_t: PhantomData,
-        }
-    }
-
-    pub(crate) fn pin(self) -> Self {
-        self.pinned.store(true, SeqCst);
-        self
-    }
-}
-
-impl<T: Data, U: Data, F> RddBase for MapperRdd<T, U, F>
-where
-    F: SerFunc(T) -> U,
-{
-    fn get_rdd_id(&self) -> usize {
-        self.vals.id
-    }
-
-    fn get_context(&self) -> Arc<Context> {
-        self.vals.context.clone()
-    }
-
-    fn get_dependencies(&self) -> Vec<Dependency> {
-        self.vals.dependencies.clone()
-    }
-
-    fn preferred_locations(&self, split: Box<dyn Split>) -> Vec<Ipv4Addr> {
-        self.prev.preferred_locations(split)
-    }
-
-    fn splits(&self) -> Vec<Box<dyn Split>> {
-        self.prev.splits()
-    }
-
-    fn number_of_splits(&self) -> usize {
-        self.prev.number_of_splits()
-    }
-
-    default fn cogroup_iterator_any(
+    fn zip<S: Data>(
         &self,
-        split: Box<dyn Split>,
-    ) -> Result<Box<dyn Iterator<Item = Box<dyn AnyData>>>> {
-        self.iterator_any(split)
-    }
-
-    default fn iterator_any(
-        &self,
-        split: Box<dyn Split>,
-    ) -> Result<Box<dyn Iterator<Item = Box<dyn AnyData>>>> {
-        info!("inside iterator_any maprdd",);
-        Ok(Box::new(
-            self.iterator(split)?
-                .map(|x| Box::new(x) as Box<dyn AnyData>),
+        second: Arc<dyn Rdd<Item = S>>,
+    ) -> SerArc<dyn Rdd<Item = (Self::Item, S)>>
+    where
+        Self: Clone,
+    {
+        SerArc::new(ZippedPartitionsRdd::<Self::Item, S>::new(
+            Arc::new(self.clone()) as Arc<dyn Rdd<Item = Self::Item>>,
+            second,
         ))
     }
 
-    fn is_pinned(&self) -> bool {
-        self.pinned.load(SeqCst)
+    fn intersection<T>(&self, other: Arc<T>) -> SerArc<dyn Rdd<Item = Self::Item>>
+    where
+        Self: Clone,
+        Self::Item: Data + Eq + Hash,
+        T: Rdd<Item = Self::Item> + Sized,
+    {
+        self.intersection_with_num_partitions(other, self.number_of_splits())
     }
-}
 
-impl<T: Data, V: Data, U: Data, F> RddBase for MapperRdd<T, (V, U), F>
-where
-    F: SerFunc(T) -> (V, U),
-{
-    fn cogroup_iterator_any(
+    fn intersection_with_num_partitions<T>(
         &self,
-        split: Box<dyn Split>,
-    ) -> Result<Box<dyn Iterator<Item = Box<dyn AnyData>>>> {
-        info!("inside iterator_any maprdd",);
-        Ok(Box::new(self.iterator(split)?.map(|(k, v)| {
-            Box::new((k, Box::new(v) as Box<dyn AnyData>)) as Box<dyn AnyData>
-        })))
-    }
-}
-
-impl<T: Data, U: Data, F: 'static> Rdd for MapperRdd<T, U, F>
-where
-    F: SerFunc(T) -> U,
-{
-    type Item = U;
-    fn get_rdd_base(&self) -> Arc<dyn RddBase> {
-        Arc::new(self.clone()) as Arc<dyn RddBase>
-    }
-
-    fn get_rdd(&self) -> Arc<dyn Rdd<Item = Self::Item>> {
-        Arc::new(self.clone())
-    }
-
-    fn compute(&self, split: Box<dyn Split>) -> Result<Box<dyn Iterator<Item = Self::Item>>> {
-        Ok(Box::new(self.prev.iterator(split)?.map(self.f.clone())))
-    }
-}
-
-#[derive(Serialize, Deserialize)]
-pub struct FlatMapperRdd<T: Data, U: Data, F>
-where
-    F: Func(T) -> Box<dyn Iterator<Item = U>> + Clone,
-{
-    #[serde(with = "serde_traitobject")]
-    prev: Arc<dyn Rdd<Item = T>>,
-    vals: Arc<RddVals>,
-    f: F,
-    _marker_t: PhantomData<T>, // phantom data is necessary because of type parameter T
-}
-
-impl<T: Data, U: Data, F> Clone for FlatMapperRdd<T, U, F>
-where
-    F: Func(T) -> Box<dyn Iterator<Item = U>> + Clone,
-{
-    fn clone(&self) -> Self {
-        FlatMapperRdd {
-            prev: self.prev.clone(),
-            vals: self.vals.clone(),
-            f: self.f.clone(),
-            _marker_t: PhantomData,
-        }
-    }
-}
-
-impl<T: Data, U: Data, F> FlatMapperRdd<T, U, F>
-where
-    F: SerFunc(T) -> Box<dyn Iterator<Item = U>>,
-{
-    fn new(prev: Arc<dyn Rdd<Item = T>>, f: F) -> Self {
-        let mut vals = RddVals::new(prev.get_context());
-        vals.dependencies
-            .push(Dependency::NarrowDependency(Arc::new(
-                OneToOneDependency::new(prev.get_rdd_base()),
-            )));
-        let vals = Arc::new(vals);
-        FlatMapperRdd {
-            prev,
-            vals,
-            f,
-            _marker_t: PhantomData,
-        }
-    }
-}
-
-impl<T: Data, U: Data, F> RddBase for FlatMapperRdd<T, U, F>
-where
-    F: SerFunc(T) -> Box<dyn Iterator<Item = U>>,
-{
-    fn get_rdd_id(&self) -> usize {
-        self.vals.id
-    }
-
-    fn get_context(&self) -> Arc<Context> {
-        self.vals.context.clone()
-    }
-
-    fn get_dependencies(&self) -> Vec<Dependency> {
-        self.vals.dependencies.clone()
-    }
-
-    fn splits(&self) -> Vec<Box<dyn Split>> {
-        self.prev.splits()
-    }
-    fn number_of_splits(&self) -> usize {
-        self.prev.number_of_splits()
-    }
-
-    default fn cogroup_iterator_any(
-        &self,
-        split: Box<dyn Split>,
-    ) -> Result<Box<dyn Iterator<Item = Box<dyn AnyData>>>> {
-        self.iterator_any(split)
-    }
-
-    default fn iterator_any(
-        &self,
-        split: Box<dyn Split>,
-    ) -> Result<Box<dyn Iterator<Item = Box<dyn AnyData>>>> {
-        info!("inside iterator_any flatmaprdd",);
-        Ok(Box::new(
-            self.iterator(split)?
-                .map(|x| Box::new(x) as Box<dyn AnyData>),
-        ))
-    }
-}
-
-impl<T: Data, V: Data, U: Data, F: 'static> RddBase for FlatMapperRdd<T, (V, U), F>
-where
-    F: SerFunc(T) -> Box<dyn Iterator<Item = (V, U)>>,
-{
-    fn cogroup_iterator_any(
-        &self,
-        split: Box<dyn Split>,
-    ) -> Result<Box<dyn Iterator<Item = Box<dyn AnyData>>>> {
-        info!("inside iterator_any flatmaprdd",);
-        Ok(Box::new(self.iterator(split)?.map(|(k, v)| {
-            Box::new((k, Box::new(v) as Box<dyn AnyData>)) as Box<dyn AnyData>
-        })))
-    }
-}
-
-impl<T: Data, U: Data, F: 'static> Rdd for FlatMapperRdd<T, U, F>
-where
-    F: SerFunc(T) -> Box<dyn Iterator<Item = U>>,
-{
-    type Item = U;
-    fn get_rdd_base(&self) -> Arc<dyn RddBase> {
-        Arc::new(self.clone()) as Arc<dyn RddBase>
-    }
-
-    fn get_rdd(&self) -> Arc<dyn Rdd<Item = Self::Item>> {
-        Arc::new(self.clone())
-    }
-
-    fn compute(&self, split: Box<dyn Split>) -> Result<Box<dyn Iterator<Item = Self::Item>>> {
-        let f = self.f.clone();
-        Ok(Box::new(self.prev.iterator(split)?.flat_map(f)))
+        other: Arc<T>,
+        num_splits: usize,
+    ) -> SerArc<dyn Rdd<Item = Self::Item>>
+    where
+        Self: Clone,
+        Self::Item: Data + Eq + Hash,
+        T: Rdd<Item = Self::Item> + Sized,
+    {
+        let other = other
+            .map(Box::new(Fn!(
+                |x: Self::Item| -> (Self::Item, Option<Self::Item>) { (x, None) }
+            )))
+            .clone();
+        self.map(
+            Box::new(Fn!(
+                    |x| -> (Self::Item, Option<Self::Item>){
+                        (x, None)
+                    }
+                )
+            )
+        ).cogroup(
+            other,
+            Box::new(HashPartitioner::<Self::Item>::new(num_splits)) as Box<dyn Partitioner>
+        ).map(
+            Box::new(
+                Fn!(
+                    |(x, (v1, v2)): (Self::Item, (Vec::<Option<Self::Item>>, Vec::<Option<Self::Item>>))| -> Option<Self::Item> {
+                        if v1.len() >= 1 && v2.len() >= 1 {
+                            Some(x)
+                        } else {
+                            None
+                        }
+                    }
+                )
+            )
+        ).map_partitions(
+            Box::new(
+                Fn!(
+                    |iter: Box<dyn Iterator<Item=Option<Self::Item>>>| -> Box<dyn Iterator<Item=Self::Item>> {
+                        Box::new(
+                            iter.filter(|x| x.is_some()).map(|x| x.unwrap())
+                        ) as Box<dyn Iterator<Item=Self::Item>>
+                    }
+                )
+            )
+        )
     }
 }
 

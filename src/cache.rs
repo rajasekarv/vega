@@ -1,9 +1,8 @@
-use parking_lot::Mutex;
-use serde_derive::{Deserialize, Serialize};
-use std::collections::HashMap;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
-//use toml::ser::Error::KeyNewline;
+
+use dashmap::DashMap;
+use serde_derive::{Deserialize, Serialize};
 
 #[derive(Debug, Serialize, Deserialize)]
 pub enum CachePutResponse {
@@ -18,7 +17,7 @@ pub struct BoundedMemoryCache {
     max_bytes: usize,
     next_key_space_id: Arc<AtomicUsize>,
     current_bytes: usize,
-    map: Arc<Mutex<HashMap<((usize, usize), usize), (Vec<u8>, usize)>>>,
+    map: Arc<DashMap<((usize, usize), usize), (Vec<u8>, usize)>>,
 }
 
 //TODO remove all hardcoded values
@@ -28,7 +27,7 @@ impl BoundedMemoryCache {
             max_bytes: 2000, // in MB
             next_key_space_id: Arc::new(AtomicUsize::new(0)),
             current_bytes: 0,
-            map: Arc::new(Mutex::new(HashMap::new())),
+            map: Arc::new(DashMap::new()),
         }
     }
 
@@ -41,10 +40,9 @@ impl BoundedMemoryCache {
     }
 
     fn get(&self, dataset_id: (usize, usize), partition: usize) -> Option<Vec<u8>> {
-        match self.map.lock().get(&(dataset_id, partition)) {
-            Some(entry) => Some(entry.0.clone()),
-            None => None,
-        }
+        self.map
+            .get(&(dataset_id, partition))
+            .map(|entry| entry.0.clone())
     }
 
     fn put(
@@ -60,18 +58,17 @@ impl BoundedMemoryCache {
             CachePutResponse::CachePutFailure
         } else {
             //TODO ensure free space needs to be done and this needs to be modified
-            self.map.lock().insert(key, (value, size));
+            self.map.insert(key, (value, size));
             CachePutResponse::CachePutSuccess(size)
         }
     }
 
-    fn ensure_free_space(&self, dataset_id: u64, space: u64) -> bool {
+    fn ensure_free_space(&self, _dataset_id: u64, _space: u64) -> bool {
         //TODO logging
-        //        let iter =
         unimplemented!()
     }
 
-    fn report_entry_dropped(data_set_id: usize, partition: usize, entry: (Vec<u8>, usize)) {
+    fn report_entry_dropped(_data_set_id: usize, _partition: usize, _entry: (Vec<u8>, usize)) {
         //TODO loggging
         unimplemented!()
     }

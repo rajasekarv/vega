@@ -1,13 +1,14 @@
+use std::fmt::Display;
+use std::marker::PhantomData;
+use std::net::Ipv4Addr;
+use std::sync::Arc;
+
 use crate::env;
 use crate::rdd::Rdd;
 use crate::serializable_traits::Data;
 use crate::task::{Task, TaskBase, TaskContext};
 use serde_derive::{Deserialize, Serialize};
 use serde_traitobject::{Deserialize, Serialize};
-use std::fmt::{Display, Formatter, Result};
-use std::marker::PhantomData;
-use std::net::Ipv4Addr;
-use std::sync::Arc;
 
 #[derive(Serialize, Deserialize)]
 pub struct ResultTask<T: Data, U: Data, F>
@@ -140,8 +141,6 @@ where
     }
 
     fn generation(&self) -> Option<i64> {
-        let base = self.rdd.get_rdd_base();
-        let context = base.get_context();
         Some(env::Env::get().map_output_tracker.get_generation())
     }
 }

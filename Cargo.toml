@@ -9,47 +9,61 @@ build = "build.rs"
 [lib]
 name = "native_spark"
 
+[features]
+aws_connectors = ["rusoto_core", "rusoto_s3"]
+
 [dependencies]
-actix-web = "1.0.9"
-env_logger = "0.7.1"
+crossbeam = "0.7.3"
+dashmap = "^3.5.1"
+envy = "^0.4.1"
 fasthash = "0.4.0"
-itertools = "0.8.2"
-num_cpus = "1.11.1"
+futures = "0.3"
+hyper = "0.13.4"
+http = "0.2.1"
+itertools = "0.9.0"
+num_cpus = "1.12.0"
 log = "0.4.8"
-reqwest = "0.9.24"
-once_cell = "1.2.0"
+once_cell = "1.3.1"
 parking_lot = { version = "0.10.0", features = ["serde"] }
 simplelog = "0.7.4"
-thiserror = "1.0"
+thiserror = "1.0.13"
 threadpool = "1.7.1"
-toml = "0.5.5"
+toml = "0.5.6"
+tokio = { version = "^0.2", features = ["rt-threaded", "stream", "sync", "time"] }
+tokio-util = { version = "0.3.1", features = ["compat"] }
 uuid = { version = "0.8", features = ["v4"] }
+regex = "1.3.6"
 
 # randomness
-rand = "0.7"
+rand = "0.7.3"
 rand_distr = "0.2"
 rand_pcg = "0.2"
 
 # serialization
 bincode = "1.2.1"
-capnp = "0.11.1"
-serde = { version = "1.0.104", features = ["rc"] }
-serde_closure = "0.2"
-serde_derive = "1.0.104"
+capnp = "0.12.1"
+capnp-futures = "0.12.0"
+serde = { version = "1.0.105", features = ["rc"] }
+serde_closure = "^0.2.9"
+serde_derive = "1.0.105"
+uriparse = "0.6.1"
 
 # dynamic typing
 downcast-rs = "1.1.1"
-objekt = "0.1.2"
-serde_traitobject = "0.2"
+dyn-clone = "1.0.1"
+serde_traitobject = "0.2.4"
 
-[dependencies.clap]
-version = "2.33"
-default-features = false
+# optional features
+## aws
+rusoto_core = { version = "0.43", optional = true }
+rusoto_s3 = { version = "0.43", optional = true }
 
 [build-dependencies]
-capnpc = "0.11.1"
+capnpc = "0.12.1"
 
 [dev-dependencies]
-chrono = "0.4"
+async-std = { version = "1.5.0", features = ["attributes"] } 
+chrono = "0.4.11"
 parquet = "0.15.1"
 tempfile = "3"
+tokio = { version = "^0.2", features = ["macros"] }

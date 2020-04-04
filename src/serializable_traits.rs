@@ -1,4 +1,3 @@
-use objekt;
 use serde_traitobject::{deserialize, serialize, Deserialize, Serialize};
 use std::{
     any,
@@ -35,7 +34,7 @@ impl<
 }
 
 pub trait AnyData:
-    objekt::Clone + any::Any + Send + Sync + fmt::Debug + Serialize + Deserialize + 'static
+    dyn_clone::DynClone + any::Any + Send + Sync + fmt::Debug + Serialize + Deserialize + 'static
 {
     fn as_any(&self) -> &dyn any::Any;
     /// Convert to a `&mut std::any::Any`.
@@ -50,11 +49,18 @@ pub trait AnyData:
     fn into_any_send_sync(self: boxed::Box<Self>) -> boxed::Box<dyn any::Any + Send + Sync>;
 }
 
-objekt::clone_trait_object!(AnyData);
+dyn_clone::clone_trait_object!(AnyData);
 
 // Automatically implementing the Data trait for all types which implements the required traits
 impl<
-        T: objekt::Clone + any::Any + Send + Sync + fmt::Debug + Serialize + Deserialize + 'static,
+        T: dyn_clone::DynClone
+            + any::Any
+            + Send
+            + Sync
+            + fmt::Debug
+            + Serialize
+            + Deserialize
+            + 'static,
     > AnyData for T
 {
     fn as_any(&self) -> &dyn any::Any {
@@ -278,11 +284,11 @@ impl<Args, T> SerFunc<Args> for T where
 }
 
 pub trait Func<Args>:
-    ops::Fn<Args> + Serialize + Deserialize + Send + Sync + 'static + objekt::Clone
+    ops::Fn<Args> + Serialize + Deserialize + Send + Sync + 'static + dyn_clone::DynClone
 {
 }
 impl<T: ?Sized, Args> Func<Args> for T where
-    T: ops::Fn<Args> + Serialize + Deserialize + Send + Sync + 'static + objekt::Clone
+    T: ops::Fn<Args> + Serialize + Deserialize + Send + Sync + 'static + dyn_clone::DynClone
 {
 }
 
@@ -290,7 +296,7 @@ impl<Args: 'static, Output: 'static> std::clone::Clone
     for boxed::Box<dyn Func<Args, Output = Output>>
 {
     fn clone(&self) -> Self {
-        objekt::clone_box(&**self)
+        dyn_clone::clone_box(&**self)
     }
 }
 

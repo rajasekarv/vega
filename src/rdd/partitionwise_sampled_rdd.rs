@@ -6,7 +6,6 @@ use crate::rdd::{Rdd, RddBase, RddVals};
 use crate::serializable_traits::{AnyData, Data};
 use crate::split::Split;
 use crate::utils::random::RandomSampler;
-use log::info;
 use serde_derive::{Deserialize, Serialize};
 use std::marker::PhantomData;
 use std::sync::Arc;
@@ -63,7 +62,7 @@ impl<T: Data> RddBase for PartitionwiseSampledRdd<T> {
     }
 
     fn get_context(&self) -> Arc<Context> {
-        self.vals.context.clone()
+        self.vals.context.upgrade().unwrap()
     }
 
     fn get_dependencies(&self) -> Vec<Dependency> {
@@ -97,7 +96,7 @@ impl<T: Data> RddBase for PartitionwiseSampledRdd<T> {
         &self,
         split: Box<dyn Split>,
     ) -> Result<Box<dyn Iterator<Item = Box<dyn AnyData>>>> {
-        info!("inside PartitionwiseSampledRdd iterator_any");
+        log::debug!("inside PartitionwiseSampledRdd iterator_any");
         Ok(Box::new(
             self.iterator(split)?
                 .map(|x| Box::new(x) as Box<dyn AnyData>),
@@ -110,7 +109,7 @@ impl<T: Data, V: Data> RddBase for PartitionwiseSampledRdd<(T, V)> {
         &self,
         split: Box<dyn Split>,
     ) -> Result<Box<dyn Iterator<Item = Box<dyn AnyData>>>> {
-        info!("inside iterator_any maprdd",);
+        log::debug!("inside PartitionwiseSampledRdd cogroup_iterator_any",);
         Ok(Box::new(self.iterator(split)?.map(|(k, v)| {
             Box::new((k, Box::new(v) as Box<dyn AnyData>)) as Box<dyn AnyData>
         })))

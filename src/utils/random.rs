@@ -1,10 +1,6 @@
-use std::any::Any;
-use std::rc::Rc;
-
 use crate::serializable_traits::Data;
-use downcast_rs::Downcast;
 use rand::{Rng, SeedableRng};
-use rand_distr::{Bernoulli, Distribution, Poisson};
+use rand_distr::{Distribution, Poisson};
 use rand_pcg::Pcg64;
 use serde_derive::{Deserialize, Serialize};
 use serde_traitobject::{Deserialize, Serialize};
@@ -146,7 +142,7 @@ impl<T: Data> RandomSampler<T> for BernoulliSampler {
             };
             let mut rng = get_rng_with_random_seed();
             items
-                .filter(move |item| self.sample(gap_sampling.as_mut(), &mut rng) > 0)
+                .filter(move |_| self.sample(gap_sampling.as_mut(), &mut rng) > 0)
                 .collect()
         })
     }
@@ -239,7 +235,7 @@ pub(crate) fn compute_fraction_for_sample_size(
     total: u64,
     with_replacement: bool,
 ) -> f64 {
-    if (with_replacement) {
+    if with_replacement {
         poisson_bounds::get_upper_bound(sample_size_lower_bound as f64) / total as f64
     } else {
         let fraction = sample_size_lower_bound as f64 / total as f64;

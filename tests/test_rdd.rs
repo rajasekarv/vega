@@ -139,7 +139,7 @@ fn test_take() -> Result<()> {
     assert_eq!(taken_7.len(), 6);
 
     let col2: Vec<i32> = vec![];
-    let col2_rdd = sc.clone().parallelize(col2, 4);
+    let col2_rdd = sc.parallelize(col2, 4);
     let taken_0 = col2_rdd.take(1)?;
     assert!(taken_0.is_empty());
     Ok(())
@@ -195,7 +195,7 @@ fn test_read_files_bytes() -> Result<()> {
     });
 
     let sc = CONTEXT.clone();
-    let files = sc.clone().read_source(
+    let files = sc.read_source(
         LocalFsReaderConfig::new(WORK_DIR.join(TEST_DIR)),
         deserializer,
     );
@@ -234,9 +234,7 @@ fn test_read_files() -> Result<()> {
 fn test_distinct() -> Result<()> {
     use std::collections::HashSet;
     let sc = CONTEXT.clone();
-    let rdd = sc
-        .clone()
-        .parallelize(vec![1, 2, 2, 2, 3, 3, 3, 4, 4, 5], 3);
+    let rdd = sc.parallelize(vec![1, 2, 2, 2, 3, 3, 3, 4, 4, 5], 3);
     assert_eq!(rdd.distinct().collect()?.len(), 5);
     assert_eq!(
         rdd.distinct()
@@ -293,7 +291,7 @@ fn test_partition_wise_sampling() -> Result<()> {
 
     // no replace & Bernoulli + GapSampling
     {
-        let rdd = sc.clone().parallelize((0_i32..100).collect::<Vec<_>>(), 5);
+        let rdd = sc.parallelize((0_i32..100).collect::<Vec<_>>(), 5);
         let result = rdd.take_sample(false, 10, None)?;
         assert!(result.len() == 10);
     }
@@ -394,4 +392,83 @@ fn test_union_with_unique_partitioner() {
     let rdd1 = co_grouped();
     let res = rdd0.union(rdd1.get_rdd()).unwrap().collect().unwrap();
     assert_eq!(res.len(), 8);
+}
+
+#[test]
+fn test_zip() {
+    let sc = CONTEXT.clone();
+    let col1 = vec![1, 2, 3, 4, 5];
+    let col2 = vec![
+        "5a".to_string(),
+        "4b".to_string(),
+        "3c".to_string(),
+        "2d".to_string(),
+        "1a".to_string(),
+    ];
+
+    let first = sc.parallelize(col1, 3);
+    let second = sc.parallelize(col2, 3);
+    let res = first.zip(Arc::new(second)).collect().unwrap();
+
+    let expected = vec![
+        (1, "5a".to_string()),
+        (2, "4b".to_string()),
+        (3, "3c".to_string()),
+        (4, "2d".to_string()),
+        (5, "1a".to_string()),
+    ];
+    assert_eq!(res, expected);
+}
+
+#[test]
+fn test_intersection_with_num_partitions() {
+    let sc = CONTEXT.clone();
+
+    let col1 = vec![1, 2, 3, 4, 5, 10, 12, 13, 19, 0];
+
+    let col2 = vec![3, 4, 5, 6, 7, 8, 11, 13];
+
+    let first = sc.parallelize(col1, 2);
+    let second = sc.parallelize(col2, 4);
+    let mut res = first
+        .intersection_with_num_partitions(Arc::new(second), 3)
+        .collect()
+        .unwrap();
+
+    res.sort();
+
+    let expected = vec![3, 4, 5, 13];
+    assert_eq!(res, expected);
+}
+
+#[test]
+fn test_intersection() {
+    let sc = CONTEXT.clone();
+
+    let col1 = vec![1, 2, 3, 4, 5, 10, 12, 13, 19, 0];
+
+    let col2 = vec![3, 4, 5, 6, 7, 8, 11, 13];
+
+    let first = sc.parallelize(col1, 2);
+    let second = sc.parallelize(col2, 4);
+    let mut res = first.intersection(Arc::new(second)).collect().unwrap();
+
+    res.sort();
+
+    let expected = vec![3, 4, 5, 13];
+    assert_eq!(res, expected);
+}
+
+#[test]
+fn test_count_by_value() -> Result<()> {
+    let sc = CONTEXT.clone();
+
+    let rdd = sc.parallelize(vec![1i32, 2, 1, 2, 2], 2);
+    let rdd = rdd.count_by_value();
+    let res = rdd.collect().unwrap();
+
+    assert_eq!(res.len(), 2);
+    itertools::assert_equal(res, vec![(1, 2), (2, 3)]);
+
+    Ok(())
 }

@@ -1,23 +1,24 @@
+use std::any::Any;
+use std::hash::Hash;
+use std::hash::Hasher;
+use std::marker::PhantomData;
+use std::sync::Arc;
+
 use crate::aggregator::Aggregator;
 use crate::context::Context;
 use crate::dependency::{
     Dependency, NarrowDependencyTrait, OneToOneDependency, ShuffleDependency,
     ShuffleDependencyTrait,
 };
+use crate::env;
 use crate::error::Result;
 use crate::partitioner::Partitioner;
 use crate::rdd::{Rdd, RddBase, RddVals};
 use crate::serializable_traits::{AnyData, Data};
-use crate::shuffle_fetcher::ShuffleFetcher;
+use crate::shuffle::ShuffleFetcher;
 use crate::split::Split;
-use log::info;
+use dashmap::DashMap;
 use serde_derive::{Deserialize, Serialize};
-use std::any::Any;
-use std::collections::HashMap;
-use std::hash::Hash;
-use std::hash::Hasher;
-use std::marker::PhantomData;
-use std::sync::Arc;
 
 #[derive(Clone, Serialize, Deserialize)]
 enum CoGroupSplitDep {
@@ -102,7 +103,7 @@ impl<K: Data + Eq + Hash> CoGroupedRdd<K> {
             ),
         );
         let mut deps = Vec::new();
-        for (index, rdd) in rdds.iter().enumerate() {
+        for (_index, rdd) in rdds.iter().enumerate() {
             let part = part.clone();
             if rdd
                 .partitioner()
@@ -114,7 +115,7 @@ impl<K: Data + Eq + Hash> CoGroupedRdd<K> {
                 ))
             } else {
                 let rdd_base = rdd.clone().into();
-                info!("creating aggregator inside cogrouprdd");
+                log::debug!("creating aggregator inside cogrouprdd");
                 deps.push(Dependency::ShuffleDependency(
                     Arc::new(ShuffleDependency::new(
                         context.new_shuffle_id(),
@@ -143,7 +144,7 @@ impl<K: Data + Eq + Hash> RddBase for CoGroupedRdd<K> {
     }
 
     fn get_context(&self) -> Arc<Context> {
-        self.vals.context.clone()
+        self.vals.context.upgrade().unwrap()
     }
 
     fn get_dependencies(&self) -> Vec<Dependency> {
@@ -151,7 +152,6 @@ impl<K: Data + Eq + Hash> RddBase for CoGroupedRdd<K> {
     }
 
     fn splits(&self) -> Vec<Box<dyn Split>> {
-        let first_rdd = self.rdds[0].clone();
         let mut splits = Vec::new();
         for i in 0..self.part.get_num_of_partitions() {
             splits.push(Box::new(CoGroupSplit::new(
@@ -208,14 +208,15 @@ impl<K: Data + Eq + Hash> Rdd for CoGroupedRdd<K> {
     #[allow(clippy::type_complexity)]
     fn compute(&self, split: Box<dyn Split>) -> Result<Box<dyn Iterator<Item = Self::Item>>> {
         if let Ok(split) = split.downcast::<CoGroupSplit>() {
-            let mut agg: HashMap<K, Vec<Vec<Box<dyn AnyData>>>> = HashMap::new();
+            let agg: Arc<DashMap<K, Vec<Vec<Box<dyn AnyData>>>>> = Arc::new(DashMap::new());
+            let executor = env::Env::get_async_handle();
             for (dep_num, dep) in split.clone().deps.into_iter().enumerate() {
                 match dep {
                     CoGroupSplitDep::NarrowCoGroupSplitDep { rdd, split } => {
-                        info!("inside iterator cogrouprdd  narrow dep");
+                        log::debug!("inside iterator CoGroupedRdd narrow dep");
                         for i in rdd.iterator_any(split)? {
-                            info!(
-                                "inside iterator cogrouprdd  narrow dep iterator any {:?}",
+                            log::debug!(
+                                "inside iterator CoGroupedRdd narrow dep iterator any: {:?}",
                                 i
                             );
                             let b = i
@@ -230,26 +231,27 @@ impl<K: Data + Eq + Hash> Rdd for CoGroupedRdd<K> {
                         }
                     }
                     CoGroupSplitDep::ShuffleCoGroupSplitDep { shuffle_id } => {
-                        info!("inside iterator cogrouprdd  shuffle dep agg {:?}", agg);
-                        let merge_pair = |(k, c): (K, Vec<Box<dyn AnyData>>)| {
-                            let temp = agg
+                        log::debug!("inside iterator CoGroupedRdd shuffle dep, agg: {:?}", agg);
+                        let num_rdds = self.rdds.len();
+                        let agg_clone = agg.clone();
+                        let merge_pair = move |(k, c): (K, Vec<Box<dyn AnyData>>)| {
+                            let mut temp = agg_clone
                                 .entry(k)
-                                .or_insert_with(|| vec![Vec::new(); self.rdds.len()]);
+                                .or_insert_with(|| vec![Vec::new(); num_rdds]);
                             for v in c {
                                 temp[dep_num].push(v);
                             }
                         };
-                        let fetcher = ShuffleFetcher;
 
-                        fetcher.fetch(
-                            self.vals.context.clone(),
-                            shuffle_id,
-                            split.get_index(),
-                            merge_pair,
-                        );
+                        let split_idx = split.get_index();
+                        executor.enter(|| -> Result<()> {
+                            let fut = ShuffleFetcher::fetch(shuffle_id, split_idx, merge_pair);
+                            Ok(futures::executor::block_on(fut)?)
+                        })?;
                     }
                 }
             }
+            let agg = Arc::try_unwrap(agg).unwrap();
             Ok(Box::new(agg.into_iter().map(|(k, v)| (k, v))))
         } else {
             panic!("Got split object from different concrete type other than CoGroupSplit")
