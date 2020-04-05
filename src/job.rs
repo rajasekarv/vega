@@ -24,7 +24,7 @@ impl Job {
     }
 }
 
-// manual ordering implemented because we want the jobs to sorted in reverse order
+// Manual ordering implemented because we want the jobs to be sorted in reverse order.
 impl PartialOrd for Job {
     fn partial_cmp(&self, other: &Job) -> Option<Ordering> {
         Some(other.job_id.cmp(&self.job_id))

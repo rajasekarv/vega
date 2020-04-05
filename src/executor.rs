@@ -117,15 +117,7 @@ impl Executor {
             task_data.get_msg().unwrap().len(),
             start.elapsed().as_millis()
         );
-        // let local_dir_root = "/tmp";
-        // let uuid = Uuid::new_v4();
-        // let local_dir_uuid = uuid.to_string();
-        // let local_dir_path =
-        //     format!("{}/spark-task-{}", local_dir_root, local_dir_uuid);
-        // let local_dir = fs::create_dir_all(local_dir_path.clone()).unwrap();
-        // let task_dir_path =
-        //     format!("{}/spark-task-{}/task", local_dir_root, local_dir_uuid);
-        // let mut f = fs::File::create(task_dir_path.clone()).unwrap();
+        let start = Instant::now();
         let msg = match task_data.get_msg() {
             Ok(s) => {
                 log::debug!("got the task message in executor {}", self.port);
@@ -137,12 +129,6 @@ impl Executor {
             }
         };
         std::mem::drop(task_data);
-        // f.write(msg);
-        // let f = fs::File::open(task_dir_path.clone()).unwrap();
-        // let mut f = fs::File::open(task_dir_path).unwrap();
-        // let mut buffer = vec![0; msg.len()];
-        // f.read(&mut buffer).unwrap();
-        let start = Instant::now();
         let des_task: TaskOption = bincode::deserialize(&msg)?;
         log::debug!(
             "deserialized task at executor @{} with id #{}, deserialization, took {}ms",

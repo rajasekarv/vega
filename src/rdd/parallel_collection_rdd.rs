@@ -51,11 +51,6 @@ impl<T: Data> ParallelCollectionSplit<T> {
         let data = self.values.clone();
         let len = data.len();
         Box::new((0..len).map(move |i| data[i].clone()))
-        //        let res = res.collect::<Vec<_>>();
-        //        let log_output = format!("inside iterator maprdd {:?}", res.get(0));
-        //        env::log_file.lock().write(&log_output.as_bytes());
-        //        Box::new(res.into_iter()) as Box<Iterator<Item = T>>
-        //        Box::new(self.values.clone().into_iter())
     }
 }
 
@@ -122,7 +117,6 @@ impl<T: Data> ParallelCollection<T> {
             let mut slice_count = 0;
             let data: Vec<_> = data.into_iter().collect();
             let data_len = data.len();
-            //let mut start = (count * data.len()) / num_slices;
             let mut end = ((slice_count + 1) * data_len) / num_slices;
             let mut output = Vec::new();
             let mut tmp = Vec::new();
@@ -141,9 +135,6 @@ impl<T: Data> ParallelCollection<T> {
             }
             output.push(Arc::new(tmp.drain(..).collect::<Vec<_>>()));
             output
-            //            data.chunks(num_slices)
-            //                .map(|x| Arc::new(x.to_vec()))
-            //                .collect()
         }
     }
 }
@@ -171,7 +162,6 @@ impl<T: Data> RddBase for ParallelCollection<T> {
         self.rdd_vals.vals.dependencies.clone()
     }
     fn splits(&self) -> Vec<Box<dyn Split>> {
-        //        let slices = self.slice();
         (0..self.rdd_vals.splits_.len())
             .map(|i| {
                 Box::new(ParallelCollectionSplit::new(
@@ -227,5 +217,3 @@ impl<T: Data> Rdd for ParallelCollection<T> {
         }
     }
 }
-
-//impl<K: Data + Eq + Hash, V: Data + Eq + Hash> PairRdd<K, V> for ParallelCollection<(K, V)> {}

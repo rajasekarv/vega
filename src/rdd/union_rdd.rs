@@ -239,7 +239,7 @@ impl<T: Data> RddBase for UnionRdd<T> {
                             parent_locations
                         });
 
-                // Find the location that maximum number of parent partitions prefer
+                // find the location that maximum number of parent partitions prefer
                 let location = match locations.flatten().minmax_by_key(|loc| *loc) {
                     MinMaxResult::MinMax(_, max) => Some(max),
                     MinMaxResult::OneElement(e) => Some(e),

@@ -162,7 +162,11 @@ impl<K: Data + Eq + Hash, V: Data, C: Data> ShuffleDependencyTrait for ShuffleDe
     }
 
     fn do_shuffle_task(&self, rdd_base: Arc<dyn RddBase>, partition: usize) -> String {
-        log::debug!("executing shuffle task for partition #{}", partition);
+        log::debug!(
+            "executing shuffle task #{} for partition #{}",
+            self.shuffle_id,
+            partition
+        );
         let split = rdd_base.splits()[partition].clone();
         let aggregator = self.aggregator.clone();
         let num_output_splits = self.partitioner.get_num_of_partitions();
@@ -217,6 +221,10 @@ impl<K: Data + Eq + Hash, V: Data, C: Data> ShuffleDependencyTrait for ShuffleDe
             );
             env::SHUFFLE_CACHE.insert((self.shuffle_id, partition, i), ser_bytes);
         }
+        log::debug!(
+            "returning shuffle address for shuffle task #{}",
+            self.shuffle_id
+        );
         env::Env::get().shuffle_manager.get_server_uri()
     }
 }
