@@ -36,7 +36,8 @@ const CAPNP_BUF_READ_OPTS: ReaderOptions = ReaderOptions {
     nesting_limit: 64,
 };
 
-//just for now, creating an entire scheduler functions without dag scheduler trait. Later change it to extend from dag scheduler
+// Just for now, creating an entire scheduler functions without dag scheduler trait.
+// Later change it to extend from dag scheduler.
 #[derive(Clone, Default)]
 pub struct DistributedScheduler {
     max_failures: usize,

@@ -22,23 +22,6 @@ pub struct CompletionEvent {
     pub accum_updates: HashMap<i64, Box<dyn Any + Send + Sync>>,
 }
 
-//impl CompletionEvent {
-//    pub fn get_result<T: 'static + Send + Sync + serde_traitobject::Any + Debug>(&mut self) -> T {
-//        if let Some(data) = self.result.take() {
-//            //            let data = data as Box<Any>;
-//            let res: Box<T> = Box::<Any>::downcast(data.into_any()).unwrap();
-//            *res
-//        //            if let Ok(res) = data.downcast::<T>() {
-//        //                *res
-//        //            } else {
-//        //                panic!("unable to downcast to appropriate type");
-//        //            }
-//        } else {
-//            panic!("result seems to empty");
-//        }
-//    }
-//}
-
 pub enum TastEndReason {
     Success,
     FetchFailed(FetchFailedVals),

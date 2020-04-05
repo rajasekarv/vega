@@ -1,7 +1,6 @@
 #![allow(where_clauses_object_safety)]
 use native_spark::*;
-#[macro_use]
-extern crate serde_closure;
+use serde_closure::Fn;
 
 fn main() -> Result<()> {
     let sc = Context::new()?;

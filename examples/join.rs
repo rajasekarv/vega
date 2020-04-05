@@ -21,6 +21,6 @@ fn main() -> Result<()> {
     let col2 = sc.parallelize(col2, 4);
     let inner_joined_rdd = col2.join(col1.clone(), 4);
     let res = inner_joined_rdd.collect().unwrap();
-    println!("res {:?}", res);
+    println!("result: {:?}", res);
     Ok(())
 }

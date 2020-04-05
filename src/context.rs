@@ -27,8 +27,8 @@ use once_cell::sync::OnceCell;
 use simplelog::*;
 use uuid::Uuid;
 
-// There is a problem with this approach since T needs to satisfy PartialEq, Eq for Range.
-// No such restrictions are needed for Vec.
+// There is a problem with this approach since T needs to satisfy PartialEq, Eq for Range
+// No such restrictions are needed for Vec
 pub enum Sequence<T> {
     Range(Range<T>),
     Vec(Vec<T>),

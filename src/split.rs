@@ -1,4 +1,3 @@
-// not necessary I guess
 use downcast_rs::DowncastSync;
 use serde_traitobject::{Deserialize, Serialize};
 
