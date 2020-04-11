@@ -9,9 +9,15 @@ use std::sync::Arc;
 
 #[macro_use]
 extern crate serde_closure;
+
 use once_cell::sync::Lazy;
+use parquet::data_type::Decimal::Int32;
+use parquet::data_type::Int96;
+use std::collections::HashMap;
+use futures::StreamExt;
 
 static CONTEXT: Lazy<Arc<Context>> = Lazy::new(|| Context::new().unwrap());
+//static AGGREGATOR: Lazy<Arc<Aggregator<data,dat1,dat2>>> = Lazy::new(|| Aggregator::new().unwrap());
 static WORK_DIR: Lazy<std::path::PathBuf> = Lazy::new(std::env::temp_dir);
 const TEST_DIR: &str = "ns_test_dir";
 
@@ -40,6 +46,33 @@ fn test_make_rdd() -> Result<()> {
         .map(|i| (0..i).collect::<Vec<_>>())
         .collect::<Vec<_>>();
     assert_eq!(expected, res);
+    Ok(())
+}
+
+#[test]
+fn test_basic_operations() -> Result<()> {
+    let sc = CONTEXT.clone();
+    let nums = sc.make_rdd(vec![1i32, 2, 3, 4], 2);
+    assert_eq!(nums.number_of_splits(), 2);
+    assert_eq!(nums.collect()?, vec![1i32, 2, 3, 4]);
+    //  assert_eq!(nums.iterator()?, vec![1i32,2,3,4]);
+    let dups = sc.make_rdd(vec![1i32, 1, 2, 2, 3, 3, 4, 4], 2);
+    assert_eq!(dups.distinct().count()?, 4);
+    assert_eq!(nums.reduce(Fn!(|x:i32,y:i32| x+y))?, Some(10));
+    assert_eq!(nums.fold(0, Fn!(|x:i32,y:i32| x+y))?, 10);
+    assert_eq!(nums.map(Fn!(|x:i32| x.to_string())).collect()?, vec!["1".to_string(),
+                                                                     "2".to_string(),
+                                                                     "3".to_string(),
+                                                                     "4".to_string()]);
+    //assert_eq!(nums.filter(Fn!(|x:i32| x>2)).collect(),vec![3i32,4])
+    assert_eq!(nums.flat_map(Fn!(|x:i32| Box::new((1..(1+x))) as Box<Iterator<Item=_>>)).collect()?, vec![1i32, 1, 2, 1, 2, 3, 1, 2, 3, 4]);
+    assert_eq!(nums.union(nums.get_rdd())?.collect()?, vec![1i32, 2, 3, 4, 1, 2, 3, 4]);
+    assert_eq!(nums.glom().collect()?, vec![vec![1i32, 2], vec![3i32, 4]]);
+    // assert_eq!(nums.collect(Fn!(|x:i32| x>=3 )).collect()?, vec![3i32,4]); --method not implemented
+    // assert_eq!(nums.gr) -- no keyby implementation
+    //assert_eq!(!nums.isEmpty()) -- no isEmpty
+    // no min, max functions
+
     Ok(())
 }
 
@@ -367,8 +400,14 @@ fn test_union() -> Result<()> {
     assert_eq!(res.len(), 12);
 
     let nums = sc.make_rdd(vec![1i32, 2, 3, 4], 2);
-    assert_eq!(Context::union(&[nums.get_rdd()])?.collect()?,vec![1i32,2,3,4]);
-    assert_eq!(Context::union(&[nums.get_rdd(),nums.get_rdd()])?.collect()?,vec![1i32,2,3,4,1,2,3,4]);
+    assert_eq!(
+        Context::union(&[nums.get_rdd()])?.collect()?,
+        vec![1i32, 2, 3, 4]
+    );
+    assert_eq!(
+        Context::union(&[nums.get_rdd(), nums.get_rdd()])?.collect()?,
+        vec![1i32, 2, 3, 4, 1, 2, 3, 4]
+    );
 
     Ok(())
 }
