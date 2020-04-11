@@ -371,6 +371,19 @@ impl Context {
         self.parallelize(seq, num_slices)
     }
 
+    pub fn range(
+        self: &Arc<Self>,
+        start: u64,
+        end: u64,
+        step: usize,
+        num_slices: usize,
+    ) -> serde_traitobject::Arc<dyn Rdd<Item = u64>>
+    {
+        // TODO: input validity check
+        let seq = (start..=end).step_by(step);
+        self.parallelize(seq, num_slices)
+    }
+
     pub fn parallelize<T: Data, I>(
         self: &Arc<Self>,
         seq: I,
