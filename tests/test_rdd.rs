@@ -479,5 +479,6 @@ fn test_range() {
     let rdd = sc.range(1, 12, 1, 3);
     let res = rdd.collect().unwrap();
 
-    assert_eq!(res.len(), 12);
+    let expected: Vec<_> = (1..=12).collect();
+    assert_eq!(res, expected);
 }
