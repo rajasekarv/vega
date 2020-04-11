@@ -472,3 +472,13 @@ fn test_count_by_value() -> Result<()> {
 
     Ok(())
 }
+
+#[test]
+fn test_range() {
+    let sc = CONTEXT.clone();
+    let rdd = sc.range(1, 12, 1, 3);
+    let res = rdd.collect().unwrap();
+
+    assert_eq!(res.len(), 12);
+
+}
