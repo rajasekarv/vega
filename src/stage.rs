@@ -1,8 +1,7 @@
 use crate::dependency::ShuffleDependencyTrait;
 use crate::rdd::RddBase;
-use log::info;
 use std::cmp::Ordering;
-use std::fmt::{Display, Formatter, Result};
+use std::fmt::Display;
 use std::sync::Arc;
 
 // this is strange. see into this in more detail
@@ -65,7 +64,7 @@ impl Stage {
             rdd: rdd.clone(),
             output_locs: {
                 let mut v = Vec::new();
-                for i in 0..rdd.number_of_splits() {
+                for _ in 0..rdd.number_of_splits() {
                     v.push(Vec::new());
                 }
                 v
@@ -79,7 +78,7 @@ impl Stage {
             true
         } else {
             log::debug!(
-                "num available outputs and num partitions in is available method in stage{} {:?}",
+                "num available outputs {}, and num partitions {}, in is available method in stage",
                 self.num_available_outputs,
                 self.num_partitions
             );
@@ -89,7 +88,7 @@ impl Stage {
 
     pub fn add_output_loc(&mut self, partition: usize, host: String) {
         log::debug!(
-            "adding loc for partition inside stage {} {:?}",
+            "adding loc for partition inside stage {} @{}",
             partition,
             host
         );

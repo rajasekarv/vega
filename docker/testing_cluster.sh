@@ -2,8 +2,8 @@
 SCRIPT_PATH=`dirname $(readlink -f $0)`
 cd $SCRIPT_PATH
 
-# Deploy a testing cluster with one master and 3 workers
-docker-compose up --scale ns_worker=3 -d 
+# Deploy a testing cluster with one master and 2 workers
+docker-compose up --scale ns_worker=2 -d 
 
 # Since we can't resolved domains yet, we have to get each container IP to create the config file
 WORKER_IPS=$(docker-compose ps | grep -oE "docker_ns_worker_[0-9]+" \
@@ -29,12 +29,16 @@ do
     bash -c 'echo "$CONF_FILE" >> hosts.conf && \
     echo "NS_LOCAL_IP=$NS_LOCAL_IP" >> .ssh/environment && \
     echo "PermitUserEnvironment yes" >> /etc/ssh/sshd_config && \
+    echo "AcceptEnv RUST_BACKTRACE" >> /etc/ssh/sshd_config && \
     service ssh start';
     (( count++ ));
 done
 
 docker exec -e CONF_FILE="$CONF_FILE" -e NS_LOCAL_IP="${MASTER_IP}" -w /root/ docker_ns_master_1 \
-    bash -c 'echo "$CONF_FILE" >> hosts.conf && echo "export NS_LOCAL_IP=$NS_LOCAL_IP" >> .bashrc'
+    bash -c 'echo "$CONF_FILE" >> hosts.conf && \
+    echo "export NS_LOCAL_IP=$NS_LOCAL_IP" >> .bashrc &&
+    echo "SendEnv RUST_BACKTRACE" >> ~/.ssh/config
+    ';
 for WORKER_IP in ${WORKER_IPS[@]}
 do
     docker exec docker_ns_master_1 bash -c "ssh-keyscan ${WORKER_IP} >> ~/.ssh/known_hosts"

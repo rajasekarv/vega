@@ -1,8 +1,12 @@
-use downcast_rs::Downcast;
-use serde_derive::{Deserialize, Serialize};
-use serde_traitobject::{Any as SerAny, Arc as SerArc, Box as SerBox, Deserialize, Serialize};
 use std::cmp::Ordering;
 use std::net::Ipv4Addr;
+
+use crate::result_task::ResultTask;
+use crate::serializable_traits::{Data, SerFunc};
+use crate::shuffle::ShuffleMapTask;
+use downcast_rs::Downcast;
+use serde_derive::{Deserialize, Serialize};
+use serde_traitobject::{Deserialize, Serialize};
 
 pub struct TaskContext {
     pub stage_id: usize,
@@ -81,6 +85,21 @@ pub enum TaskOption {
 pub enum TaskResult {
     ResultTask(SerArc<dyn SerAny + Send + Sync>),
     ShuffleTask(SerArc<dyn SerAny + Send + Sync>),
+}
+
+impl<T: Data, U: Data, F> From<ResultTask<T, U, F>> for TaskOption
+where
+    F: SerFunc((TaskContext, Box<dyn Iterator<Item = T>>)) -> U,
+{
+    fn from(t: ResultTask<T, U, F>) -> Self {
+        TaskOption::ResultTask(Box::new(t) as Box<dyn TaskBox>)
+    }
+}
+
+impl From<ShuffleMapTask> for TaskOption {
+    fn from(t: ShuffleMapTask) -> Self {
+        TaskOption::ResultTask(Box::new(t))
+    }
 }
 
 impl TaskOption {

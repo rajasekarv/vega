@@ -2,9 +2,7 @@ use crate::aggregator::Aggregator;
 use crate::env;
 use crate::partitioner::Partitioner;
 use crate::rdd::RddBase;
-use crate::serializable_traits::{AnyData, Data};
-use futures::{Stream, StreamExt};
-use log::info;
+use crate::serializable_traits::Data;
 use serde_derive::{Deserialize, Serialize};
 use serde_traitobject::{Deserialize, Serialize};
 use std::cmp::Ordering;
@@ -166,22 +164,26 @@ impl<K: Data + Eq + Hash, V: Data, C: Data> ShuffleDependencyTrait for ShuffleDe
         self.rdd_base.clone()
     }
 
-    async fn do_shuffle_task(&self, rdd_base: Arc<dyn RddBase>, partition: usize) -> String {
-        log::debug!("doing shuffle_task for partition {}", partition);
+    fn do_shuffle_task(&self, rdd_base: Arc<dyn RddBase>, partition: usize) -> String {
+        log::debug!(
+            "executing shuffle task #{} for partition #{}",
+            self.shuffle_id,
+            partition
+        );
         let split = rdd_base.splits()[partition].clone();
         let aggregator = self.aggregator.clone();
         let num_output_splits = self.partitioner.get_num_of_partitions();
-        log::debug!("is cogroup rdd{}", self.is_cogroup);
-        log::debug!("num of output splits{}", num_output_splits);
+        log::debug!("is cogroup rdd: {}", self.is_cogroup);
+        log::debug!("number of output splits: {}", num_output_splits);
         let partitioner = self.partitioner.clone();
         let mut buckets: Vec<HashMap<K, C>> = (0..num_output_splits)
             .map(|_| HashMap::new())
             .collect::<Vec<_>>();
         log::debug!(
-            "before rdd base iterator in shuffle map task for partition {}",
+            "before iterating while executing shuffle map task for partition #{}",
             partition
         );
-        log::debug!("split index {}", split.get_index());
+        log::debug!("split index: {}", split.get_index());
 
         let mut func = |iter: &mut dyn Iterator<Item = Box<dyn AnyData>>| {
             for (count, i) in iter.enumerate() {
@@ -206,28 +208,43 @@ impl<K: Data + Eq + Hash, V: Data, C: Data> ShuffleDependencyTrait for ShuffleDe
             }
         };
 
-        if self.is_cogroup {
-            let iter = rdd_base.cogroup_iterator_any(split).await.unwrap();
-            func(&mut *iter.lock());
-        } else {
-            let iter = rdd_base.iterator_any(split).await.unwrap();
-            func(&mut *iter.lock());
+        for (count, i) in iter.unwrap().enumerate() {
+            let b = i.into_any().downcast::<(K, V)>().unwrap();
+            let (k, v) = *b;
+            if count == 0 {
+                log::debug!(
+                    "iterating inside dependency map task after downcasting: key: {:?}, value: {:?}",
+                    k,
+                    v
+                );
+            }
+            let bucket_id = partitioner.get_partition(&k);
+            let bucket = &mut buckets[bucket_id];
+            if let Some(old_v) = bucket.get_mut(&k) {
+                let input = ((old_v.clone(), v),);
+                let output = aggregator.merge_value.call(input);
+                *old_v = output;
+            } else {
+                bucket.insert(k, aggregator.create_combiner.call((v,)));
+            }
         }
 
         for (i, bucket) in buckets.into_iter().enumerate() {
             let set: Vec<(K, C)> = bucket.into_iter().collect();
             let ser_bytes = bincode::serialize(&set).unwrap();
             log::debug!(
-                "shuffle dependency map task set in shuffle id, partition,i  {:?} {:?} {:?} {:?} ",
-                set.get(0),
+                "shuffle dependency map task set from bucket #{} in shuffle id #{}, partition #{}: {:?}",
+                i,
                 self.shuffle_id,
                 partition,
-                i
+                set.get(0)
             );
-            env::shuffle_cache
-                .write()
-                .insert((self.shuffle_id, partition, i), ser_bytes);
+            env::SHUFFLE_CACHE.insert((self.shuffle_id, partition, i), ser_bytes);
         }
+        log::debug!(
+            "returning shuffle address for shuffle task #{}",
+            self.shuffle_id
+        );
         env::Env::get().shuffle_manager.get_server_uri()
     }
 }

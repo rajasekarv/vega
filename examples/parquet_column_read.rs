@@ -1,13 +1,11 @@
-#![allow(where_clauses_object_safety)]
-#[macro_use]
-extern crate serde_closure;
-#[macro_use]
-extern crate itertools;
+#![allow(where_clauses_object_safety, clippy::single_component_path_imports)]
 use chrono::prelude::*;
+use itertools::izip;
 use native_spark::*;
 use parquet::column::reader::get_typed_column_reader;
 use parquet::data_type::{ByteArrayType, Int32Type, Int64Type};
 use parquet::file::reader::{FileReader, SerializedFileReader};
+use serde_closure::Fn;
 
 use std::fs::File;
 use std::path::PathBuf;
@@ -24,7 +22,7 @@ fn main() -> Result<()> {
     let sum = files.reduce_by_key(Fn!(|((vl, cl), (vr, cr))| (vl + vr, cl + cr)), 1);
     let avg = sum.map(Fn!(|(k, (v, c))| (k, v as f64 / c)));
     let res = avg.collect().unwrap();
-    println!("{:?}", &res[0]);
+    println!("result: {:?}", &res[0]);
     Ok(())
 }
 
@@ -45,7 +43,7 @@ fn read(file: PathBuf) -> Vec<((i32, String, i64), (i64, f64))> {
         let mut time_reader =
             get_typed_column_reader::<Int64Type>(row_group_reader.get_column_reader(8).unwrap());
         let num_rows = metadata.row_group(i).num_rows() as usize;
-        println!("row group rows {}", num_rows);
+        println!("num group rows: {}", num_rows);
         let mut chunks = vec![];
         let mut batch_count = 0 as usize;
         while batch_count < num_rows {
@@ -57,7 +55,7 @@ fn read(file: PathBuf) -> Vec<((i32, String, i64), (i64, f64))> {
             chunks.push((begin, end));
             batch_count = end;
         }
-        println!("total rows-{} chunks-{:?}", num_rows, chunks);
+        println!("total rows: {}, chunks: {:?}", num_rows, chunks);
         chunks.into_iter().flat_map(move |(begin, end)| {
             let end = end as usize;
             let begin = begin as usize;

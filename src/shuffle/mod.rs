@@ -1,10 +1,6 @@
 use std::result::Result as StdResult;
 
-use http::uri::InvalidUri;
-use hyper::{
-    client::Client, server::conn::AddrIncoming, service::Service, Body, Request, Response, Server,
-    StatusCode, Uri,
-};
+use hyper::{Body, Response, StatusCode};
 use rand::Rng;
 use thiserror::Error;
 
@@ -41,8 +37,8 @@ pub enum ShuffleError {
     #[error("failed to start shuffle server")]
     FailedToStart,
 
-    #[error("failed to find free port: {0}")]
-    FreePortNotFound(u16),
+    #[error(transparent)]
+    NetworkError(#[from] crate::NetworkError),
 
     #[error("not valid request")]
     NotValidRequest,
@@ -79,7 +75,7 @@ impl Into<Response<Body>> for ShuffleError {
 impl ShuffleError {
     fn no_port(&self) -> bool {
         match self {
-            ShuffleError::FreePortNotFound(_) => true,
+            ShuffleError::NetworkError(crate::NetworkError::FreePortNotFound(_, _)) => true,
             _ => false,
         }
     }
@@ -102,7 +98,7 @@ fn get_dynamic_port() -> u16 {
 fn get_free_port() -> u16 {
     use std::net::TcpListener;
 
-    let mut port = 0;
+    let mut port;
     for _ in 0..100 {
         port = get_dynamic_port();
         if TcpListener::bind(format!("127.0.0.1:{}", port)).is_ok() {

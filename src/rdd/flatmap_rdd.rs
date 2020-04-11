@@ -10,16 +10,11 @@ use std::sync::Arc;
 
 use crate::context::Context;
 use crate::dependency::{Dependency, OneToOneDependency};
-use crate::error::{Error, Result};
-use crate::rdd::{AnyDataStream, ComputeResult, Rdd, RddBase, RddVals};
+use crate::error::Result;
+use crate::rdd::{Rdd, RddBase, RddVals};
 use crate::serializable_traits::{AnyData, Data, Func, SerFunc};
 use crate::split::Split;
-use crate::utils;
-use futures::stream::StreamExt;
-use parking_lot::Mutex;
-use rand::Rng;
 use serde_derive::{Deserialize, Serialize};
-use serde_traitobject::{Arc as SerArc, Box as SerBox, Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize)]
 pub struct FlatMapperRdd<T: Data, U: Data, F>
@@ -77,7 +72,7 @@ where
     }
 
     fn get_context(&self) -> Arc<Context> {
-        self.vals.context.clone()
+        self.vals.context.upgrade().unwrap()
     }
 
     fn get_dependencies(&self) -> Vec<Dependency> {

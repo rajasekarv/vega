@@ -1,3 +1,10 @@
+use std::collections::LinkedList;
+use std::collections::{HashMap, HashSet};
+use std::net::{Ipv4Addr, SocketAddr, TcpListener, TcpStream};
+use std::sync::Arc;
+use std::thread;
+use std::time;
+
 use crate::cache::{BoundedMemoryCache, CachePutResponse, KeySpace};
 use crate::env;
 use crate::rdd::Rdd;
@@ -5,15 +12,9 @@ use crate::serializable_traits::Data;
 use crate::serialized_data_capnp::serialized_data;
 use crate::split::Split;
 use capnp::serialize_packed;
-use futures::StreamExt;
+use dashmap::DashMap;
 use parking_lot::RwLock;
 use serde_derive::{Deserialize, Serialize};
-use std::collections::LinkedList;
-use std::collections::{HashMap, HashSet};
-use std::net::{Ipv4Addr, SocketAddr, TcpListener, TcpStream};
-use std::sync::Arc;
-use std::thread;
-use std::time;
 
 // Cache tracker works by creating a server in master node and slave nodes acting as clients
 #[derive(Serialize, Deserialize)]
@@ -56,9 +57,9 @@ pub enum CacheTrackerMessageReply {
 #[derive(Clone, Debug)]
 pub(crate) struct CacheTracker {
     is_master: bool,
-    locs: Arc<RwLock<HashMap<usize, Vec<LinkedList<Ipv4Addr>>>>>,
-    slave_capacity: Arc<RwLock<HashMap<Ipv4Addr, usize>>>,
-    slave_usage: Arc<RwLock<HashMap<Ipv4Addr, usize>>>,
+    locs: Arc<DashMap<usize, Vec<LinkedList<Ipv4Addr>>>>,
+    slave_capacity: Arc<DashMap<Ipv4Addr, usize>>,
+    slave_usage: Arc<DashMap<Ipv4Addr, usize>>,
     registered_rdd_ids: Arc<RwLock<HashSet<usize>>>,
     loading: Arc<RwLock<HashSet<(usize, usize)>>>,
     cache: KeySpace<'static>,
@@ -74,9 +75,9 @@ impl CacheTracker {
     ) -> Self {
         let m = CacheTracker {
             is_master,
-            locs: Arc::new(RwLock::new(HashMap::new())),
-            slave_capacity: Arc::new(RwLock::new(HashMap::new())),
-            slave_usage: Arc::new(RwLock::new(HashMap::new())),
+            locs: Arc::new(DashMap::new()),
+            slave_capacity: Arc::new(DashMap::new()),
+            slave_usage: Arc::new(DashMap::new()),
             registered_rdd_ids: Arc::new(RwLock::new(HashSet::new())),
             loading: Arc::new(RwLock::new(HashSet::new())),
             cache: the_cache.new_key_space(),
@@ -96,17 +97,13 @@ impl CacheTracker {
             continue;
         }
         let mut stream = TcpStream::connect(self.master_addr).unwrap();
-        //        println!(
-        //            "connected to mapoutput tracker {}:{}",
-        //            self.master_ip, self.master_port
-        //        );
         let shuffle_id_bytes = bincode::serialize(&message).unwrap();
-        let mut message = ::capnp::message::Builder::new_default();
+        let mut message = capnp::message::Builder::new_default();
         let mut shuffle_data = message.init_root::<serialized_data::Builder>();
         shuffle_data.set_msg(&shuffle_id_bytes);
-        serialize_packed::write_message(&mut stream, &message);
+        serialize_packed::write_message(&mut stream, &message).unwrap();
 
-        let r = ::capnp::message::ReaderOptions {
+        let r = capnp::message::ReaderOptions {
             traversal_limit_in_words: std::u64::MAX,
             nesting_limit: 64,
         };
@@ -126,12 +123,10 @@ impl CacheTracker {
             let locs = self.locs.clone();
             let slave_capacity = self.slave_capacity.clone();
             let slave_usage = self.slave_usage.clone();
-            let registered_rdd_ids = self.registered_rdd_ids.clone();
-            let loading = self.loading.clone();
             let master_addr = self.master_addr;
             thread::spawn(move || {
+                // TODO: make this use async rt
                 let listener = TcpListener::bind(master_addr).unwrap();
-                //                println!("started mapoutput tracker at {}", port);
                 for stream in listener.incoming() {
                     match stream {
                         Err(_) => continue,
@@ -139,11 +134,9 @@ impl CacheTracker {
                             let locs = locs.clone();
                             let slave_capacity = slave_capacity.clone();
                             let slave_usage = slave_usage.clone();
-                            let registered_rdd_ids = registered_rdd_ids.clone();
-                            let loading = loading.clone();
                             thread::spawn(move || {
                                 //reading
-                                let r = ::capnp::message::ReaderOptions {
+                                let r = capnp::message::ReaderOptions {
                                     traversal_limit_in_words: std::u64::MAX,
                                     nesting_limit: 64,
                                 };
@@ -161,15 +154,15 @@ impl CacheTracker {
                                 //TODO logging
                                 let reply = match message {
                                     CacheTrackerMessage::SlaveCacheStarted { host, size } => {
-                                        slave_capacity.write().insert(host.clone(), size);
-                                        slave_usage.write().insert(host, 0);
+                                        slave_capacity.insert(host.clone(), size);
+                                        slave_usage.insert(host, 0);
                                         CacheTrackerMessageReply::Ok
                                     }
                                     CacheTrackerMessage::RegisterRdd {
                                         rdd_id,
                                         num_partitions,
                                     } => {
-                                        locs.write().insert(
+                                        locs.insert(
                                             rdd_id,
                                             (0..num_partitions)
                                                 .map(|_| LinkedList::new())
@@ -184,7 +177,7 @@ impl CacheTracker {
                                         size,
                                     } => {
                                         if size > 0 {
-                                            slave_usage.write().insert(
+                                            slave_usage.insert(
                                                 host.clone(),
                                                 CacheTracker::get_cache_usage(
                                                     slave_usage.clone(),
@@ -194,7 +187,7 @@ impl CacheTracker {
                                         } else {
                                             //TODO logging
                                         }
-                                        if let Some(locs_rdd) = locs.write().get_mut(&rdd_id) {
+                                        if let Some(mut locs_rdd) = locs.get_mut(&rdd_id) {
                                             if let Some(locs_rdd_p) = locs_rdd.get_mut(partition) {
                                                 locs_rdd_p.push_front(host);
                                             }
@@ -212,10 +205,9 @@ impl CacheTracker {
                                                 slave_usage.clone(),
                                                 host,
                                             ) - size;
-                                            slave_usage.write().insert(host.clone(), remaining);
+                                            slave_usage.insert(host.clone(), remaining);
                                         }
                                         let remaining_locs = locs
-                                            .read()
                                             .get(&rdd_id)
                                             .unwrap()
                                             .get(partition)
@@ -224,7 +216,7 @@ impl CacheTracker {
                                             .filter(|x| *x == &host)
                                             .copied()
                                             .collect();
-                                        if let Some(locs_r) = locs.write().get_mut(&rdd_id) {
+                                        if let Some(mut locs_r) = locs.get_mut(&rdd_id) {
                                             if let Some(locs_p) = locs_r.get_mut(partition) {
                                                 *locs_p = remaining_locs;
                                             }
@@ -234,17 +226,19 @@ impl CacheTracker {
                                     //TODO memory cache lost needs to be implemented
                                     CacheTrackerMessage::GetCacheLocations => {
                                         let locs_clone = locs
-                                            .read()
                                             .iter()
-                                            .map(|(k, v)| (*k, v.clone()))
+                                            .map(|kv| {
+                                                let (k, v) = (kv.key(), kv.value());
+                                                (*k, v.clone())
+                                            })
                                             .collect();
                                         CacheTrackerMessageReply::CacheLocations(locs_clone)
                                     }
                                     CacheTrackerMessage::GetCacheStatus => {
                                         let status = slave_capacity
-                                            .read()
                                             .iter()
-                                            .map(|(host, capacity)| {
+                                            .map(|kv| {
+                                                let (host, capacity) = (kv.key(), kv.value());
                                                 (
                                                     *host,
                                                     *capacity,
@@ -260,10 +254,10 @@ impl CacheTracker {
                                     _ => CacheTrackerMessageReply::Ok,
                                 };
                                 let result = bincode::serialize(&reply).unwrap();
-                                let mut message = ::capnp::message::Builder::new_default();
+                                let mut message = capnp::message::Builder::new_default();
                                 let mut locs_data = message.init_root::<serialized_data::Builder>();
                                 locs_data.set_msg(&result);
-                                serialize_packed::write_message(&mut stream, &message);
+                                serialize_packed::write_message(&mut stream, &message).unwrap();
                             });
                         }
                     }
@@ -272,21 +266,18 @@ impl CacheTracker {
         }
     }
 
-    pub fn get_cache_usage(
-        slave_usage: Arc<RwLock<HashMap<Ipv4Addr, usize>>>,
-        host: Ipv4Addr,
-    ) -> usize {
-        match slave_usage.read().get(&host) {
+    pub fn get_cache_usage(slave_usage: Arc<DashMap<Ipv4Addr, usize>>, host: Ipv4Addr) -> usize {
+        match slave_usage.get(&host) {
             Some(s) => *s,
             None => 0,
         }
     }
 
     pub fn get_cache_capacity(
-        slave_capacity: Arc<RwLock<HashMap<Ipv4Addr, usize>>>,
+        slave_capacity: Arc<DashMap<Ipv4Addr, usize>>,
         host: Ipv4Addr,
     ) -> usize {
-        match slave_capacity.read().get(&host) {
+        match slave_capacity.get(&host) {
             Some(s) => *s,
             None => 0,
         }
@@ -346,10 +337,8 @@ impl CacheTracker {
             }
             self.loading.write().insert(key);
 
-            let mut res: Vec<T> = Vec::new();
             let mut lock = self.loading.write();
-            let mut computation = rdd.compute(split.clone()).await.unwrap();
-            res = computation.lock().into_iter().collect();
+            let res: Vec<_> = rdd.compute(split.clone()).unwrap().collect();
             let res_bytes = bincode::serialize(&res).unwrap();
             let put_response = self
                 .cache

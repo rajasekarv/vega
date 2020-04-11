@@ -14,9 +14,6 @@ use crate::rdd::{
 };
 use crate::serializable_traits::{AnyData, Data, Func, SerFunc};
 use crate::split::Split;
-use futures::stream::StreamExt;
-use log::info;
-use parking_lot::Mutex;
 use serde_derive::{Deserialize, Serialize};
 use serde_traitobject::{Arc as SerArc, Deserialize, Serialize};
 
@@ -242,7 +239,7 @@ where
     }
 
     fn get_context(&self) -> Arc<Context> {
-        self.vals.context.clone()
+        self.vals.context.upgrade().unwrap()
     }
 
     fn get_dependencies(&self) -> Vec<Dependency> {
@@ -292,7 +289,8 @@ where
             prev_iter
                 .into_iter()
                 .map(move |(k, v)| (k, f(v)))
-                .collect::<Vec<_>>().into_iter(),
+                .collect::<Vec<_>>()
+                .into_iter(),
         )))
     }
 }
@@ -359,7 +357,7 @@ where
     }
 
     fn get_context(&self) -> Arc<Context> {
-        self.vals.context.clone()
+        self.vals.context.upgrade().unwrap()
     }
 
     fn get_dependencies(&self) -> Vec<Dependency> {

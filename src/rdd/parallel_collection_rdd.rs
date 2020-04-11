@@ -1,8 +1,5 @@
 //! This module implements parallel collection RDD for dividing the input collection for parallel processing.
-
-use std::hash::Hash;
-use std::pin::Pin;
-use std::sync::Arc;
+use std::sync::{Arc, Weak};
 
 use crate::context::Context;
 use crate::dependency::Dependency;
@@ -10,8 +7,6 @@ use crate::error::Result;
 use crate::rdd::{AnyDataStream, ComputeResult, Rdd, RddBase, RddVals};
 use crate::serializable_traits::{AnyData, Data};
 use crate::split::Split;
-use log::info;
-use parking_lot::Mutex;
 use serde_derive::{Deserialize, Serialize};
 
 /// A collection of objects which can be sliced into partitions with a partitioning function.
@@ -63,8 +58,7 @@ impl<T: Data> ParallelCollectionSplit<T> {
 pub struct ParallelCollectionVals<T> {
     vals: Arc<RddVals>,
     #[serde(skip_serializing, skip_deserializing)]
-    context: Arc<Context>,
-    //    data: Option<Vec<T>>,
+    context: Weak<Context>,
     splits_: Vec<Arc<Vec<T>>>,
     num_slices: usize,
 }
@@ -83,11 +77,14 @@ impl<T: Data> Clone for ParallelCollection<T> {
 }
 
 impl<T: Data> ParallelCollection<T> {
-    pub fn new(context: Arc<Context>, data: Vec<T>, num_slices: usize) -> Self {
+    pub fn new<I>(context: Arc<Context>, data: I, num_slices: usize) -> Self
+    where
+        I: IntoIterator<Item = T>,
+    {
         ParallelCollection {
             rdd_vals: Arc::new(ParallelCollectionVals {
+                context: Arc::downgrade(&context),
                 vals: Arc::new(RddVals::new(context.clone())),
-                context,
                 splits_: ParallelCollection::slice(data, num_slices),
                 num_slices,
             }),
@@ -100,8 +97,8 @@ impl<T: Data> ParallelCollection<T> {
     {
         let splits_ = data.slice();
         let rdd_vals = ParallelCollectionVals {
+            context: Arc::downgrade(&context),
             vals: Arc::new(RddVals::new(context.clone())),
-            context,
             num_slices: splits_.len(),
             splits_,
         };
@@ -120,7 +117,6 @@ impl<T: Data> ParallelCollection<T> {
             let mut slice_count = 0;
             let data: Vec<_> = data.into_iter().collect();
             let data_len = data.len();
-            //let mut start = (count * data.len()) / num_slices;
             let mut end = ((slice_count + 1) * data_len) / num_slices;
             let mut output = Vec::new();
             let mut tmp = Vec::new();
@@ -139,9 +135,6 @@ impl<T: Data> ParallelCollection<T> {
             }
             output.push(Arc::new(tmp.drain(..).collect::<Vec<_>>()));
             output
-            //            data.chunks(num_slices)
-            //                .map(|x| Arc::new(x.to_vec()))
-            //                .collect()
         }
     }
 }
@@ -159,13 +152,12 @@ impl<T: Data> RddBase for ParallelCollection<T> {
         self.rdd_vals.vals.id
     }
     fn get_context(&self) -> Arc<Context> {
-        self.rdd_vals.vals.context.clone()
+        self.rdd_vals.vals.context.upgrade().unwrap()
     }
     fn get_dependencies(&self) -> Vec<Dependency> {
         self.rdd_vals.vals.dependencies.clone()
     }
     fn splits(&self) -> Vec<Box<dyn Split>> {
-        //        let slices = self.slice();
         (0..self.rdd_vals.splits_.len())
             .map(|i| {
                 Box::new(ParallelCollectionSplit::new(

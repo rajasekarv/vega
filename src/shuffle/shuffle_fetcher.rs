@@ -1,23 +1,13 @@
 use std::collections::HashMap;
 use std::convert::TryFrom;
-use std::future::Future;
-use std::io::Read;
-use std::pin::Pin;
 use std::sync::{atomic, atomic::AtomicBool, Arc};
 
-use crate::context::Context;
 use crate::env;
-use crate::error::StdResult;
 use crate::serializable_traits::Data;
 use crate::shuffle::*;
 use futures::future;
-use hyper::{
-    client::Client, server::conn::AddrIncoming, service::Service, Body, Request, Response, Server,
-    StatusCode, Uri,
-};
-use log::info;
-use parking_lot::Mutex;
-use threadpool::ThreadPool;
+use hyper::{client::Client, Uri};
+use tokio::sync::Mutex;
 
 /// Parallel shuffle fetcher.
 pub(crate) struct ShuffleFetcher;
@@ -28,9 +18,6 @@ impl ShuffleFetcher {
         reduce_id: usize,
         mut func: impl FnMut((K, V)) -> (),
     ) -> Result<()> {
-        use tokio::sync::mpsc;
-        use tokio::sync::Mutex;
-
         log::debug!("inside fetch function");
         let mut inputs_by_uri = HashMap::new();
         let server_uris = env::Env::get()
@@ -71,7 +58,7 @@ impl ShuffleFetcher {
                 let client = Client::builder().http2_only(true).build_http::<Body>();
                 let mut lock = server_queue.lock().await;
                 if let Some((server_uri, input_ids)) = lock.pop() {
-                    let mut server_uri = format!("{}/shuffle/{}", server_uri, shuffle_id);
+                    let server_uri = format!("{}/shuffle/{}", server_uri, shuffle_id);
                     let mut chunk_uri_str = String::with_capacity(server_uri.len() + 12);
                     chunk_uri_str.push_str(&server_uri);
                     let mut shuffle_chunks = Vec::with_capacity(input_ids.len());
@@ -147,7 +134,6 @@ impl ShuffleFetcher {
         if chunk.len() == base.len() {
             chunk.push_str(&path_tail);
         } else {
-            //chunk.drain((chunk.len() - base.len())..);
             chunk.replace_range(base.len().., &path_tail);
         }
         Ok(Uri::try_from(chunk.as_str())?)
@@ -165,13 +151,12 @@ mod tests {
         ShuffleManager::start_server(Some(port))?;
         {
             let addr = format!("http://127.0.0.1:{}", port);
-            let mut servers = env::Env::get().map_output_tracker.server_uris.write();
+            let servers = &env::Env::get().map_output_tracker.server_uris;
             servers.insert(0, vec![Some(addr)]);
 
             let data = vec![(0i32, "example data".to_string())];
             let serialized_data = bincode::serialize(&data).unwrap();
-            let mut cache = env::shuffle_cache.write();
-            cache.insert((0, 0, 0), serialized_data);
+            env::SHUFFLE_CACHE.insert((0, 0, 0), serialized_data);
         }
 
         let test_func = |(k, v): (i32, String)| {
@@ -189,13 +174,12 @@ mod tests {
         ShuffleManager::start_server(Some(port))?;
         {
             let addr = format!("http://127.0.0.1:{}", port);
-            let mut servers = env::Env::get().map_output_tracker.server_uris.write();
+            let servers = &env::Env::get().map_output_tracker.server_uris;
             servers.insert(1, vec![Some(addr)]);
 
             let data = "corrupted data";
             let serialized_data = bincode::serialize(&data).unwrap();
-            let mut cache = env::shuffle_cache.write();
-            cache.insert((1, 0, 0), serialized_data);
+            env::SHUFFLE_CACHE.insert((1, 0, 0), serialized_data);
         }
 
         let test_func = |(_k, _v): (i32, String)| {};

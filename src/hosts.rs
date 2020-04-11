@@ -3,7 +3,7 @@ use std::path::Path;
 
 use crate::error::{Error, Result};
 use once_cell::sync::OnceCell;
-use serde_derive::{Deserialize, Serialize};
+use serde_derive::Deserialize;
 
 static HOSTS: OnceCell<Hosts> = OnceCell::new();
 

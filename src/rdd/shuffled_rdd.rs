@@ -1,21 +1,18 @@
-use std::collections::HashMap;
 use std::hash::Hash;
-use std::pin::Pin;
 use std::sync::Arc;
 use std::time::Instant;
 
 use crate::aggregator::Aggregator;
 use crate::context::Context;
 use crate::dependency::{Dependency, ShuffleDependency};
-use crate::error::{Error, Result};
+use crate::env;
+use crate::error::Result;
 use crate::partitioner::Partitioner;
 use crate::rdd::{AnyDataStream, ComputeResult, Rdd, RddBase, RddVals};
 use crate::serializable_traits::{AnyData, Data};
 use crate::shuffle::ShuffleFetcher;
 use crate::split::Split;
-use futures::{FutureExt, Stream, StreamExt};
-use log::info;
-use parking_lot::Mutex;
+use dashmap::DashMap;
 use serde_derive::{Deserialize, Serialize};
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -65,8 +62,9 @@ impl<K: Data + Eq + Hash, V: Data, C: Data> ShuffledRdd<K, V, C> {
         aggregator: Arc<Aggregator<K, V, C>>,
         part: Box<dyn Partitioner>,
     ) -> Self {
-        let mut vals = RddVals::new(parent.get_context());
-        let shuffle_id = vals.context.new_shuffle_id();
+        let ctx = parent.get_context();
+        let shuffle_id = ctx.new_shuffle_id();
+        let mut vals = RddVals::new(ctx);
 
         vals.dependencies
             .push(Dependency::ShuffleDependency(Arc::new(
@@ -96,7 +94,7 @@ impl<K: Data + Eq + Hash, V: Data, C: Data> RddBase for ShuffledRdd<K, V, C> {
     }
 
     fn get_context(&self) -> Arc<Context> {
-        self.vals.context.clone()
+        self.vals.context.upgrade().unwrap()
     }
 
     fn get_dependencies(&self) -> Vec<Dependency> {
@@ -142,15 +140,17 @@ impl<K: Data + Eq + Hash, V: Data, C: Data> Rdd for ShuffledRdd<K, V, C> {
 
     async fn compute(&self, split: Box<dyn Split>) -> Result<ComputeResult<Self::Item>> {
         log::debug!("compute inside shuffled rdd");
-        let mut combiners: HashMap<K, Option<C>> = HashMap::new();
-        let merge_pair = |(k, c): (K, C)| {
-            if let Some(old_c) = combiners.get_mut(&k) {
+        let combiners: Arc<DashMap<K, Option<C>>> = Arc::new(DashMap::new());
+        let comb_clone = combiners.clone();
+        let agg = self.aggregator.clone();
+        let merge_pair = move |(k, c): (K, C)| {
+            if let Some(mut old_c) = comb_clone.get_mut(&k) {
                 let old = old_c.take().unwrap();
                 let input = ((old, c),);
-                let output = self.aggregator.merge_combiners.call(input);
+                let output = agg.merge_combiners.call(input);
                 *old_c = Some(output);
             } else {
-                combiners.insert(k, Some(c));
+                comb_clone.insert(k, Some(c));
             }
         };
 

@@ -1,9 +1,7 @@
 use std::any::Any;
-use std::collections::HashMap;
 use std::hash::Hash;
 use std::hash::Hasher;
 use std::marker::PhantomData;
-use std::pin::Pin;
 use std::sync::Arc;
 
 use crate::aggregator::Aggregator;
@@ -12,15 +10,14 @@ use crate::dependency::{
     Dependency, NarrowDependencyTrait, OneToOneDependency, ShuffleDependency,
     ShuffleDependencyTrait,
 };
+use crate::env;
 use crate::error::Result;
 use crate::partitioner::Partitioner;
 use crate::rdd::{AnyDataStream, ComputeResult, Rdd, RddBase, RddVals};
 use crate::serializable_traits::{AnyData, Data};
 use crate::shuffle::ShuffleFetcher;
 use crate::split::Split;
-use futures::stream::StreamExt;
-use log::info;
-use parking_lot::Mutex;
+use dashmap::DashMap;
 use serde_derive::{Deserialize, Serialize};
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -106,7 +103,7 @@ impl<K: Data + Eq + Hash> CoGroupedRdd<K> {
             ),
         );
         let mut deps = Vec::new();
-        for (index, rdd) in rdds.iter().enumerate() {
+        for (_index, rdd) in rdds.iter().enumerate() {
             let part = part.clone();
             if rdd
                 .partitioner()
@@ -148,7 +145,7 @@ impl<K: Data + Eq + Hash> RddBase for CoGroupedRdd<K> {
     }
 
     fn get_context(&self) -> Arc<Context> {
-        self.vals.context.clone()
+        self.vals.context.upgrade().unwrap()
     }
 
     fn get_dependencies(&self) -> Vec<Dependency> {
@@ -156,7 +153,6 @@ impl<K: Data + Eq + Hash> RddBase for CoGroupedRdd<K> {
     }
 
     fn splits(&self) -> Vec<Box<dyn Split>> {
-        let first_rdd = self.rdds[0].clone();
         let mut splits = Vec::new();
         for i in 0..self.part.get_num_of_partitions() {
             splits.push(Box::new(CoGroupSplit::new(
@@ -208,7 +204,8 @@ impl<K: Data + Eq + Hash> Rdd for CoGroupedRdd<K> {
 
     async fn compute(&self, split: Box<dyn Split>) -> Result<ComputeResult<Self::Item>> {
         if let Ok(split) = split.downcast::<CoGroupSplit>() {
-            let mut agg: HashMap<K, Vec<Vec<Box<dyn AnyData>>>> = HashMap::new();
+            let agg: Arc<DashMap<K, Vec<Vec<Box<dyn AnyData>>>>> = Arc::new(DashMap::new());
+            let executor = env::Env::get_async_handle();
             for (dep_num, dep) in split.clone().deps.into_iter().enumerate() {
                 match dep {
                     CoGroupSplitDep::NarrowCoGroupSplitDep { rdd, split } => {
@@ -235,11 +232,13 @@ impl<K: Data + Eq + Hash> Rdd for CoGroupedRdd<K> {
                             });
                     }
                     CoGroupSplitDep::ShuffleCoGroupSplitDep { shuffle_id } => {
-                        log::debug!("inside iterator cogrouprdd  shuffle dep agg {:?}", agg);
-                        let merge_pair = |(k, c): (K, Vec<Box<dyn AnyData>>)| {
-                            let temp = agg
+                        log::debug!("inside iterator CoGroupedRdd shuffle dep, agg: {:?}", agg);
+                        let num_rdds = self.rdds.len();
+                        let agg_clone = agg.clone();
+                        let merge_pair = move |(k, c): (K, Vec<Box<dyn AnyData>>)| {
+                            let mut temp = agg_clone
                                 .entry(k)
-                                .or_insert_with(|| vec![Vec::new(); self.rdds.len()]);
+                                .or_insert_with(|| vec![Vec::new(); num_rdds]);
                             for v in c {
                                 temp[dep_num].push(v);
                             }

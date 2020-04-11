@@ -393,3 +393,82 @@ fn test_union_with_unique_partitioner() {
     let res = rdd0.union(rdd1.get_rdd()).unwrap().collect().unwrap();
     assert_eq!(res.len(), 8);
 }
+
+#[test]
+fn test_zip() {
+    let sc = CONTEXT.clone();
+    let col1 = vec![1, 2, 3, 4, 5];
+    let col2 = vec![
+        "5a".to_string(),
+        "4b".to_string(),
+        "3c".to_string(),
+        "2d".to_string(),
+        "1a".to_string(),
+    ];
+
+    let first = sc.parallelize(col1, 3);
+    let second = sc.parallelize(col2, 3);
+    let res = first.zip(Arc::new(second)).collect().unwrap();
+
+    let expected = vec![
+        (1, "5a".to_string()),
+        (2, "4b".to_string()),
+        (3, "3c".to_string()),
+        (4, "2d".to_string()),
+        (5, "1a".to_string()),
+    ];
+    assert_eq!(res, expected);
+}
+
+#[test]
+fn test_intersection_with_num_partitions() {
+    let sc = CONTEXT.clone();
+
+    let col1 = vec![1, 2, 3, 4, 5, 10, 12, 13, 19, 0];
+
+    let col2 = vec![3, 4, 5, 6, 7, 8, 11, 13];
+
+    let first = sc.parallelize(col1, 2);
+    let second = sc.parallelize(col2, 4);
+    let mut res = first
+        .intersection_with_num_partitions(Arc::new(second), 3)
+        .collect()
+        .unwrap();
+
+    res.sort();
+
+    let expected = vec![3, 4, 5, 13];
+    assert_eq!(res, expected);
+}
+
+#[test]
+fn test_intersection() {
+    let sc = CONTEXT.clone();
+
+    let col1 = vec![1, 2, 3, 4, 5, 10, 12, 13, 19, 0];
+
+    let col2 = vec![3, 4, 5, 6, 7, 8, 11, 13];
+
+    let first = sc.parallelize(col1, 2);
+    let second = sc.parallelize(col2, 4);
+    let mut res = first.intersection(Arc::new(second)).collect().unwrap();
+
+    res.sort();
+
+    let expected = vec![3, 4, 5, 13];
+    assert_eq!(res, expected);
+}
+
+#[test]
+fn test_count_by_value() -> Result<()> {
+    let sc = CONTEXT.clone();
+
+    let rdd = sc.parallelize(vec![1i32, 2, 1, 2, 2], 2);
+    let rdd = rdd.count_by_value();
+    let res = rdd.collect().unwrap();
+
+    assert_eq!(res.len(), 2);
+    itertools::assert_equal(res, vec![(1, 2), (2, 3)]);
+
+    Ok(())
+}

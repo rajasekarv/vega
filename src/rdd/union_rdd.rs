@@ -1,4 +1,3 @@
-use std::any::Any;
 use std::net::Ipv4Addr;
 use std::pin::Pin;
 use std::sync::Arc;
@@ -205,8 +204,8 @@ impl<T: Data> RddBase for UnionRdd<T> {
 
     fn get_context(&self) -> Arc<Context> {
         match &self.0 {
-            NonUniquePartitioner { vals, .. } => vals.context.clone(),
-            PartitionerAware { vals, .. } => vals.context.clone(),
+            NonUniquePartitioner { vals, .. } => vals.context.upgrade().unwrap(),
+            PartitionerAware { vals, .. } => vals.context.upgrade().unwrap(),
         }
     }
 
@@ -228,7 +227,7 @@ impl<T: Data> RddBase for UnionRdd<T> {
 
                 let split = &*split
                     .downcast::<PartitionerAwareUnionSplit>()
-                    .or(Err(Error::SplitDowncast("UnionSplit")))
+                    .or(Err(Error::DowncastFailure("UnionSplit")))
                     .unwrap();
 
                 let locations =
@@ -244,7 +243,7 @@ impl<T: Data> RddBase for UnionRdd<T> {
                             parent_locations
                         });
 
-                // Find the location that maximum number of parent partitions prefer
+                // find the location that maximum number of parent partitions prefer
                 let location = match locations.flatten().minmax_by_key(|loc| *loc) {
                     MinMaxResult::MinMax(_, max) => Some(max),
                     MinMaxResult::OneElement(e) => Some(e),
@@ -283,7 +282,7 @@ impl<T: Data> RddBase for UnionRdd<T> {
                     }) as Box<dyn Split>
                 })
                 .collect(),
-            PartitionerAware { rdds, part, .. } => {
+            PartitionerAware { part, .. } => {
                 let num_partitions = part.get_num_of_partitions();
                 (0..num_partitions)
                     .map(|idx| Box::new(PartitionerAwareUnionSplit { idx }) as Box<dyn Split>)

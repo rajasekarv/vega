@@ -1,9 +1,8 @@
-#![allow(where_clauses_object_safety)]
+#![allow(where_clauses_object_safety, clippy::single_component_path_imports)]
+use chrono::prelude::*;
 use native_spark::io::*;
 use native_spark::*;
-#[macro_use]
-extern crate serde_closure;
-use chrono::prelude::*;
+use serde_closure::Fn;
 
 fn main() -> Result<()> {
     let context = Context::new()?;
@@ -30,6 +29,6 @@ fn main() -> Result<()> {
     let sum = line.reduce_by_key(Fn!(|((vl, cl), (vr, cr))| (vl + vr, cl + cr)), 1);
     let avg = sum.map(Fn!(|(k, (v, c))| (k, v as f64 / c)));
     let res = avg.collect().unwrap();
-    println!("{:?}", &res[0]);
+    println!("result: {:?}", &res[0]);
     Ok(())
 }
