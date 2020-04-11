@@ -5,8 +5,9 @@ use crate::context::Context;
 use crate::dependency::Dependency;
 use crate::error::Result;
 use crate::rdd::{AnyDataStream, ComputeResult, Rdd, RddBase, RddVals};
-use crate::serializable_traits::{AnyData, Data};
+use crate::serializable_traits::Data;
 use crate::split::Split;
+use parking_lot::Mutex;
 use serde_derive::{Deserialize, Serialize};
 
 /// A collection of objects which can be sliced into partitions with a partitioning function.
@@ -197,8 +198,7 @@ impl<T: Data> Rdd for ParallelCollection<T> {
 
     async fn compute(&self, split: Box<dyn Split>) -> Result<ComputeResult<Self::Item>> {
         if let Some(split) = split.downcast_ref::<ParallelCollectionSplit<T>>() {
-            let iter = split.iterator();
-            Ok(Arc::new(Mutex::new(iter)))
+            Ok(Arc::new(Mutex::new(split.iterator())))
         } else {
             panic!(
                 "Got split object from different concrete type other than ParallelCollectionSplit"

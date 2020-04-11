@@ -10,7 +10,6 @@ use crate::dependency::{
     Dependency, NarrowDependencyTrait, OneToOneDependency, ShuffleDependency,
     ShuffleDependencyTrait,
 };
-use crate::env;
 use crate::error::Result;
 use crate::partitioner::Partitioner;
 use crate::rdd::{AnyDataStream, ComputeResult, Rdd, RddBase, RddVals};
@@ -18,6 +17,7 @@ use crate::serializable_traits::{AnyData, Data};
 use crate::shuffle::ShuffleFetcher;
 use crate::split::Split;
 use dashmap::DashMap;
+use parking_lot::Mutex;
 use serde_derive::{Deserialize, Serialize};
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -205,7 +205,6 @@ impl<K: Data + Eq + Hash> Rdd for CoGroupedRdd<K> {
     async fn compute(&self, split: Box<dyn Split>) -> Result<ComputeResult<Self::Item>> {
         if let Ok(split) = split.downcast::<CoGroupSplit>() {
             let agg: Arc<DashMap<K, Vec<Vec<Box<dyn AnyData>>>>> = Arc::new(DashMap::new());
-            let executor = env::Env::get_async_handle();
             for (dep_num, dep) in split.clone().deps.into_iter().enumerate() {
                 match dep {
                     CoGroupSplitDep::NarrowCoGroupSplitDep { rdd, split } => {
@@ -243,10 +242,11 @@ impl<K: Data + Eq + Hash> Rdd for CoGroupedRdd<K> {
                                 temp[dep_num].push(v);
                             }
                         };
-                        ShuffleFetcher::fetch(shuffle_id, split.get_index(), merge_pair).await;
+                        ShuffleFetcher::fetch(shuffle_id, split.get_index(), merge_pair).await?;
                     }
                 }
             }
+            let agg = Arc::try_unwrap(agg).unwrap();
             Ok(Arc::new(Mutex::new(agg.into_iter().map(|(k, v)| (k, v)))))
         } else {
             panic!("Got split object from different concrete type other than CoGroupSplit")

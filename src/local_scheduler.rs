@@ -197,7 +197,7 @@ impl LocalScheduler {
             .collect())
     }
 
-    fn run_task<T: Data, U: Data, F>(
+    async fn run_task<T: Data, U: Data, F>(
         event_queues: Arc<DashMap<usize, VecDeque<CompletionEvent>>>,
         task: Vec<u8>,
         _id_in_job: usize,
@@ -219,7 +219,7 @@ impl LocalScheduler {
                         event_queues,
                         task_final,
                         TastEndReason::Success,
-                        crate::serializable_traits::from_arc(result),
+                        result.into_any_send_sync(),
                     );
                 }
             }
@@ -234,7 +234,7 @@ impl LocalScheduler {
                         event_queues,
                         task_final,
                         TastEndReason::Success,
-                        crate::serializable_traits::from_arc(result),
+                        result.into_any_send_sync(),
                     );
                 }
             }
@@ -246,7 +246,7 @@ impl LocalScheduler {
         task: Box<dyn TaskBase>,
         reason: TastEndReason,
         result: Box<dyn Any + Send + Sync>,
-        //TODO accumvalues needs to be done
+        // TODO accumvalues needs to be done
     ) {
         let result = Some(result);
         if let Some(mut queue) = event_queues.get_mut(&(task.get_run_id())) {

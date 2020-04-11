@@ -1,12 +1,10 @@
 use std::cmp::Ordering;
 use std::fs;
-use std::future::Future;
 use std::hash::Hash;
 use std::io::{BufWriter, Write};
 use std::net::Ipv4Addr;
 use std::path::Path;
-use std::pin::Pin;
-use std::sync::{atomic::AtomicBool, atomic::Ordering::SeqCst, Arc, Weak};
+use std::sync::{Arc, Weak};
 
 use crate::context::Context;
 use crate::dependency::Dependency;
@@ -18,8 +16,6 @@ use crate::task::TaskContext;
 use crate::utils;
 use crate::utils::random::{BernoulliSampler, PoissonSampler, RandomSampler};
 use fasthash::MetroHasher;
-use futures::{FutureExt, Stream, StreamExt};
-use log::info;
 use parking_lot::Mutex;
 use rand::{Rng, SeedableRng};
 use serde_derive::{Deserialize, Serialize};
@@ -76,10 +72,7 @@ impl RddVals {
     }
 }
 
-// TODO: required because Box<dyn Iterator ...>> is not Send
-// could be made more optimal if we return a stream and closures that take stream too
 pub type ComputeResult<R> = Arc<Mutex<dyn Iterator<Item = R>>>;
-// pub type AsyncComputation<R> = Pin<Box<dyn Future<Output = Result<ComputeResult<R>>> + 'static>>;
 pub type AsyncComputation<R> = ComputeResult<R>;
 pub type AnyDataStream = ComputeResult<Box<dyn AnyData>>;
 
@@ -92,10 +85,14 @@ pub(crate) async fn iterator_any<R: Rdd<Item = D>, D: Data>(
     rdd: &R,
     split: Box<dyn Split>,
 ) -> Result<AnyDataStream> {
-    // Ok(Box::pin(rdd.iterator(split).then(|stream| {
-    //     futures::future::ready(stream.unwrap().map(|x| Box::new(x) as Box<dyn AnyData>))
-    // })) as Pin<Box<dyn Future<Output = _>>>)
-    todo!()
+    let iter: Vec<_> = rdd
+        .iterator(split)
+        .await?
+        .lock()
+        .into_iter()
+        .map(|x| Box::new(x) as Box<dyn AnyData>)
+        .collect();
+    Ok(Arc::new(Mutex::new(iter.into_iter())))
 }
 
 /// Specialized version of `iterator_any` where the serializable data is a touple of two elements.
@@ -104,14 +101,14 @@ async fn iterator_any_tuple<R: Rdd<Item = (K, V)>, K: Data, V: Data>(
     rdd: &R,
     split: Box<dyn Split>,
 ) -> Result<AnyDataStream> {
-    // Ok(Box::pin(rdd.iterator(split).then(|stream| {
-    //     Box::pin(
-    //         stream
-    //             .unwrap()
-    //             .map(|(k, v)| Box::new((k, v)) as Box<dyn AnyData>),
-    //     ) as Pin<Box<dyn Iterator<Item = _>>>
-    // })))
-    todo!()
+    let iter: Vec<_> = rdd
+        .iterator(split)
+        .await?
+        .lock()
+        .into_iter()
+        .map(|(k, v)| Box::new((k, v)) as Box<dyn AnyData>)
+        .collect();
+    Ok(Arc::new(Mutex::new(iter.into_iter())))
 }
 
 /// See `iterator_any`, ditto the same for co-grouped data.
@@ -120,14 +117,14 @@ pub(crate) async fn cogroup_iterator_any<R: Rdd<Item = (K, V)>, K: Data, V: Data
     rdd: &R,
     split: Box<dyn Split>,
 ) -> Result<AnyDataStream> {
-    // Ok(Box::pin(rdd.iterator(split).then(|stream| {
-    //     Box::pin(
-    //         stream
-    //             .unwrap()
-    //             .map(|(k, v)| Box::new((k, Box::new(v) as Box<dyn AnyData>)) as Box<dyn AnyData>),
-    //     ) as Pin<Box<dyn Iterator<Item = _>>>
-    // })))
-    todo!()
+    let iter: Vec<_> = rdd
+        .iterator(split)
+        .await?
+        .lock()
+        .into_iter()
+        .map(|(k, v)| Box::new((k, Box::new(v) as Box<dyn AnyData>)) as Box<dyn AnyData>)
+        .collect();
+    Ok(Arc::new(Mutex::new(iter.into_iter())))
 }
 
 // Due to the lack of HKTs in Rust, it is difficult to have collection of generic data with different types.

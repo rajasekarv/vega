@@ -1,5 +1,4 @@
 use std::net::Ipv4Addr;
-use std::pin::Pin;
 use std::sync::Arc;
 
 use crate::context::Context;
@@ -8,14 +7,12 @@ use crate::error::{Error, Result};
 use crate::partitioner::Partitioner;
 use crate::rdd::union_rdd::UnionVariants::{NonUniquePartitioner, PartitionerAware};
 use crate::rdd::{AnyDataStream, ComputeResult, Rdd, RddBase, RddVals};
-use crate::serializable_traits::{AnyData, Data};
+use crate::serializable_traits::Data;
 use crate::split::Split;
-use futures::stream::{Stream, StreamExt};
 use itertools::{Itertools, MinMaxResult};
-use log::debug;
 use parking_lot::Mutex;
 use serde_derive::{Deserialize, Serialize};
-use serde_traitobject::{Arc as SerArc, Box as SerBox};
+use serde_traitobject::Arc as SerArc;
 
 #[derive(Clone, Serialize, Deserialize)]
 struct UnionSplit<T: 'static> {
@@ -321,15 +318,15 @@ impl<T: Data> Rdd for UnionRdd<T> {
             NonUniquePartitioner { rdds, .. } => {
                 let part = &*split
                     .downcast::<UnionSplit<T>>()
-                    .or(Err(Error::SplitDowncast("UnionSplit")))?;
-                let parent = (&rdds[part.parent_rdd_index]);
+                    .or(Err(Error::DowncastFailure("UnionSplit")))?;
+                let parent = &rdds[part.parent_rdd_index];
                 let iter = parent.iterator(part.parent_partition()).await?;
                 Ok(iter)
             }
             PartitionerAware { rdds, .. } => {
                 let split = split
                     .downcast::<PartitionerAwareUnionSplit>()
-                    .or(Err(Error::SplitDowncast("PartitionerAwareUnionSplit")))?;
+                    .or(Err(Error::DowncastFailure("PartitionerAwareUnionSplit")))?;
                 let mut iter = Vec::with_capacity(rdds.len());
                 for (rdd, p) in rdds.iter().zip(split.parents(&rdds)) {
                     let res = rdd.iterator(p.clone()).await?;

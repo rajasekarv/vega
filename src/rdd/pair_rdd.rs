@@ -1,6 +1,5 @@
 use std::hash::Hash;
 use std::marker::PhantomData;
-use std::pin::Pin;
 use std::sync::Arc;
 
 use crate::aggregator::Aggregator;
@@ -14,6 +13,7 @@ use crate::rdd::{
 };
 use crate::serializable_traits::{AnyData, Data, Func, SerFunc};
 use crate::split::Split;
+use parking_lot::Mutex;
 use serde_derive::{Deserialize, Serialize};
 use serde_traitobject::{Arc as SerArc, Deserialize, Serialize};
 

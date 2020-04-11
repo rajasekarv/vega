@@ -6,7 +6,7 @@ use crate::serializable_traits::{Data, SerFunc};
 use crate::shuffle::ShuffleMapTask;
 use downcast_rs::Downcast;
 use serde_derive::{Deserialize, Serialize};
-use serde_traitobject::{Deserialize, Serialize};
+use serde_traitobject::{Any as SerAny, Box as SerBox, Deserialize, Serialize};
 
 pub struct TaskContext {
     pub stage_id: usize,
@@ -63,7 +63,7 @@ impl Ord for dyn TaskBase {
 
 #[async_trait::async_trait]
 pub trait Task: TaskBase + Send + Sync + Downcast {
-    async fn run(&self, id: usize) -> SerArc<dyn SerAny + Send + Sync>;
+    async fn run(&self, id: usize) -> SerBox<dyn SerAny + Send + Sync>;
 }
 
 impl_downcast!(Task);
@@ -83,8 +83,8 @@ pub enum TaskOption {
 
 #[derive(Serialize, Deserialize)]
 pub enum TaskResult {
-    ResultTask(SerArc<dyn SerAny + Send + Sync>),
-    ShuffleTask(SerArc<dyn SerAny + Send + Sync>),
+    ResultTask(SerBox<dyn SerAny + Send + Sync>),
+    ShuffleTask(SerBox<dyn SerAny + Send + Sync>),
 }
 
 impl<T: Data, U: Data, F> From<ResultTask<T, U, F>> for TaskOption

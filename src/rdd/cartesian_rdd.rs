@@ -1,12 +1,11 @@
 use std::marker::PhantomData;
-use std::pin::Pin;
 use std::sync::Arc;
 
 use crate::context::Context;
 use crate::dependency::Dependency;
 use crate::error::{Error, Result};
 use crate::rdd::{AnyDataStream, ComputeResult, Rdd, RddBase, RddVals};
-use crate::serializable_traits::{AnyData, Data};
+use crate::serializable_traits::Data;
 use crate::split::Split;
 use itertools::{iproduct, Itertools};
 use parking_lot::Mutex;
@@ -127,7 +126,7 @@ impl<T: Data, U: Data> Rdd for CartesianRdd<T, U> {
     async fn compute(&self, split: Box<dyn Split>) -> Result<ComputeResult<Self::Item>> {
         let current_split = split
             .downcast::<CartesianSplit>()
-            .or(Err(Error::SplitDowncast("CartesianSplit")))?;
+            .or(Err(Error::DowncastFailure("CartesianSplit")))?;
         let iter1: Vec<_> = self
             .rdd1
             .iterator(current_split.s1)

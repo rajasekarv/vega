@@ -338,7 +338,13 @@ impl CacheTracker {
             self.loading.write().insert(key);
 
             let mut lock = self.loading.write();
-            let res: Vec<_> = rdd.compute(split.clone()).unwrap().collect();
+            let res: Vec<_> = rdd
+                .compute(split.clone())
+                .await
+                .unwrap()
+                .lock()
+                .into_iter()
+                .collect();
             let res_bytes = bincode::serialize(&res).unwrap();
             let put_response = self
                 .cache
@@ -357,5 +363,5 @@ impl CacheTracker {
         }
     }
 
-    //TODO drop_entry needs to be implemented
+    // TODO drop_entry needs to be implemented
 }

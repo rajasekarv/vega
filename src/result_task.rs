@@ -7,9 +7,8 @@ use crate::env;
 use crate::rdd::Rdd;
 use crate::serializable_traits::Data;
 use crate::task::{Task, TaskBase, TaskContext};
-use futures::{FutureExt, StreamExt};
 use serde_derive::{Deserialize, Serialize};
-use serde_traitobject::{Deserialize, Serialize};
+use serde_traitobject::{Any as SerAny, Box as SerBox, Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize)]
 pub(crate) struct ResultTask<T: Data, U: Data, F>
@@ -157,7 +156,7 @@ where
         + Deserialize
         + Clone,
 {
-    async fn run(&self, id: usize) -> SerArc<dyn SerAny + Send + Sync> {
+    async fn run(&self, id: usize) -> SerBox<dyn SerAny + Send + Sync> {
         let split = self.rdd.splits()[self.partition].clone();
         let context = TaskContext::new(self.stage_id, self.partition, id);
         let result: Vec<T> = {
@@ -165,7 +164,6 @@ where
             let mut l = iterator.lock();
             l.into_iter().collect()
         };
-        SerArc::new((self.func)((context, Box::new(result.into_iter()))))
-            as SerArc<dyn SerAny + Send + Sync>
+        SerBox::new((self.func)((context, Box::new(result.into_iter()))))
     }
 }

@@ -1,19 +1,13 @@
-use std::cmp::Ordering;
-use std::collections::{HashMap, HashSet};
-use std::iter::FromIterator;
 use std::marker::PhantomData;
-use std::net::Ipv4Addr;
-use std::pin::Pin;
-use std::rc::Rc;
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering as SyncOrd};
 use std::sync::Arc;
 
 use crate::context::Context;
 use crate::dependency::{Dependency, OneToOneDependency};
 use crate::error::Result;
-use crate::rdd::{Rdd, RddBase, RddVals};
-use crate::serializable_traits::{AnyData, Data, Func, SerFunc};
+use crate::rdd::{AnyDataStream, ComputeResult, Rdd, RddBase, RddVals};
+use crate::serializable_traits::{Data, Func, SerFunc};
 use crate::split::Split;
+use parking_lot::Mutex;
 use serde_derive::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize)]
@@ -96,16 +90,6 @@ where
         super::iterator_any(self, split).await
     }
 }
-
-// impl<T: Data, V: Data, U: Data, F: 'static> RddBase for FlatMapperRdd<T, (V, U), F>
-// where
-//     F: SerFunc(T) -> Box<dyn Iterator<Item = (V, U)>>,
-// {
-//     fn cogroup_iterator_any(&self, split: Box<dyn Split>) -> Result<AnyDataStream> {
-//         log::debug!("inside iterator_any flatmaprdd",);
-//         super::cogroup_iterator_any(self, split)
-//     }
-// }
 
 #[async_trait::async_trait]
 impl<T: Data, U: Data, F: 'static> Rdd for FlatMapperRdd<T, U, F>

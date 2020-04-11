@@ -16,7 +16,7 @@ use tokio::{
     net::TcpListener,
     stream::StreamExt,
     sync::oneshot::{channel, Receiver, Sender},
-    task::{spawn, spawn_blocking},
+    task::spawn,
 };
 use tokio_util::compat::{Tokio02AsyncReadCompatExt, Tokio02AsyncWriteCompatExt};
 
@@ -88,11 +88,8 @@ impl Executor {
                 };
 
                 let self_clone = Arc::clone(&self);
-                spawn_blocking(move || -> Result<_> {
-                    let des_task = self_clone.deserialize_task(message_reader)?;
-                    self_clone.run_task(des_task)
-                })
-                .await??
+                let des_task = self_clone.deserialize_task(message_reader)?;
+                tokio::task::spawn(async move { self_clone.run_task(des_task).await }).await??
             };
             capnp_serialize::write_message(&mut writer, &message)
                 .await
@@ -139,13 +136,13 @@ impl Executor {
         Ok(des_task)
     }
 
-    fn run_task(self: &Arc<Self>, des_task: TaskOption) -> Result<MsgBuilder<HeapAllocator>> {
+    async fn run_task(self: &Arc<Self>, des_task: TaskOption) -> Result<MsgBuilder<HeapAllocator>> {
         // Run execution + serialization in parallel in the executor threadpool
         let result: Result<Vec<u8>> = {
             let start = Instant::now();
             log::debug!("executing the task from server port {}", self.port);
             //TODO change attempt id from 0 to proper value
-            let result = des_task.run(0);
+            let result = des_task.run(0).await;
             log::debug!(
                 "time taken @{} executor running task #{}: {}ms",
                 self.port,
@@ -234,6 +231,7 @@ mod tests {
     use std::io::Write;
     use std::thread;
     use std::time::Duration;
+    use tokio::task::spawn_blocking;
 
     type Port = u16;
     type ComputeResult = std::result::Result<(), ()>;

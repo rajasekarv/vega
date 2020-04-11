@@ -1,19 +1,15 @@
 use std::marker::PhantomData;
 use std::net::Ipv4Addr;
-use std::pin::Pin;
 use std::sync::{atomic::AtomicBool, atomic::Ordering::SeqCst, Arc};
 
 use crate::context::Context;
 use crate::dependency::{Dependency, OneToOneDependency};
-use crate::error::{Error, Result};
+use crate::error::Result;
 use crate::rdd::{AnyDataStream, ComputeResult, Rdd, RddBase, RddVals};
-use crate::serializable_traits::{AnyData, Data, Func, SerFunc};
+use crate::serializable_traits::{Data, Func, SerFunc};
 use crate::split::Split;
-use futures::stream::{Stream, StreamExt};
-use log::info;
 use parking_lot::Mutex;
 use serde_derive::{Deserialize, Serialize};
-use serde_traitobject::Arc as SerArc;
 
 // type ComputeIterator<T> = Pin<Box<dyn Stream<Item = T>>>;
 type ComputeIterator<T> = Box<dyn Iterator<Item = T>>;

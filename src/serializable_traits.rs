@@ -1,10 +1,11 @@
-use serde_traitobject::{deserialize, serialize, Deserialize, Serialize};
 use std::{
     any,
     borrow::{Borrow, BorrowMut},
     boxed, error, fmt, marker,
     ops::{self, Deref, DerefMut},
 };
+
+use serde_traitobject::{deserialize, serialize, Deserialize, Serialize};
 
 // Data passing through RDD needs to satisfy the following traits.
 // Debug is only added here for debugging convenience during development stage but is not necessary.
@@ -50,25 +51,10 @@ pub trait AnyData:
     fn into_any_send_sync(self: boxed::Box<Self>) -> boxed::Box<dyn any::Any + Send + Sync>;
 }
 
-pub(crate) fn from_arc(
-    inc: SerArc<dyn SerAny + Send + Sync>,
-) -> boxed::Box<dyn any::Any + Send + Sync> {
-    todo!()
-}
-
 dyn_clone::clone_trait_object!(AnyData);
 
-// Automatically implementing the Data trait for all types which implements the required traits
-impl<
-        T: dyn_clone::DynClone
-            + any::Any
-            + Send
-            + Sync
-            + fmt::Debug
-            + Serialize
-            + Deserialize
-            + 'static,
-    > AnyData for T
+pub trait AnySerializable:
+    dyn_clone::DynClone + any::Any + Send + Sync + fmt::Debug + Serialize + Deserialize + 'static
 {
 }
 

@@ -1,25 +1,16 @@
-use std::cmp::Ordering;
-use std::collections::{HashMap, HashSet};
-use std::iter::FromIterator;
 use std::marker::PhantomData;
 use std::net::Ipv4Addr;
-use std::pin::Pin;
-use std::rc::Rc;
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering as SyncOrd};
+use std::sync::atomic::{AtomicBool, Ordering as SyncOrd};
 use std::sync::Arc;
 
 use crate::context::Context;
 use crate::dependency::{Dependency, OneToOneDependency};
-use crate::error::{Error, Result};
-use crate::rdd::{AnyDataStream, AsyncComputation, ComputeResult, Rdd, RddBase, RddVals};
-use crate::serializable_traits::{AnyData, Data, Func, SerFunc};
+use crate::error::Result;
+use crate::rdd::{AnyDataStream, ComputeResult, Rdd, RddBase, RddVals};
+use crate::serializable_traits::{Data, Func, SerFunc};
 use crate::split::Split;
-use crate::utils;
-use futures::{FutureExt, StreamExt};
 use parking_lot::Mutex;
-use rand::Rng;
 use serde_derive::{Deserialize, Serialize};
-use serde_traitobject::{Arc as SerArc, Box as SerBox, Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize)]
 pub struct MapperRdd<T: Data, U: Data, F>
@@ -145,7 +136,7 @@ where
 
     async fn compute(&self, split: Box<dyn Split>) -> Result<ComputeResult<Self::Item>> {
         let func = self.f.clone();
-        let mut prev_iter = self.prev.iterator(split).await?;
+        let prev_iter = self.prev.iterator(split).await?;
         let this_iter = prev_iter
             .lock()
             .into_iter()

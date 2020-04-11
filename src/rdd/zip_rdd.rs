@@ -1,15 +1,14 @@
 use std::cmp::min;
-use std::marker::PhantomData;
 use std::sync::Arc;
-
-use crate::serializable_traits::{AnyData, Data};
-use serde_derive::{Deserialize, Serialize};
 
 use crate::context::Context;
 use crate::dependency::{Dependency, OneToOneDependency};
 use crate::error::{Error, Result};
-use crate::rdd::{Rdd, RddBase, RddVals};
+use crate::rdd::{AnyDataStream, ComputeResult, Rdd, RddBase, RddVals};
+use crate::serializable_traits::Data;
 use crate::split::Split;
+use parking_lot::Mutex;
+use serde_derive::{Deserialize, Serialize};
 
 #[derive(Clone, Serialize, Deserialize)]
 pub struct ZippedPartitionsSplit {
@@ -36,7 +35,6 @@ pub struct ZippedPartitionsRdd<F: Data, S: Data> {
     #[serde(with = "serde_traitobject")]
     second: Arc<dyn Rdd<Item = S>>,
     vals: Arc<RddVals>,
-    _marker_t: PhantomData<(F, S)>,
 }
 
 impl<F: Data, S: Data> Clone for ZippedPartitionsRdd<F, S> {
@@ -45,11 +43,11 @@ impl<F: Data, S: Data> Clone for ZippedPartitionsRdd<F, S> {
             first: self.first.clone(),
             second: self.second.clone(),
             vals: self.vals.clone(),
-            _marker_t: PhantomData,
         }
     }
 }
 
+#[async_trait::async_trait]
 impl<F: Data, S: Data> RddBase for ZippedPartitionsRdd<F, S> {
     fn get_rdd_id(&self) -> usize {
         self.vals.id
@@ -88,24 +86,16 @@ impl<F: Data, S: Data> RddBase for ZippedPartitionsRdd<F, S> {
         self.splits().len()
     }
 
-    fn iterator_any(
-        &self,
-        split: Box<dyn Split>,
-    ) -> Result<Box<dyn Iterator<Item = Box<dyn AnyData>>>> {
-        Ok(Box::new(
-            self.iterator(split)?
-                .map(|x| Box::new(x) as Box<dyn AnyData>),
-        ))
+    async fn iterator_any(&self, split: Box<dyn Split>) -> Result<AnyDataStream> {
+        super::iterator_any(self, split).await
     }
 
-    fn cogroup_iterator_any(
-        &self,
-        split: Box<dyn Split>,
-    ) -> Result<Box<dyn Iterator<Item = Box<dyn AnyData>>>> {
-        self.iterator_any(split)
+    async fn cogroup_iterator_any(&self, split: Box<dyn Split>) -> Result<AnyDataStream> {
+        super::cogroup_iterator_any(self, split).await
     }
 }
 
+#[async_trait::async_trait]
 impl<F: Data, S: Data> Rdd for ZippedPartitionsRdd<F, S> {
     type Item = (F, S);
 
@@ -117,18 +107,26 @@ impl<F: Data, S: Data> Rdd for ZippedPartitionsRdd<F, S> {
         Arc::new(self.clone()) as Arc<dyn RddBase>
     }
 
-    fn compute(&self, split: Box<dyn Split>) -> Result<Box<dyn Iterator<Item = Self::Item>>> {
+    async fn compute(&self, split: Box<dyn Split>) -> Result<ComputeResult<Self::Item>> {
         let current_split = split
             .downcast::<ZippedPartitionsSplit>()
             .or(Err(Error::DowncastFailure("ZippedPartitionsSplit")))?;
 
-        let fst_iter = self.first.iterator(current_split.fst_split.clone())?;
-        let sec_iter = self.second.iterator(current_split.sec_split.clone())?;
-        Ok(Box::new(fst_iter.zip(sec_iter)))
-    }
-
-    fn iterator(&self, split: Box<dyn Split>) -> Result<Box<dyn Iterator<Item = Self::Item>>> {
-        self.compute(split.clone())
+        let fst_iter: Vec<_> = self
+            .first
+            .iterator(current_split.fst_split.clone())
+            .await?
+            .lock()
+            .into_iter()
+            .collect();
+        let sec_iter: Vec<_> = self
+            .second
+            .iterator(current_split.sec_split.clone())
+            .await?
+            .lock()
+            .into_iter()
+            .collect();
+        Ok(Arc::new(Mutex::new(fst_iter.into_iter().zip(sec_iter))))
     }
 }
 
@@ -145,7 +143,6 @@ impl<F: Data, S: Data> ZippedPartitionsRdd<F, S> {
             first,
             second,
             vals,
-            _marker_t: PhantomData,
         }
     }
 }

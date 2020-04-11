@@ -49,7 +49,15 @@ pub(crate) trait NativeScheduler {
                 let task_context = TaskContext::new(jt.final_stage.id, jt.output_parts[0], 0);
                 Ok(Some(vec![(&jt.func)((
                     task_context,
-                    jt.final_rdd.iterator(split)?,
+                    Box::new(
+                        jt.final_rdd
+                            .iterator(split)
+                            .await?
+                            .lock()
+                            .into_iter()
+                            .collect::<Vec<_>>()
+                            .into_iter(),
+                    ),
                 ))]))
             }))
         } else {

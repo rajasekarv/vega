@@ -1,5 +1,4 @@
 use std::marker::PhantomData;
-use std::pin::Pin;
 use std::sync::Arc;
 
 use crate::context::Context;
@@ -7,11 +6,9 @@ use crate::dependency::{Dependency, OneToOneDependency};
 use crate::error::Result;
 use crate::partitioner::Partitioner;
 use crate::rdd::{AnyDataStream, ComputeResult, Rdd, RddBase, RddVals};
-use crate::serializable_traits::{AnyData, Data};
+use crate::serializable_traits::Data;
 use crate::split::Split;
 use crate::utils::random::RandomSampler;
-use futures::stream::StreamExt;
-use log::info;
 use parking_lot::Mutex;
 use serde_derive::{Deserialize, Serialize};
 

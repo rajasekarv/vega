@@ -3,7 +3,6 @@ use std::io::{BufReader, Read};
 use std::marker::PhantomData;
 use std::net::{Ipv4Addr, SocketAddrV4};
 use std::path::{Path, PathBuf};
-use std::pin::Pin;
 use std::sync::Arc;
 
 use crate::context::Context;
@@ -11,9 +10,10 @@ use crate::dependency::Dependency;
 use crate::error::{Error, Result};
 use crate::io::ReaderConfiguration;
 use crate::rdd::{AnyDataStream, ComputeResult, MapPartitionsRdd, MapperRdd, Rdd, RddBase};
-use crate::serializable_traits::{AnyData, Data, SerFunc};
+use crate::serializable_traits::{Data, SerFunc};
 use crate::split::Split;
 use log::debug;
+use parking_lot::Mutex;
 use rand::prelude::*;
 use serde_derive::{Deserialize, Serialize};
 use serde_traitobject::Arc as SerArc;
@@ -395,11 +395,10 @@ impl Rdd for LocalFsReader<BytesReader> {
         let files_by_part = self.load_local_files()?;
         let idx = split.idx;
         let host = split.host;
-        Ok(Arc::new(Mutex::new(
-            files_by_part
-                .into_iter()
-                .map(move |files| BytesReader { files, host, idx }),
-        )))
+        let iter = files_by_part
+            .into_iter()
+            .map(move |files| BytesReader { files, host, idx });
+        Ok(Arc::new(Mutex::new(iter)))
     }
 }
 
