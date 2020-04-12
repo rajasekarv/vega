@@ -503,15 +503,11 @@ fn test_intersection() {
 }
 
 #[test]
-fn test_count_by_value() -> Result<()> {
+fn test_range() {
     let sc = CONTEXT.clone();
-
-    let rdd = sc.parallelize(vec![1i32, 2, 1, 2, 2], 2);
-    let rdd = rdd.count_by_value();
+    let rdd = sc.range(1, 12, 1, 3);
     let res = rdd.collect().unwrap();
 
-    assert_eq!(res.len(), 2);
-    itertools::assert_equal(res, vec![(1, 2), (2, 3)]);
-
-    Ok(())
+    let expected: Vec<_> = (1..=12).collect();
+    assert_eq!(res, expected);
 }

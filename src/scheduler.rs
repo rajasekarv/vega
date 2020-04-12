@@ -204,7 +204,6 @@ pub(crate) trait NativeScheduler {
         //TODO logging
         self.remove_output_loc_from_stage(shuffle_id, map_id, &server_uri);
         self.unregister_map_output(shuffle_id, map_id, server_uri);
-        //logging
         jt.failed
             .lock()
             .insert(self.fetch_from_shuffle_to_cache(shuffle_id));

@@ -14,7 +14,7 @@ pub enum CachePutResponse {
 // Since we are storing everything as serialized objects, size estimation is as simple as getting the length of byte vector
 #[derive(Debug, Clone)]
 pub struct BoundedMemoryCache {
-    max_bytes: usize,
+    max_mbytes: usize,
     next_key_space_id: Arc<AtomicUsize>,
     current_bytes: usize,
     map: Arc<DashMap<((usize, usize), usize), (Vec<u8>, usize)>>,
@@ -24,7 +24,7 @@ pub struct BoundedMemoryCache {
 impl BoundedMemoryCache {
     pub fn new() -> Self {
         BoundedMemoryCache {
-            max_bytes: 2000, // in MB
+            max_mbytes: 2000, // in MB
             next_key_space_id: Arc::new(AtomicUsize::new(0)),
             current_bytes: 0,
             map: Arc::new(DashMap::new()),
@@ -54,7 +54,7 @@ impl BoundedMemoryCache {
         let key = (dataset_id, partition);
         //TODO logging
         let size = value.len() * 8 + 2 * 8; //this number of MB
-        if size as f64 / (1000.0 * 1000.0) > self.max_bytes as f64 {
+        if size as f64 / (1000.0 * 1000.0) > self.max_mbytes as f64 {
             CachePutResponse::CachePutFailure
         } else {
             //TODO ensure free space needs to be done and this needs to be modified
@@ -96,6 +96,6 @@ impl<'a> KeySpace<'a> {
             .put((self.key_space_id, dataset_id), partition, value)
     }
     pub fn get_capacity(&self) -> usize {
-        self.cache.max_bytes
+        self.cache.max_mbytes
     }
 }

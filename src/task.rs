@@ -63,6 +63,7 @@ impl Ord for dyn TaskBase {
 pub trait Task: TaskBase + Send + Sync + Downcast {
     fn run(&self, id: usize) -> serde_traitobject::Box<dyn serde_traitobject::Any + Send + Sync>;
 }
+
 impl_downcast!(Task);
 
 pub trait TaskBox: Task + Serialize + Deserialize + 'static + Downcast {}

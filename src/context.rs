@@ -27,8 +27,8 @@ use once_cell::sync::OnceCell;
 use simplelog::*;
 use uuid::Uuid;
 
-// There is a problem with this approach since T needs to satisfy PartialEq, Eq for Range.
-// No such restrictions are needed for Vec.
+// There is a problem with this approach since T needs to satisfy PartialEq, Eq for Range
+// No such restrictions are needed for Vec
 pub enum Sequence<T> {
     Range(Range<T>),
     Vec(Vec<T>),
@@ -368,6 +368,19 @@ impl Context {
     where
         I: IntoIterator<Item = T>,
     {
+        self.parallelize(seq, num_slices)
+    }
+
+    pub fn range(
+        self: &Arc<Self>,
+        start: u64,
+        end: u64,
+        step: usize,
+        num_slices: usize,
+    ) -> serde_traitobject::Arc<dyn Rdd<Item = u64>>
+    {
+        // TODO: input validity check
+        let seq = (start..=end).step_by(step);
         self.parallelize(seq, num_slices)
     }
 

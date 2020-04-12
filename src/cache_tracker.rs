@@ -97,10 +97,6 @@ impl CacheTracker {
             continue;
         }
         let mut stream = TcpStream::connect(self.master_addr).unwrap();
-        //        println!(
-        //            "connected to mapoutput tracker {}:{}",
-        //            self.master_ip, self.master_port
-        //        );
         let shuffle_id_bytes = bincode::serialize(&message).unwrap();
         let mut message = capnp::message::Builder::new_default();
         let mut shuffle_data = message.init_root::<serialized_data::Builder>();
@@ -131,7 +127,6 @@ impl CacheTracker {
             thread::spawn(move || {
                 // TODO: make this use async rt
                 let listener = TcpListener::bind(master_addr).unwrap();
-                //                println!("started mapoutput tracker at {}", port);
                 for stream in listener.incoming() {
                     match stream {
                         Err(_) => continue,

@@ -15,7 +15,7 @@ const CAPNP_BUF_READ_OPTS: ReaderOptions = ReaderOptions {
 };
 
 pub enum MapOutputTrackerMessage {
-    //contains shuffle_id
+    // Contains shuffle_id
     GetMapOutputLocations(i64),
     StopMapOutputTracker,
 }
@@ -63,6 +63,10 @@ impl MapOutputTracker {
                 Err(_) => continue,
             }
         };
+        log::debug!(
+            "connected to master to fetch shuffle task #{} data hosts",
+            shuffle_id
+        );
         let shuffle_id_bytes = bincode::serialize(&shuffle_id).unwrap();
         let mut message = capnp::message::Builder::new_default();
         let mut shuffle_data = message.init_root::<serialized_data::Builder>();
@@ -205,7 +209,7 @@ impl MapOutputTracker {
         {
             if self.fetching.read().contains(&shuffle_id) {
                 while self.fetching.read().contains(&shuffle_id) {
-                    //check whether this will hurt the performance or not
+                    // TODO: check whether this will hurt the performance or not
                     let wait = time::Duration::from_millis(1);
                     thread::sleep(wait);
                 }
