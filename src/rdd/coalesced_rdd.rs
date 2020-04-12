@@ -380,7 +380,7 @@ impl PartitionLocations {
 
     /// Gets the *current* preferred locations from the DAGScheduler (as opposed to the static ones).
     fn current_pref_locs(part: Box<dyn Split>, prev: &dyn RddBase) -> Vec<Ipv4Addr> {
-        //TODO: this is inefficient and likely to happen in more places,
+        // TODO: this is inefficient and likely to happen in more places,
         //we should add a preferred_locs method that takes split by ref (&dyn Split) not by value
         prev.preferred_locations(part)
     }

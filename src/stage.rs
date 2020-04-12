@@ -5,11 +5,8 @@ use std::fmt::Display;
 use std::sync::Arc;
 
 // this is strange. see into this in more detail
-//#[derive(Derivative)]
-//#[derivative(PartialEq)]
-//#[derive(Clone, Ord, PartialOrd, Eq)]
 #[derive(Clone)]
-pub struct Stage {
+pub(crate) struct Stage {
     pub id: usize,
     pub num_partitions: usize,
     pub shuffle_dependency: Option<Arc<dyn ShuffleDependencyTrait>>,

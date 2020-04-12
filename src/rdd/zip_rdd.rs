@@ -11,7 +11,7 @@ use parking_lot::Mutex;
 use serde_derive::{Deserialize, Serialize};
 
 #[derive(Clone, Serialize, Deserialize)]
-pub struct ZippedPartitionsSplit {
+struct ZippedPartitionsSplit {
     fst_idx: usize,
     sec_idx: usize,
     idx: usize,

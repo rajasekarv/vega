@@ -21,7 +21,7 @@ impl Path {
     }
 
     pub fn from_path_string(path_string: &str) -> Self {
-        // TODO can't directly parse as string might not be escaped
+        // TODO: can't directly parse as string might not be escaped
         let mut path_string: String = path_string.to_string();
         if path_string.is_empty() {
             panic!("can not create a Path from an empty string");

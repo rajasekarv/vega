@@ -5,7 +5,7 @@ use dashmap::DashMap;
 use serde_derive::{Deserialize, Serialize};
 
 #[derive(Debug, Serialize, Deserialize)]
-pub enum CachePutResponse {
+pub(crate) enum CachePutResponse {
     CachePutSuccess(usize),
     CachePutFailure,
 }
@@ -13,14 +13,14 @@ pub enum CachePutResponse {
 // Despite the name, it is currently unbounded cache. Once done with LRU iterator, have to make this bounded.
 // Since we are storing everything as serialized objects, size estimation is as simple as getting the length of byte vector
 #[derive(Debug, Clone)]
-pub struct BoundedMemoryCache {
+pub(crate) struct BoundedMemoryCache {
     max_mbytes: usize,
     next_key_space_id: Arc<AtomicUsize>,
     current_bytes: usize,
     map: Arc<DashMap<((usize, usize), usize), (Vec<u8>, usize)>>,
 }
 
-//TODO remove all hardcoded values
+// TODO: remove all hardcoded values
 impl BoundedMemoryCache {
     pub fn new() -> Self {
         BoundedMemoryCache {
@@ -52,30 +52,30 @@ impl BoundedMemoryCache {
         value: Vec<u8>,
     ) -> CachePutResponse {
         let key = (dataset_id, partition);
-        //TODO logging
+        // TODO: logging
         let size = value.len() * 8 + 2 * 8; //this number of MB
         if size as f64 / (1000.0 * 1000.0) > self.max_mbytes as f64 {
             CachePutResponse::CachePutFailure
         } else {
-            //TODO ensure free space needs to be done and this needs to be modified
+            // TODO: ensure free space needs to be done and this needs to be modified
             self.map.insert(key, (value, size));
             CachePutResponse::CachePutSuccess(size)
         }
     }
 
     fn ensure_free_space(&self, _dataset_id: u64, _space: u64) -> bool {
-        //TODO logging
-        unimplemented!()
+        // TODO: logging
+        todo!()
     }
 
     fn report_entry_dropped(_data_set_id: usize, _partition: usize, _entry: (Vec<u8>, usize)) {
-        //TODO loggging
-        unimplemented!()
+        // TODO: loggging
+        todo!()
     }
 }
 
 #[derive(Debug, Clone)]
-pub struct KeySpace<'a> {
+pub(crate) struct KeySpace<'a> {
     pub cache: &'a BoundedMemoryCache,
     pub key_space_id: usize,
 }

@@ -563,7 +563,7 @@ pub trait Rdd: RddBase + 'static {
     where
         Self: Sized,
     {
-        //TODO: in original spark this is configurable; see rdd/RDD.scala:1397
+        // TODO: in original spark this is configurable; see rdd/RDD.scala:1397
         // Math.max(conf.get(RDD_LIMIT_SCALE_UP_FACTOR), 2)
         const SCALE_UP_FACTOR: f64 = 2.0;
         if num == 0 {
@@ -670,7 +670,7 @@ pub trait Rdd: RddBase + 'static {
     {
         const NUM_STD_DEV: f64 = 10.0f64;
         const REPETITION_GUARD: u8 = 100;
-        //TODO: this could be const eval when the support is there for the necessary functions
+        // TODO: this could be const eval when the support is there for the necessary functions
         let max_sample_size = std::u64::MAX - (NUM_STD_DEV * (std::u64::MAX as f64).sqrt()) as u64;
         assert!(num <= max_sample_size);
 

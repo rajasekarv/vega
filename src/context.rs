@@ -84,7 +84,7 @@ pub struct Context {
 
 impl Drop for Context {
     fn drop(&mut self) {
-        //TODO clean up temp files
+        // TODO: clean up temp files
         #[cfg(debug_assertions)]
         {
             let deployment_mode = env::Configuration::get().deployment_mode;
@@ -377,8 +377,7 @@ impl Context {
         end: u64,
         step: usize,
         num_slices: usize,
-    ) -> serde_traitobject::Arc<dyn Rdd<Item = u64>>
-    {
+    ) -> serde_traitobject::Arc<dyn Rdd<Item = u64>> {
         // TODO: input validity check
         let seq = (start..=end).step_by(step);
         self.parallelize(seq, num_slices)
@@ -470,7 +469,7 @@ impl Context {
         }
     }
 
-    pub fn union<T: Data>(rdds: &[Arc<dyn Rdd<Item = T>>]) -> Result<UnionRdd<T>> {
+    pub fn union<T: Data>(rdds: &[Arc<dyn Rdd<Item = T>>]) -> Result<impl Rdd<Item = T>> {
         UnionRdd::new(rdds)
     }
 }

@@ -141,7 +141,7 @@ impl Executor {
         let result: Result<Vec<u8>> = {
             let start = Instant::now();
             log::debug!("executing the task from server port {}", self.port);
-            //TODO change attempt id from 0 to proper value
+            // TODO: change attempt id from 0 to proper value
             let result = des_task.run(0).await;
             log::debug!(
                 "time taken @{} executor running task #{}: {}ms",
