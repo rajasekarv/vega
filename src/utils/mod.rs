@@ -1,10 +1,11 @@
-pub(crate) mod random;
-#[cfg(test)]
-pub(crate) mod test_utils;
+use std::net::{Ipv4Addr, SocketAddr, TcpListener};
 
 use crate::error;
 use rand::Rng;
-use std::net::TcpListener;
+
+pub(crate) mod random;
+#[cfg(test)]
+pub(crate) mod test_utils;
 
 /// Shuffle the elements of a vec into a random order in place, modifying it.
 pub(crate) fn randomize_in_place<T, R>(iter: &mut Vec<T>, rand: &mut R)
@@ -17,26 +18,19 @@ where
     }
 }
 
-/// Use this trick to block on the main `run_job` call to schedule the different
-/// tasks in parallel under the Tokio context.
-pub(crate) fn yield_tokio_futures() {
-    futures::executor::block_on(async {
-        tokio::task::yield_now().await;
-    });
-}
-
-pub(crate) fn get_free_port() -> Result<u16, error::NetworkError> {
+pub(crate) fn get_free_connection(ip: Ipv4Addr) -> Result<(TcpListener, u16), error::NetworkError> {
     let mut port = 0;
     for _ in 0..100 {
         port = get_dynamic_port();
-        if TcpListener::bind(format!("127.0.0.1:{}", port)).is_ok() {
-            return Ok(port);
+        let bind_addr = SocketAddr::from((ip, port));
+        if let Ok(conn) = TcpListener::bind(bind_addr) {
+            return Ok((conn, port));
         }
     }
     Err(error::NetworkError::FreePortNotFound(port, 100))
 }
 
-fn get_dynamic_port() -> u16 {
+pub(crate) fn get_dynamic_port() -> u16 {
     const FIRST_DYNAMIC_PORT: u16 = 49152;
     const LAST_DYNAMIC_PORT: u16 = 65535;
     FIRST_DYNAMIC_PORT + rand::thread_rng().gen_range(0, LAST_DYNAMIC_PORT - FIRST_DYNAMIC_PORT)

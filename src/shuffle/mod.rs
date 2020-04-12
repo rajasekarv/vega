@@ -2,7 +2,6 @@ use std::result::Result as StdResult;
 
 use crate::{SerAny, SerBox};
 use hyper::{Body, Response, StatusCode};
-use rand::Rng;
 use thiserror::Error;
 
 pub(self) mod shuffle_fetcher;
@@ -87,24 +86,4 @@ impl ShuffleError {
             _ => false,
         }
     }
-}
-
-fn get_dynamic_port() -> u16 {
-    const FIRST_DYNAMIC_PORT: u16 = 49152;
-    const LAST_DYNAMIC_PORT: u16 = 65535;
-    FIRST_DYNAMIC_PORT + rand::thread_rng().gen_range(0, LAST_DYNAMIC_PORT - FIRST_DYNAMIC_PORT)
-}
-
-#[cfg(test)]
-fn get_free_port() -> u16 {
-    use std::net::TcpListener;
-
-    let mut port;
-    for _ in 0..100 {
-        port = get_dynamic_port();
-        if TcpListener::bind(format!("127.0.0.1:{}", port)).is_ok() {
-            return port;
-        }
-    }
-    panic!("failed to find free port while testing");
 }

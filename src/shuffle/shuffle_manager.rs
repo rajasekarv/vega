@@ -1,9 +1,8 @@
 use std::convert::TryFrom;
 use std::fs;
-use std::net::{Ipv4Addr, SocketAddr};
+use std::net::{SocketAddr, TcpListener};
 use std::path::PathBuf;
 use std::task::{Context, Poll};
-use std::thread;
 use std::time::Duration;
 
 use crate::env;
@@ -27,6 +26,7 @@ pub(crate) struct ShuffleManager {
     local_dir: PathBuf,
     shuffle_dir: PathBuf,
     server_uri: String,
+    pub server_port: u16,
     ask_status: cb_channel::Sender<()>,
     rcv_status: cb_channel::Receiver<Result<StatusCode>>,
 }
@@ -37,12 +37,13 @@ impl ShuffleManager {
         let shuffle_dir = local_dir.join("shuffle");
         fs::create_dir_all(&shuffle_dir).map_err(|_| ShuffleError::CouldNotCreateShuffleDir)?;
         let shuffle_port = env::Configuration::get().shuffle_svc_port;
-        let server_uri = ShuffleManager::start_server(shuffle_port)?;
+        let (server_uri, server_port) = ShuffleManager::start_server(shuffle_port)?;
         let (send_main, rcv_main) = ShuffleManager::init_status_checker(&server_uri)?;
         let manager = ShuffleManager {
             local_dir,
             shuffle_dir,
             server_uri,
+            server_port,
             ask_status: send_main,
             rcv_status: rcv_main,
         };
@@ -83,52 +84,38 @@ impl ShuffleManager {
     }
 
     /// Returns the shuffle server URI as a string.
-    pub(super) fn start_server(port: Option<u16>) -> Result<String> {
+    pub(super) fn start_server(port: Option<u16>) -> Result<(String, u16)> {
         let bind_ip = env::Configuration::get().local_ip;
         let port = if let Some(bind_port) = port {
-            ShuffleManager::launch_async_server(bind_ip, bind_port)?;
+            let conn = TcpListener::bind(SocketAddr::from((bind_ip, bind_port))).map_err(|_| {
+                let err: ShuffleError = crate::NetworkError::FreePortNotFound(bind_port, 0).into();
+                err
+            })?;
+            ShuffleManager::launch_async_server(conn)?;
             bind_port
         } else {
-            let bind_port = crate::utils::get_free_port()?;
-            ShuffleManager::launch_async_server(bind_ip, bind_port)?;
+            let (conn, bind_port) = crate::utils::get_free_connection(bind_ip)?;
+            ShuffleManager::launch_async_server(conn)?;
             bind_port
         };
         let server_uri = format!("http://{}:{}", env::Configuration::get().local_ip, port,);
         log::debug!("server_uri {:?}", server_uri);
-        Ok(server_uri)
+        Ok((server_uri, port))
     }
 
-    fn launch_async_server(bind_ip: Ipv4Addr, bind_port: u16) -> Result<()> {
+    fn launch_async_server(conn: TcpListener) -> Result<()> {
         let (s, r) = cb_channel::bounded::<Result<()>>(1);
-        thread::spawn(move || {
-            // TODO: use the main async global runtime
-            match tokio::runtime::Builder::new()
-                .enable_all()
-                .threaded_scheduler()
-                .build()
-                .map_err(|_| ShuffleError::AsyncRuntimeError)
-            {
-                Err(err) => {
-                    s.send(Err(err)).unwrap();
-                }
-                Ok(mut rt) => {
-                    if let Err(err) = rt.block_on(async move {
-                        let bind_addr = SocketAddr::from((bind_ip, bind_port));
-                        Server::try_bind(&bind_addr.clone())
-                            .map_err(|_| crate::NetworkError::FreePortNotFound(bind_port, 0))?
-                            .serve(ShuffleSvcMaker)
-                            .await
-                            .map_err(|_| ShuffleError::FailedToStart)
-                    }) {
-                        s.send(Err(err)).unwrap();
-                    };
-                }
-            }
+        env::Env::run_in_async_rt(|| {
+            tokio::task::spawn(async move {
+                Server::from_tcp(conn)?.serve(ShuffleSvcMaker).await?;
+                s.send(Err(ShuffleError::FailedToStart)).unwrap();
+                Err::<(), _>(ShuffleError::FailedToStart)
+            })
         });
         cb_channel::select! {
             recv(r) -> msg => { msg.map_err(|_| ShuffleError::FailedToStart)??; }
             // wait a prudential time to check that initialization is ok and the move on
-            default(Duration::from_millis(100)) => log::debug!("started shuffle server @ {}", bind_port),
+            default(Duration::from_millis(25)) => log::debug!("started shuffle server"),
         };
         Ok(())
     }
@@ -144,37 +131,25 @@ impl ShuffleManager {
         let (send_main, rcv_child) = cb_channel::unbounded::<()>();
         let uri_str = format!("{}/status", server_uri);
         let status_uri = Uri::try_from(&uri_str)?;
-        thread::Builder::new()
-            .name(format!("{}_shuffle_server_hc", env::THREAD_PREFIX))
-            .spawn(|| -> Result<()> {
-                // TODO: use the main async global runtime
-                let mut rt = tokio::runtime::Builder::new()
-                    .enable_all()
-                    .basic_scheduler()
-                    .core_threads(1)
-                    .thread_stack_size(1024)
-                    .build()
-                    .map_err(|_| ShuffleError::AsyncRuntimeError)?;
-                rt.block_on(
-                    #[allow(unreachable_code)]
-                    async move {
-                        let client = Client::builder().http2_only(true).build_http::<Body>();
-                        // loop forever waiting for requests to send
-                        loop {
-                            let res = client.get(status_uri.clone()).await?;
-                            // dispatch all queued requests responses
-                            while let Ok(()) = rcv_child.try_recv() {
-                                send_child.send(Ok(res.status())).unwrap();
-                            }
-                            // sleep for a while before checking again if there are status requests
-                            delay_for(Duration::from_millis(25)).await
+        env::Env::run_in_async_rt(|| {
+            tokio::task::spawn(
+                #[allow(unreachable_code)]
+                async move {
+                    let client = Client::builder().http2_only(true).build_http::<Body>();
+                    // loop forever waiting for requests to send
+                    loop {
+                        let res = client.get(status_uri.clone()).await?;
+                        // dispatch all queued requests responses
+                        while let Ok(()) = rcv_child.try_recv() {
+                            send_child.send(Ok(res.status())).unwrap();
                         }
-                        Ok::<(), ShuffleError>(())
-                    },
-                )?;
-                Err(ShuffleError::AsyncRuntimeError)
-            })
-            .map_err(|_| ShuffleError::FailedToStart)?;
+                        // sleep for a while before checking again if there are status requests
+                        delay_for(Duration::from_millis(25)).await
+                    }
+                    Ok::<(), ShuffleError>(())
+                },
+            )
+        });
         Ok((send_main, rcv_main))
     }
 
@@ -300,8 +275,8 @@ impl<T> Service<T> for ShuffleSvcMaker {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::net::TcpListener;
     use std::sync::Arc;
+    use std::thread;
 
     fn client() -> Client<hyper::client::HttpConnector, Body> {
         Client::builder().http2_only(true).build_http::<Body>()
@@ -309,8 +284,7 @@ mod tests {
 
     #[tokio::test]
     async fn start_ok() -> StdResult<(), Box<dyn std::error::Error + 'static>> {
-        let port = get_free_port();
-        ShuffleManager::start_server(Some(port))?;
+        let (_, port) = ShuffleManager::start_server(None)?;
 
         let url = format!(
             "http://{}:{}/status",
@@ -324,9 +298,8 @@ mod tests {
 
     #[test]
     fn start_failure() -> StdResult<(), Box<dyn std::error::Error + 'static>> {
-        let port = get_free_port();
         // bind first so it fails while trying to start
-        let _bind = TcpListener::bind(format!("127.0.0.1:{}", port))?;
+        let (_conn, port) = crate::utils::get_free_connection("0.0.0.0".parse().unwrap())?;
         assert!(ShuffleManager::start_server(Some(port))
             .unwrap_err()
             .no_port());
@@ -360,8 +333,7 @@ mod tests {
 
     #[tokio::test]
     async fn cached_data_found() -> StdResult<(), Box<dyn std::error::Error + 'static>> {
-        let port = get_free_port();
-        ShuffleManager::start_server(Some(port))?;
+        let (_, port) = ShuffleManager::start_server(None)?;
         let data = b"some random bytes".iter().copied().collect::<Vec<u8>>();
         {
             env::SHUFFLE_CACHE.insert((2, 1, 0), data.clone());
@@ -380,8 +352,7 @@ mod tests {
 
     #[tokio::test]
     async fn cached_data_not_found() -> StdResult<(), Box<dyn std::error::Error + 'static>> {
-        let port = get_free_port();
-        ShuffleManager::start_server(Some(port))?;
+        let (_, port) = ShuffleManager::start_server(None)?;
 
         let url = format!(
             "http://{}:{}/shuffle/0/1/2",
@@ -396,8 +367,7 @@ mod tests {
     #[tokio::test]
     async fn not_valid_endpoint() -> StdResult<(), Box<dyn std::error::Error + 'static>> {
         use std::iter::FromIterator;
-        let port = get_free_port();
-        ShuffleManager::start_server(Some(port))?;
+        let (_, port) = ShuffleManager::start_server(None)?;
 
         let url = format!(
             "http://{}:{}/not_valid",

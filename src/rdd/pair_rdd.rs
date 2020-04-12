@@ -16,7 +16,7 @@ use parking_lot::Mutex;
 use serde_derive::{Deserialize, Serialize};
 use serde_traitobject::{Deserialize, Serialize};
 
-// Trait containing pair rdd methods. No need of implicit conversion like in Spark version
+// Trait containing pair rdd methods. No need of implicit conversion like in Spark version.
 pub trait PairRdd<K: Data + Eq + Hash, V: Data>: Rdd<Item = (K, V)> + Send + Sync {
     fn combine_by_key<C: Data>(
         &self,

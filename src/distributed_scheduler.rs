@@ -23,7 +23,6 @@ use crate::serialized_data_capnp::serialized_data;
 use crate::shuffle::ShuffleMapTask;
 use crate::stage::Stage;
 use crate::task::{TaskBase, TaskContext, TaskOption, TaskResult};
-use crate::utils;
 use capnp::message::ReaderOptions;
 use capnp_futures::serialize as capnp_serialize;
 use dashmap::DashMap;
@@ -161,16 +160,13 @@ impl DistributedScheduler {
 
         let self_clone = Arc::clone(&self);
         let jt_clone = jt.clone();
-        // run in async executor
-        let executor = env::Env::get_async_handle();
-        let results = executor.enter(move || {
+        let results = env::Env::run_in_async_rt(move || {
             let self_borrow = &*self_clone;
             let jt = jt_clone;
             let mut results: Vec<Option<U>> = (0..jt.num_output_parts).map(|_| None).collect();
             let mut fetch_failure_duration = Duration::new(0, 0);
 
             self_borrow.submit_stage(jt.final_stage.clone(), jt.clone());
-            utils::yield_tokio_futures();
             log::debug!(
                 "pending stages and tasks: {:?}",
                 jt.pending_tasks
@@ -231,7 +227,6 @@ impl DistributedScheduler {
                     for stage in jt.failed.lock().iter() {
                         self_borrow.submit_stage(stage.clone(), jt.clone());
                     }
-                    utils::yield_tokio_futures();
                     jt.failed.lock().clear();
                 }
             }
