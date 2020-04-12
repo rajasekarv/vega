@@ -9,7 +9,7 @@ static HOSTS: OnceCell<Hosts> = OnceCell::new();
 
 /// Handles loading of the hosts configuration.
 #[derive(Debug, Deserialize)]
-pub struct Hosts {
+pub(crate) struct Hosts {
     pub master: SocketAddr,
     /// The slaves have the format "user@address", e.g. "worker@192.168.0.2"
     pub slaves: Vec<String>,

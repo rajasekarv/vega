@@ -11,7 +11,7 @@ use serde_derive::{Deserialize, Serialize};
 use serde_traitobject::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize)]
-pub struct ResultTask<T: Data, U: Data, F>
+pub(crate) struct ResultTask<T: Data, U: Data, F>
 where
     F: Fn((TaskContext, Box<dyn Iterator<Item = T>>)) -> U
         + 'static

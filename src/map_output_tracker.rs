@@ -14,7 +14,7 @@ const CAPNP_BUF_READ_OPTS: ReaderOptions = ReaderOptions {
     nesting_limit: 64,
 };
 
-pub enum MapOutputTrackerMessage {
+pub(crate) enum MapOutputTrackerMessage {
     // Contains shuffle_id
     GetMapOutputLocations(i64),
     StopMapOutputTracker,
@@ -151,7 +151,7 @@ impl MapOutputTracker {
     pub fn register_shuffle(&self, shuffle_id: usize, num_maps: usize) {
         log::debug!("inside register shuffle");
         if self.server_uris.get(&shuffle_id).is_some() {
-            //TODO error handling
+            // TODO: error handling
             log::debug!("map tracker register shuffle none");
             return;
         }
@@ -189,7 +189,7 @@ impl MapOutputTracker {
             }
             self.increment_generation();
         } else {
-            //TODO error logging
+            // TODO: error logging
         }
     }
 

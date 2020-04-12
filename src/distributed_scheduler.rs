@@ -39,7 +39,7 @@ const CAPNP_BUF_READ_OPTS: ReaderOptions = ReaderOptions {
 // Just for now, creating an entire scheduler functions without dag scheduler trait.
 // Later change it to extend from dag scheduler.
 #[derive(Clone, Default)]
-pub struct DistributedScheduler {
+pub(crate) struct DistributedScheduler {
     max_failures: usize,
     attempt_id: Arc<AtomicUsize>,
     resubmit_timeout: u128,
@@ -54,7 +54,7 @@ pub struct DistributedScheduler {
     cache_locs: Arc<DashMap<usize, Vec<Vec<Ipv4Addr>>>>,
     master: bool,
     framework_name: String,
-    is_registered: bool, //TODO check if it is necessary
+    is_registered: bool, // TODO: check if it is necessary
     active_jobs: HashMap<usize, Job>,
     active_job_queue: Vec<Job>,
     taskid_to_jobid: HashMap<String, usize>,
@@ -64,7 +64,7 @@ pub struct DistributedScheduler {
     server_uris: Arc<Mutex<VecDeque<SocketAddrV4>>>,
     port: u16,
     map_output_tracker: MapOutputTracker,
-    // TODO fix proper locking mechanism
+    // TODO: fix proper locking mechanism
     scheduler_lock: Arc<Mutex<bool>>,
 }
 
@@ -95,7 +95,7 @@ impl DistributedScheduler {
             cache_locs: Arc::new(DashMap::new()),
             master,
             framework_name: "native_spark".to_string(),
-            is_registered: true, //TODO check if it is necessary
+            is_registered: true, // TODO: check if it is necessary
             active_jobs: HashMap::new(),
             active_job_queue: Vec::new(),
             taskid_to_jobid: HashMap::new(),
@@ -118,7 +118,7 @@ impl DistributedScheduler {
         task: Box<dyn TaskBase>,
         reason: TastEndReason,
         result: Box<dyn Any + Send + Sync>,
-        //TODO accumvalues needs to be done
+        // TODO: accumvalues needs to be done
     ) {
         let result = Some(result);
         if let Some(mut queue) = event_queues.get_mut(&(task.get_run_id())) {
@@ -149,7 +149,7 @@ impl DistributedScheduler {
         let _lock = self.scheduler_lock.lock();
         let jt = JobTracker::from_scheduler(&*self, func, final_rdd.clone(), partitions);
 
-        //TODO update cache
+        // TODO: update cache
 
         if allow_local {
             if let Some(result) = LocalScheduler::local_execution(jt.clone())? {
@@ -219,7 +219,7 @@ impl DistributedScheduler {
                             fetch_failure_duration = start_time.elapsed();
                         }
                         _ => {
-                            //TODO error handling
+                            // TODO: error handling
                         }
                     }
                 }

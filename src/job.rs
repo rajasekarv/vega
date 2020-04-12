@@ -13,7 +13,7 @@ use crate::Rdd;
 use parking_lot::Mutex;
 
 #[derive(Clone, Debug)]
-pub struct Job {
+pub(crate) struct Job {
     run_id: usize,
     job_id: usize,
 }

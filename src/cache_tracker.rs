@@ -16,9 +16,9 @@ use dashmap::DashMap;
 use parking_lot::RwLock;
 use serde_derive::{Deserialize, Serialize};
 
-// Cache tracker works by creating a server in master node and slave nodes acting as clients
+/// Cache tracker works by creating a server in master node and slave nodes acting as clients.
 #[derive(Serialize, Deserialize)]
-pub enum CacheTrackerMessage {
+pub(crate) enum CacheTrackerMessage {
     AddedToCache {
         rdd_id: usize,
         partition: usize,
@@ -48,7 +48,7 @@ pub enum CacheTrackerMessage {
 }
 
 #[derive(Serialize, Deserialize)]
-pub enum CacheTrackerMessageReply {
+pub(crate) enum CacheTrackerMessageReply {
     CacheLocations(HashMap<usize, Vec<LinkedList<Ipv4Addr>>>),
     CacheStatus(Vec<(Ipv4Addr, usize, usize)>),
     Ok,
@@ -93,10 +93,12 @@ impl CacheTracker {
 
     // Slave node will ask master node for cache locs
     fn client(&self, message: CacheTrackerMessage) -> CacheTrackerMessageReply {
-        while let Err(_) = TcpStream::connect(self.master_addr) {
-            continue;
-        }
-        let mut stream = TcpStream::connect(self.master_addr).unwrap();
+        let mut stream = loop {
+            match TcpStream::connect(self.master_addr) {
+                Ok(stream) => break stream,
+                Err(_) => continue,
+            }
+        };
         let shuffle_id_bytes = bincode::serialize(&message).unwrap();
         let mut message = capnp::message::Builder::new_default();
         let mut shuffle_data = message.init_root::<serialized_data::Builder>();
@@ -151,7 +153,7 @@ impl CacheTracker {
                                     .unwrap();
                                 let message: CacheTrackerMessage =
                                     bincode::deserialize(data.get_msg().unwrap()).unwrap();
-                                //TODO logging
+                                // TODO: logging
                                 let reply = match message {
                                     CacheTrackerMessage::SlaveCacheStarted { host, size } => {
                                         slave_capacity.insert(host.clone(), size);
@@ -185,7 +187,7 @@ impl CacheTracker {
                                                 ) + size,
                                             );
                                         } else {
-                                            //TODO logging
+                                            // TODO: logging
                                         }
                                         if let Some(mut locs_rdd) = locs.get_mut(&rdd_id) {
                                             if let Some(locs_rdd_p) = locs_rdd.get_mut(partition) {
@@ -223,7 +225,7 @@ impl CacheTracker {
                                         }
                                         CacheTrackerMessageReply::Ok
                                     }
-                                    //TODO memory cache lost needs to be implemented
+                                    // TODO: memory cache lost needs to be implemented
                                     CacheTrackerMessage::GetCacheLocations => {
                                         let locs_clone = locs
                                             .iter()
@@ -266,17 +268,14 @@ impl CacheTracker {
         }
     }
 
-    pub fn get_cache_usage(slave_usage: Arc<DashMap<Ipv4Addr, usize>>, host: Ipv4Addr) -> usize {
+    fn get_cache_usage(slave_usage: Arc<DashMap<Ipv4Addr, usize>>, host: Ipv4Addr) -> usize {
         match slave_usage.get(&host) {
             Some(s) => *s,
             None => 0,
         }
     }
 
-    pub fn get_cache_capacity(
-        slave_capacity: Arc<DashMap<Ipv4Addr, usize>>,
-        host: Ipv4Addr,
-    ) -> usize {
+    fn get_cache_capacity(slave_capacity: Arc<DashMap<Ipv4Addr, usize>>, host: Ipv4Addr) -> usize {
         match slave_capacity.get(&host) {
             Some(s) => *s,
             None => 0,
@@ -285,7 +284,7 @@ impl CacheTracker {
 
     pub fn register_rdd(&self, rdd_id: usize, num_partitions: usize) {
         if !self.registered_rdd_ids.read().contains(&rdd_id) {
-            //TODO logging
+            // TODO: logging
             self.registered_rdd_ids.write().insert(rdd_id);
             self.client(CacheTrackerMessage::RegisterRdd {
                 rdd_id,
@@ -310,14 +309,14 @@ impl CacheTracker {
         }
     }
 
-    pub fn get_cache_status(&self) -> Vec<(Ipv4Addr, usize, usize)> {
+    fn get_cache_status(&self) -> Vec<(Ipv4Addr, usize, usize)> {
         match self.client(CacheTrackerMessage::GetCacheStatus) {
             CacheTrackerMessageReply::CacheStatus(s) => s,
             _ => panic!("wrong type from cache tracker"),
         }
     }
 
-    pub fn get_or_compute<T: Data>(
+    fn get_or_compute<T: Data>(
         &self,
         rdd: Arc<dyn Rdd<Item = T>>,
         split: Box<dyn Split>,
@@ -357,5 +356,5 @@ impl CacheTracker {
         }
     }
 
-    //TODO drop_entry needs to be implemented
+    // TODO: drop_entry needs to be implemented
 }

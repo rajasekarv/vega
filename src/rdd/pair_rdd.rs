@@ -246,7 +246,7 @@ where
     fn number_of_splits(&self) -> usize {
         self.prev.number_of_splits()
     }
-    // TODO Analyze the possible error in invariance here
+    // TODO: Analyze the possible error in invariance here
     fn iterator_any(
         &self,
         split: Box<dyn Split>,
@@ -358,7 +358,7 @@ where
     fn number_of_splits(&self) -> usize {
         self.prev.number_of_splits()
     }
-    // TODO Analyze the possible error in invariance here
+    // TODO: Analyze the possible error in invariance here
     fn iterator_any(
         &self,
         split: Box<dyn Split>,

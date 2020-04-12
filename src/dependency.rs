@@ -25,7 +25,7 @@ pub trait NarrowDependencyTrait: Serialize + Deserialize + Send + Sync {
 }
 
 #[derive(Serialize, Deserialize, Clone)]
-pub(crate) struct OneToOneDependency {
+pub struct OneToOneDependency {
     #[serde(with = "serde_traitobject")]
     rdd_base: Arc<dyn RddBase>,
 }

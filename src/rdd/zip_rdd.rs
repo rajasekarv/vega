@@ -12,7 +12,7 @@ use crate::rdd::{Rdd, RddBase, RddVals};
 use crate::split::Split;
 
 #[derive(Clone, Serialize, Deserialize)]
-pub struct ZippedPartitionsSplit {
+struct ZippedPartitionsSplit {
     fst_idx: usize,
     sec_idx: usize,
     idx: usize,

@@ -1,7 +1,7 @@
 use downcast_rs::DowncastSync;
 use serde_traitobject::{Deserialize, Serialize};
 
-pub struct SplitStruct {
+pub(crate) struct SplitStruct {
     index: usize,
 }
 

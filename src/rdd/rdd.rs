@@ -420,17 +420,16 @@ pub trait Rdd: RddBase + 'static {
             .sum())
     }
 
-    /// Return the count of each unique value in this RDD as a dictionary of (value, count) pairs.	
+    /// Return the count of each unique value in this RDD as a dictionary of (value, count) pairs.
     fn count_by_value(&self) -> SerArc<dyn Rdd<Item = (Self::Item, u64)>>
     where
         Self: Sized,
         Self::Item: Data + Eq + Hash,
     {
-        self.map(Fn!(|x| (x, 1u64)))
-        .reduce_by_key(Box::new(Fn!(|(x, y)| x + y))
-            as Box<
-                dyn Func((u64, u64)) -> u64,
-            >, self.number_of_splits())
+        self.map(Fn!(|x| (x, 1u64))).reduce_by_key(
+            Box::new(Fn!(|(x, y)| x + y)) as Box<dyn Func((u64, u64)) -> u64>,
+            self.number_of_splits(),
+        )
     }
 
     /// Return a new RDD containing the distinct elements in this RDD.
@@ -501,7 +500,7 @@ pub trait Rdd: RddBase + 'static {
     where
         Self: Sized,
     {
-        //TODO: in original spark this is configurable; see rdd/RDD.scala:1397
+        // TODO: in original spark this is configurable; see rdd/RDD.scala:1397
         // Math.max(conf.get(RDD_LIMIT_SCALE_UP_FACTOR), 2)
         const SCALE_UP_FACTOR: f64 = 2.0;
         if num == 0 {
@@ -608,7 +607,7 @@ pub trait Rdd: RddBase + 'static {
     {
         const NUM_STD_DEV: f64 = 10.0f64;
         const REPETITION_GUARD: u8 = 100;
-        //TODO: this could be const eval when the support is there for the necessary functions
+        // TODO: this could be const eval when the support is there for the necessary functions
         let max_sample_size = std::u64::MAX - (NUM_STD_DEV * (std::u64::MAX as f64).sqrt()) as u64;
         assert!(num <= max_sample_size);
 

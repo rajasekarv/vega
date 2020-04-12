@@ -193,7 +193,7 @@ impl ShuffleManager {
     }
 }
 
-//TODO implement drop for deleting files created when the shuffle manager stops
+// TODO: implement drop for deleting files created when the shuffle manager stops
 
 type ShuffleServer = Server<AddrIncoming, ShuffleSvcMaker>;
 

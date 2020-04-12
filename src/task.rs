@@ -60,20 +60,20 @@ impl Ord for dyn TaskBase {
     }
 }
 
-pub trait Task: TaskBase + Send + Sync + Downcast {
+pub(crate) trait Task: TaskBase + Send + Sync + Downcast {
     fn run(&self, id: usize) -> serde_traitobject::Box<dyn serde_traitobject::Any + Send + Sync>;
 }
 
 impl_downcast!(Task);
 
-pub trait TaskBox: Task + Serialize + Deserialize + 'static + Downcast {}
+pub(crate) trait TaskBox: Task + Serialize + Deserialize + 'static + Downcast {}
 
 impl<K> TaskBox for K where K: Task + Serialize + Deserialize + 'static {}
 
 impl_downcast!(TaskBox);
 
 #[derive(Serialize, Deserialize)]
-pub enum TaskOption {
+pub(crate) enum TaskOption {
     #[serde(with = "serde_traitobject")]
     ResultTask(Box<dyn TaskBox>),
     #[serde(with = "serde_traitobject")]
@@ -96,7 +96,7 @@ impl From<ShuffleMapTask> for TaskOption {
 }
 
 #[derive(Serialize, Deserialize)]
-pub enum TaskResult {
+pub(crate) enum TaskResult {
     ResultTask(serde_traitobject::Box<dyn serde_traitobject::Any + Send + Sync>),
     ShuffleTask(serde_traitobject::Box<dyn serde_traitobject::Any + Send + Sync>),
 }

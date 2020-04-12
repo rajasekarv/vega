@@ -103,7 +103,7 @@ pub(crate) trait NativeScheduler {
         );
         if !visited.contains(&rdd) {
             visited.insert(rdd.clone());
-            // TODO CacheTracker register
+            // TODO: CacheTracker register
             for _ in 0..rdd.number_of_splits() {
                 let locs = self.get_cache_locs(rdd.clone());
                 log::debug!("cache locs: {:?}", locs);
@@ -196,12 +196,12 @@ pub(crate) trait NativeScheduler {
             ..
         } = failed_vals;
 
-        //TODO mapoutput tracker needs to be finished for this
+        // TODO: mapoutput tracker needs to be finished for this
         // let failed_stage = self.id_to_stage.lock().get(&stage_id).unwrap().clone();
         let failed_stage = self.fetch_from_stage_cache(stage_id);
         jt.running.lock().remove(&failed_stage);
         jt.failed.lock().insert(failed_stage);
-        //TODO logging
+        // TODO: logging
         self.remove_output_loc_from_stage(shuffle_id, map_id, &server_uri);
         self.unregister_map_output(shuffle_id, map_id, server_uri);
         jt.failed
@@ -218,8 +218,8 @@ pub(crate) trait NativeScheduler {
     ) where
         F: SerFunc((TaskContext, Box<dyn Iterator<Item = T>>)) -> U,
     {
-        //TODO logging
-        //TODO add to Accumulator
+        // TODO: logging
+        // TODO: add to Accumulator
 
         let result_type = completed_event
             .task
@@ -285,7 +285,7 @@ pub(crate) trait NativeScheduler {
                 && jt.pending_tasks.lock().get(&stage).unwrap().is_empty()
             {
                 log::debug!("started registering map outputs");
-                //TODO logging
+                // TODO: logging
                 jt.running.lock().remove(&stage);
                 if stage.shuffle_dependency.is_some() {
                     log::debug!(
@@ -308,7 +308,7 @@ pub(crate) trait NativeScheduler {
                     );
                     log::debug!("finished registering map outputs");
                 }
-                //TODO Cache
+                // TODO: Cache
                 self.update_cache_locs();
                 let mut newly_runnable = Vec::new();
                 for stage in jt.waiting.lock().iter() {
@@ -475,7 +475,7 @@ pub(crate) trait NativeScheduler {
     fn next_executor_server(&self, rdd: &dyn TaskBase) -> SocketAddrV4;
 
     fn get_preferred_locs(&self, rdd: Arc<dyn RddBase>, partition: usize) -> Vec<Ipv4Addr> {
-        //TODO have to implement this completely
+        // TODO: have to implement this completely
         if let Some(cached) = self.get_cache_locs(rdd.clone()) {
             if let Some(cached) = cached.get(partition) {
                 return cached.clone();

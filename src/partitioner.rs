@@ -15,6 +15,7 @@ pub trait Partitioner:
     fn get_num_of_partitions(&self) -> usize;
     fn get_partition(&self, key: &dyn Any) -> usize;
 }
+
 dyn_clone::clone_trait_object!(Partitioner);
 
 fn hash<T: Hash>(t: &T) -> u64 {
