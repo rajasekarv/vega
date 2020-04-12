@@ -11,11 +11,6 @@
 #![allow(dead_code, where_clauses_object_safety, deprecated)]
 #![allow(clippy::single_component_path_imports)]
 
-#[macro_use]
-extern crate downcast_rs;
-#[macro_use]
-extern crate serde_closure;
-
 pub mod serialized_data_capnp {
     include!(concat!(env!("OUT_DIR"), "/capnp/serialized_data_capnp.rs"));
 }
@@ -57,3 +52,8 @@ pub use error::*;
 pub mod fs;
 mod hosts;
 pub mod utils;
+
+// Import global external types and macros:
+#[macro_use]
+extern crate serde_closure;
+use serde_traitobject::{Arc as SerArc, Box as SerBox};

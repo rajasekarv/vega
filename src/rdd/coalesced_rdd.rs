@@ -7,11 +7,12 @@ use std::sync::Arc;
 use parking_lot::Mutex;
 use rand::Rng;
 use serde_derive::{Deserialize, Serialize};
-use serde_traitobject::{Arc as SerArc, Box as SerBox, Deserialize, Serialize};
+use serde_traitobject::{Deserialize, Serialize};
 
 use crate::context::Context;
 use crate::dependency::{Dependency, NarrowDependencyTrait};
 use crate::error::{Error, Result};
+use crate::rdd::*;
 use crate::rdd::{Rdd, RddBase, RddVals};
 use crate::serializable_traits::{AnyData, Data};
 use crate::split::Split;

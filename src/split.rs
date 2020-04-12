@@ -1,4 +1,4 @@
-use downcast_rs::DowncastSync;
+use downcast_rs::{impl_downcast, DowncastSync};
 use serde_traitobject::{Deserialize, Serialize};
 
 pub(crate) struct SplitStruct {

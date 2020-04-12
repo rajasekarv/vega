@@ -1,5 +1,6 @@
 use std::result::Result as StdResult;
 
+use crate::SerBox;
 use hyper::{Body, Response, StatusCode};
 use rand::Rng;
 use thiserror::Error;

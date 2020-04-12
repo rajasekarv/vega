@@ -13,7 +13,7 @@ use crate::dependency::{
 use crate::env;
 use crate::error::Result;
 use crate::partitioner::Partitioner;
-use crate::rdd::{Rdd, RddBase, RddVals};
+use crate::rdd::*;
 use crate::serializable_traits::{AnyData, Data};
 use crate::shuffle::ShuffleFetcher;
 use crate::split::Split;
@@ -66,14 +66,14 @@ impl Split for CoGroupSplit {
 #[derive(Clone, Serialize, Deserialize)]
 pub struct CoGroupedRdd<K: Data> {
     pub(crate) vals: Arc<RddVals>,
-    pub(crate) rdds: Vec<serde_traitobject::Arc<dyn RddBase>>,
+    pub(crate) rdds: Vec<SerArc<dyn RddBase>>,
     #[serde(with = "serde_traitobject")]
     pub(crate) part: Box<dyn Partitioner>,
     _marker: PhantomData<K>,
 }
 
 impl<K: Data + Eq + Hash> CoGroupedRdd<K> {
-    pub fn new(rdds: Vec<serde_traitobject::Arc<dyn RddBase>>, part: Box<dyn Partitioner>) -> Self {
+    pub fn new(rdds: Vec<SerArc<dyn RddBase>>, part: Box<dyn Partitioner>) -> Self {
         let context = rdds[0].get_context();
         let mut vals = RddVals::new(context.clone());
         let create_combiner = Box::new(Fn!(|v: Box<dyn AnyData>| vec![v]));

@@ -3,14 +3,13 @@ use std::sync::Arc;
 
 use itertools::{Itertools, MinMaxResult};
 use serde_derive::{Deserialize, Serialize};
-use serde_traitobject::Arc as SerArc;
 
 use crate::context::Context;
 use crate::dependency::{Dependency, NarrowDependencyTrait, OneToOneDependency, RangeDependency};
 use crate::error::{Error, Result};
 use crate::partitioner::Partitioner;
 use crate::rdd::union_rdd::UnionVariants::{NonUniquePartitioner, PartitionerAware};
-use crate::rdd::{Rdd, RddBase, RddVals};
+use crate::rdd::*;
 use crate::serializable_traits::{AnyData, Data};
 use crate::split::Split;
 
