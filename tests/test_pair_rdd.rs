@@ -88,12 +88,25 @@ fn test_join() {
 fn test_count_by_value() -> Result<()> {
     let sc = CONTEXT.clone();
 
-    let rdd = sc.parallelize(vec![1i32, 2, 1, 2, 2], 2);
-    let rdd = rdd.count_by_value();
-    let res = rdd.collect().unwrap();
+    {
+        let rdd = sc.parallelize(vec![1i32, 2, 1, 3, 2, 3, 3, 2, 3], 4);
+        let rdd = rdd.count_by_value();
+        let mut res = rdd.collect().unwrap();
+        res.sort_by_key(|&(k, _)| k);
 
-    assert_eq!(res.len(), 2);
-    itertools::assert_equal(res, vec![(1, 2), (2, 3)]);
+        assert_eq!(res.len(), 3);
+        itertools::assert_equal(res, vec![(1, 2), (2, 3), (3, 4)]);
+    }
+
+    {
+        let rdd = sc.parallelize(vec![1i32, 2, 1, 3, 2, 3, 3, 2, 3], 2);
+        let rdd = rdd.count_by_value();
+        let mut res = rdd.collect().unwrap();
+        res.sort_by_key(|&(k, _)| k);
+
+        assert_eq!(res.len(), 3);
+        itertools::assert_equal(res, vec![(1, 2), (2, 3), (3, 4)]);
+    }
 
     Ok(())
 }

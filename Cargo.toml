@@ -24,12 +24,12 @@ itertools = "0.9.0"
 num_cpus = "1.12.0"
 log = "0.4.8"
 once_cell = "1.3.1"
-parking_lot = { version = "0.10.0", features = ["serde"] }
-simplelog = "0.7.4"
-thiserror = "1.0.13"
+parking_lot = { version = "0.10.2", features = ["serde"] }
+simplelog = "0.7.5"
+thiserror = "1.0.15"
 threadpool = "1.7.1"
 toml = "0.5.6"
-tokio = { version = "^0.2", features = ["rt-threaded", "stream", "sync", "time", "macros"] }
+tokio = { version = "0.2.17", features = ["rt-threaded", "stream", "sync", "time", "macros"] }
 tokio-util = { version = "0.3.1", features = ["compat"] }
 uuid = { version = "0.8", features = ["v4"] }
 regex = "1.3.6"
@@ -43,9 +43,9 @@ rand_pcg = "0.2"
 bincode = "1.2.1"
 capnp = "0.12.1"
 capnp-futures = "0.12.0"
-serde = { version = "1.0.105", features = ["rc"] }
+serde = { version = "1.0.106", features = ["rc"] }
 serde_closure = "^0.2.9"
-serde_derive = "1.0.105"
+serde_derive = "1.0.106"
 uriparse = "0.6.1"
 
 # dynamic typing
@@ -66,4 +66,3 @@ async-std = { version = "1.5.0", features = ["attributes"] }
 chrono = "0.4.11"
 parquet = "0.15.1"
 tempfile = "3"
-tokio = { version = "^0.2", features = ["macros"] }

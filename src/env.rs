@@ -21,7 +21,7 @@ const ENV_VAR_PREFIX: &str = "NS_";
 pub(crate) const THREAD_PREFIX: &str = "_NS";
 static CONF: OnceCell<Configuration> = OnceCell::new();
 static ENV: OnceCell<Env> = OnceCell::new();
-static ASYNC_HANDLE: Lazy<Handle> = Lazy::new(Handle::current);
+static ASYNC_RT: Lazy<Option<Runtime>> = Lazy::new(Env::build_async_executor);
 
 pub(crate) static SHUFFLE_CACHE: Lazy<ShuffleCache> = Lazy::new(|| Arc::new(DashMap::new()));
 pub(crate) static BOUNDED_MEM_CACHE: Lazy<BoundedMemoryCache> = Lazy::new(BoundedMemoryCache::new);
@@ -31,7 +31,6 @@ pub(crate) struct Env {
     pub shuffle_manager: ShuffleManager,
     pub shuffle_fetcher: ShuffleFetcher,
     pub cache_tracker: CacheTracker,
-    async_rt: Option<Runtime>,
 }
 
 impl Env {
@@ -40,11 +39,16 @@ impl Env {
     }
 
     /// Get a handle to the current running async executor to spawn tasks.
-    pub fn get_async_handle() -> &'static Handle {
-        if let Some(executor) = &ENV.get_or_init(Self::new).async_rt {
-            executor.handle()
+    pub fn run_in_async_rt<F, R>(func: F) -> R
+    where
+        F: FnOnce() -> R,
+    {
+        if let Ok(rt) = Handle::try_current() {
+            rt.enter(func)
+        } else if let Some(rt) = &*ASYNC_RT {
+            rt.enter(func)
         } else {
-            &ASYNC_HANDLE
+            unreachable!()
         }
     }
 
@@ -77,7 +81,6 @@ impl Env {
                 conf.local_ip,
                 &BOUNDED_MEM_CACHE,
             ),
-            async_rt: Env::build_async_executor(),
         }
     }
 }

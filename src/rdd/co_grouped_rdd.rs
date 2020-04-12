@@ -209,7 +209,6 @@ impl<K: Data + Eq + Hash> Rdd for CoGroupedRdd<K> {
     fn compute(&self, split: Box<dyn Split>) -> Result<Box<dyn Iterator<Item = Self::Item>>> {
         if let Ok(split) = split.downcast::<CoGroupSplit>() {
             let agg: Arc<DashMap<K, Vec<Vec<Box<dyn AnyData>>>>> = Arc::new(DashMap::new());
-            let executor = env::Env::get_async_handle();
             for (dep_num, dep) in split.clone().deps.into_iter().enumerate() {
                 match dep {
                     CoGroupSplitDep::NarrowCoGroupSplitDep { rdd, split } => {
@@ -244,7 +243,7 @@ impl<K: Data + Eq + Hash> Rdd for CoGroupedRdd<K> {
                         };
 
                         let split_idx = split.get_index();
-                        executor.enter(|| -> Result<()> {
+                        env::Env::run_in_async_rt(|| -> Result<()> {
                             let fut = ShuffleFetcher::fetch(shuffle_id, split_idx, merge_pair);
                             Ok(futures::executor::block_on(fut)?)
                         })?;

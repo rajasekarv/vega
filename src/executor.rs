@@ -40,8 +40,7 @@ impl Executor {
     /// This will spawn it's own Tokio runtime to run the tasks on.
     #[allow(clippy::drop_copy)]
     pub fn worker(self: Arc<Self>) -> Result<Signal> {
-        let executor = env::Env::get_async_handle();
-        executor.enter(move || -> Result<Signal> {
+        env::Env::run_in_async_rt(move || -> Result<Signal> {
             futures::executor::block_on(async move {
                 let (send_child, rcv_main) = channel::<Signal>();
                 let process_err = Arc::clone(&self).process_stream(rcv_main);
@@ -229,7 +228,7 @@ mod tests {
 
     use super::*;
     use crate::task::{TaskContext, TaskResult};
-    use crate::utils::{get_free_port, test_utils::create_test_task};
+    use crate::utils::{get_dynamic_port, test_utils::create_test_task};
     use crossbeam::channel::{unbounded, Receiver, Sender};
     use std::io::Write;
     use std::thread;
@@ -239,7 +238,7 @@ mod tests {
     type ComputeResult = std::result::Result<(), ()>;
 
     fn initialize_exec() -> Arc<Executor> {
-        let port = get_free_port().unwrap();
+        let port = get_dynamic_port();
         Arc::new(Executor::new(port))
     }
 

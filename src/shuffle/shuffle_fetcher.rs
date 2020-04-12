@@ -143,14 +143,14 @@ impl ShuffleFetcher {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::shuffle::get_free_port;
 
-    #[tokio::test]
+    // #[tokio::test]
     async fn fetch_ok() -> StdResult<(), Box<dyn std::error::Error + 'static>> {
-        let port = get_free_port();
-        ShuffleManager::start_server(Some(port))?;
         {
-            let addr = format!("http://127.0.0.1:{}", port);
+            let addr = format!(
+                "http://127.0.0.1:{}",
+                env::Env::get().shuffle_manager.server_port
+            );
             let servers = &env::Env::get().map_output_tracker.server_uris;
             servers.insert(0, vec![Some(addr)]);
 
@@ -168,12 +168,13 @@ mod tests {
         Ok(())
     }
 
-    #[tokio::test]
+    // #[tokio::test]
     async fn fetch_failure() -> StdResult<(), Box<dyn std::error::Error + 'static>> {
-        let port = get_free_port();
-        ShuffleManager::start_server(Some(port))?;
         {
-            let addr = format!("http://127.0.0.1:{}", port);
+            let addr = format!(
+                "http://127.0.0.1:{}",
+                env::Env::get().shuffle_manager.server_port
+            );
             let servers = &env::Env::get().map_output_tracker.server_uris;
             servers.insert(1, vec![Some(addr)]);
 
