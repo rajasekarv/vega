@@ -7,8 +7,9 @@ use crate::env;
 use crate::rdd::Rdd;
 use crate::serializable_traits::Data;
 use crate::task::{Task, TaskBase, TaskContext};
+use crate::{SerAny, SerBox};
 use serde_derive::{Deserialize, Serialize};
-use serde_traitobject::{Any as SerAny, Box as SerBox, Deserialize, Serialize};
+use serde_traitobject::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize)]
 pub(crate) struct ResultTask<T: Data, U: Data, F>

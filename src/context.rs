@@ -14,13 +14,12 @@ use crate::error::{Error, Result};
 use crate::executor::{Executor, Signal};
 use crate::io::ReaderConfiguration;
 use crate::local_scheduler::LocalScheduler;
-use crate::parallel_collection_rdd::ParallelCollection;
-use crate::rdd::union_rdd::UnionRdd;
-use crate::rdd::{Rdd, RddBase};
+use crate::rdd::{ParallelCollection, Rdd, RddBase, UnionRdd};
 use crate::scheduler::NativeScheduler;
 use crate::serializable_traits::{Data, SerFunc};
 use crate::serialized_data_capnp::serialized_data;
 use crate::task::TaskContext;
+use crate::SerArc;
 use crate::{env, hosts};
 use log::error;
 use once_cell::sync::OnceCell;
@@ -364,7 +363,7 @@ impl Context {
         self: &Arc<Self>,
         seq: I,
         num_slices: usize,
-    ) -> serde_traitobject::Arc<dyn Rdd<Item = T>>
+    ) -> SerArc<dyn Rdd<Item = T>>
     where
         I: IntoIterator<Item = T>,
     {
@@ -377,7 +376,7 @@ impl Context {
         end: u64,
         step: usize,
         num_slices: usize,
-    ) -> serde_traitobject::Arc<dyn Rdd<Item = u64>> {
+    ) -> SerArc<dyn Rdd<Item = u64>> {
         // TODO: input validity check
         let seq = (start..=end).step_by(step);
         self.parallelize(seq, num_slices)
@@ -387,11 +386,11 @@ impl Context {
         self: &Arc<Self>,
         seq: I,
         num_slices: usize,
-    ) -> serde_traitobject::Arc<dyn Rdd<Item = T>>
+    ) -> SerArc<dyn Rdd<Item = T>>
     where
         I: IntoIterator<Item = T>,
     {
-        serde_traitobject::Arc::new(ParallelCollection::new(self.clone(), seq, num_slices))
+        SerArc::new(ParallelCollection::new(self.clone(), seq, num_slices))
     }
 
     /// Load from a distributed source and turns it into a parallel collection.

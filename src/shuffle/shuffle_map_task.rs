@@ -5,9 +5,9 @@ use std::sync::Arc;
 use crate::dependency::ShuffleDependencyTrait;
 use crate::env;
 use crate::rdd::RddBase;
+use crate::shuffle::*;
 use crate::task::{Task, TaskBase};
 use serde_derive::{Deserialize, Serialize};
-use serde_traitobject::{Any as SerAny, Box as SerBox};
 
 #[derive(Serialize, Deserialize, Clone)]
 pub(crate) struct ShuffleMapTask {

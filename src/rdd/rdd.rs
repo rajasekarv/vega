@@ -15,35 +15,36 @@ use crate::split::Split;
 use crate::task::TaskContext;
 use crate::utils;
 use crate::utils::random::{BernoulliSampler, PoissonSampler, RandomSampler};
+use crate::SerArc;
 use fasthash::MetroHasher;
 use parking_lot::Mutex;
 use rand::{Rng, SeedableRng};
 use serde_derive::{Deserialize, Serialize};
-use serde_traitobject::{Arc as SerArc, Deserialize, Serialize};
+use serde_traitobject::{Deserialize, Serialize};
 
-pub mod parallel_collection_rdd;
+mod parallel_collection_rdd;
 pub use parallel_collection_rdd::*;
-pub mod cartesian_rdd;
+mod cartesian_rdd;
 pub use cartesian_rdd::*;
-pub mod co_grouped_rdd;
+mod co_grouped_rdd;
 pub use co_grouped_rdd::*;
-pub mod coalesced_rdd;
+mod coalesced_rdd;
 pub use coalesced_rdd::*;
-pub mod mapper_rdd;
+mod flatmapper_rdd;
+mod mapper_rdd;
+pub use flatmapper_rdd::*;
 pub use mapper_rdd::*;
-pub mod flatmap_rdd;
-pub use flatmap_rdd::*;
-pub mod pair_rdd;
+mod pair_rdd;
 pub use pair_rdd::*;
-pub mod partitionwise_sampled_rdd;
+mod partitionwise_sampled_rdd;
 pub use partitionwise_sampled_rdd::*;
-pub mod shuffled_rdd;
+mod shuffled_rdd;
 pub use shuffled_rdd::*;
-pub mod map_partitions_rdd;
+mod map_partitions_rdd;
 pub use map_partitions_rdd::*;
-pub mod zip_rdd;
+mod zip_rdd;
 pub use zip_rdd::*;
-pub mod union_rdd;
+mod union_rdd;
 pub use union_rdd::*;
 
 // Values which are needed for all RDDs
@@ -185,7 +186,7 @@ impl Ord for dyn RddBase {
 }
 
 #[async_trait::async_trait]
-impl<I: Rdd + ?Sized> RddBase for serde_traitobject::Arc<I> {
+impl<I: Rdd + ?Sized> RddBase for SerArc<I> {
     fn get_rdd_id(&self) -> usize {
         (**self).get_rdd_base().get_rdd_id()
     }
@@ -204,7 +205,7 @@ impl<I: Rdd + ?Sized> RddBase for serde_traitobject::Arc<I> {
 }
 
 #[async_trait::async_trait]
-impl<I: Rdd + ?Sized> Rdd for serde_traitobject::Arc<I> {
+impl<I: Rdd + ?Sized> Rdd for SerArc<I> {
     type Item = I::Item;
 
     fn get_rdd(&self) -> Arc<dyn Rdd<Item = Self::Item>> {
@@ -390,7 +391,7 @@ pub trait Rdd: RddBase + 'static {
     /// elements (a, b) where a is in `this` and b is in `other`.
     fn cartesian<U: Data>(
         &self,
-        other: serde_traitobject::Arc<dyn Rdd<Item = U>>,
+        other: SerArc<dyn Rdd<Item = U>>,
     ) -> SerArc<dyn Rdd<Item = (Self::Item, U)>>
     where
         Self: Sized,
