@@ -11,7 +11,7 @@ use std::time::{Duration, Instant};
 use crate::dag_scheduler::{CompletionEvent, TastEndReason};
 use crate::dependency::ShuffleDependencyTrait;
 use crate::env;
-use crate::error::{Error, Result};
+use crate::error::{Error, NetworkError, Result};
 use crate::job::{Job, JobTracker};
 use crate::local_scheduler::LocalScheduler;
 use crate::map_output_tracker::MapOutputTracker;
@@ -256,6 +256,7 @@ impl DistributedScheduler {
             let message = capnp_futures::serialize::read_message(receiver, CAPNP_BUF_READ_OPTS)
                 .await
                 .unwrap()
+                .ok_or_else(|| NetworkError::NoMessageReceived)
                 .unwrap();
             let task_data = message.get_root::<serialized_data::Reader>().unwrap();
             log::debug!(

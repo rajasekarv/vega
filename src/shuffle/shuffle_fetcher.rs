@@ -22,7 +22,11 @@ impl ShuffleFetcher {
         let mut inputs_by_uri = HashMap::new();
         let server_uris = env::Env::get()
             .map_output_tracker
-            .get_server_uris(shuffle_id);
+            .get_server_uris(shuffle_id)
+            .await
+            .map_err(|err| ShuffleError::FailFetchingShuffleUris {
+                source: Box::new(err),
+            })?;
         log::debug!(
             "server uris for shuffle id {:?} - {:?}",
             shuffle_id,

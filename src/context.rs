@@ -339,7 +339,7 @@ impl Context {
                 let mut task_data = message.init_root::<serialized_data::Builder>();
                 task_data.set_msg(&signal);
                 capnp::serialize::write_message(&mut stream, &message)
-                    .map_err(Error::InputRead)
+                    .map_err(Error::OutputWrite)
                     .unwrap();
             } else {
                 error!(

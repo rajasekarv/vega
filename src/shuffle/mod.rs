@@ -51,6 +51,9 @@ pub enum ShuffleError {
 
     #[error("unexpected URI sent in the request: {0}")]
     UnexpectedUri(String),
+
+    #[error("failed fetching shuffle data uris")]
+    FailFetchingShuffleUris { source: Box<crate::Error> },
 }
 
 impl Into<Response<Body>> for ShuffleError {
