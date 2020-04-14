@@ -44,14 +44,16 @@ pub(crate) trait NativeScheduler {
         F: SerFunc((TaskContext, Box<dyn Iterator<Item = T>>)) -> U,
     {
         if jt.final_stage.parents.is_empty() && (jt.num_output_parts == 1) {
-            futures::executor::block_on(tokio::task::block_in_place(|| async {
-                let split = (jt.final_rdd.splits()[jt.output_parts[0]]).clone();
-                let task_context = TaskContext::new(jt.final_stage.id, jt.output_parts[0], 0);
-                Ok(Some(vec![(&jt.func)((
-                    task_context,
-                    jt.final_rdd.iterator(split)?,
-                ))]))
-            }))
+            env::Env::run_in_async_rt(|| {
+                futures::executor::block_on(async {
+                    let split = (jt.final_rdd.splits()[jt.output_parts[0]]).clone();
+                    let task_context = TaskContext::new(jt.final_stage.id, jt.output_parts[0], 0);
+                    Ok(Some(vec![(&jt.func)((
+                        task_context,
+                        jt.final_rdd.iterator(split)?,
+                    ))]))
+                })
+            })
         } else {
             Ok(None)
         }

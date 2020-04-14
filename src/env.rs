@@ -38,7 +38,7 @@ impl Env {
         ENV.get_or_init(Self::new)
     }
 
-    /// Get a handle to the current running async executor to spawn tasks.
+    /// Run a function inside the existing Tokio context.
     pub fn run_in_async_rt<F, R>(func: F) -> R
     where
         F: FnOnce() -> R,
@@ -54,6 +54,8 @@ impl Env {
 
     /// Builds an async executor for executing DAG tasks according to env,
     /// machine properties and schedulling mode.
+    /// Is only built in case there is not an existing one, otherwise the existing one will be used
+    /// for running all the async tasks.
     fn build_async_executor() -> Option<Runtime> {
         if Handle::try_current().is_ok() {
             None
