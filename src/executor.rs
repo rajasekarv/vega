@@ -11,11 +11,11 @@ use capnp::{
     serialize::OwnedSegments,
 };
 use capnp_futures::serialize as capnp_serialize;
+use crossbeam::{channel::bounded, Receiver, Sender};
 use serde::{Deserialize, Serialize};
 use tokio::{
     net::TcpListener,
     stream::StreamExt,
-    sync::oneshot::{channel, Receiver, Sender},
     task::{spawn, spawn_blocking},
 };
 use tokio_util::compat::{Tokio02AsyncReadCompatExt, Tokio02AsyncWriteCompatExt};
@@ -42,7 +42,7 @@ impl Executor {
     pub fn worker(self: Arc<Self>) -> Result<Signal> {
         env::Env::run_in_async_rt(move || -> Result<Signal> {
             futures::executor::block_on(async move {
-                let (send_child, rcv_main) = channel::<Signal>();
+                let (send_child, rcv_main) = bounded::<Signal>(100);
                 let process_err = Arc::clone(&self).process_stream(rcv_main);
                 let handler_err = spawn(Arc::clone(&self).signal_handler(send_child));
                 tokio::select! {
@@ -54,49 +54,51 @@ impl Executor {
     }
 
     #[allow(clippy::drop_copy)]
-    async fn process_stream(self: Arc<Self>, mut rcv_main: Receiver<Signal>) -> Result<Signal> {
+    async fn process_stream(self: Arc<Self>, rcv_main: Receiver<Signal>) -> Result<Signal> {
         let addr = SocketAddr::from(([0, 0, 0, 0], self.port));
         let mut listener = TcpListener::bind(addr)
             .await
             .map_err(NetworkError::TcpListener)?;
         while let Some(Ok(mut stream)) = listener.incoming().next().await {
-            let (reader, writer) = stream.split();
-            let reader = reader.compat();
-            let mut writer = writer.compat_write();
-            match rcv_main.try_recv() {
-                Ok(Signal::ShutDownError) => {
-                    log::info!("shutting down executor @{} due to error", self.port);
-                    return Err(Error::ExecutorShutdown);
-                }
-                Ok(Signal::ShutDownGracefully) => {
-                    log::info!("shutting down executor @{} gracefully", self.port);
-                    return Ok(Signal::ShutDownGracefully);
-                }
-                _ => {}
-            }
-            log::debug!("received new task @{} executor", self.port);
-            let message = {
-                let message_reader = {
-                    if let Some(data) =
-                        capnp_serialize::read_message(reader, CAPNP_BUF_READ_OPTS).await?
-                    {
-                        data
-                    } else {
-                        return Err(Error::AsyncRuntimeError);
+            let rcv_main = rcv_main.clone();
+            let selfc = Arc::clone(&self);
+            let res: Result<Signal> = tokio::spawn(async move {
+                let (reader, writer) = stream.split();
+                let reader = reader.compat();
+                let mut writer = writer.compat_write();
+                match rcv_main.try_recv() {
+                    Ok(Signal::ShutDownError) => {
+                        log::info!("shutting down executor @{} due to error", selfc.port);
+                        return Err(Error::ExecutorShutdown);
                     }
+                    Ok(Signal::ShutDownGracefully) => {
+                        log::info!("shutting down executor @{} gracefully", selfc.port);
+                        return Ok(Signal::ShutDownGracefully);
+                    }
+                    _ => {}
+                }
+                log::debug!("received new task @{} executor", selfc.port);
+                let message = {
+                    let message_reader = capnp_serialize::read_message(reader, CAPNP_BUF_READ_OPTS)
+                        .await?
+                        .ok_or_else(|| NetworkError::NoMessageReceived)?;
+                    spawn_blocking(move || -> Result<_> {
+                        let des_task = selfc.deserialize_task(message_reader)?;
+                        selfc.run_task(des_task)
+                    })
+                    .await??
                 };
-
-                let self_clone = Arc::clone(&self);
-                spawn_blocking(move || -> Result<_> {
-                    let des_task = self_clone.deserialize_task(message_reader)?;
-                    self_clone.run_task(des_task)
-                })
-                .await??
-            };
-            capnp_serialize::write_message(&mut writer, &message)
-                .await
-                .map_err(Error::CapnpDeserialization)?;
-            log::debug!("sent result data to driver");
+                futures::executor::block_on(capnp_serialize::write_message(&mut writer, &message))
+                    .map_err(Error::CapnpDeserialization)?;
+                log::debug!("sent result data to driver");
+                Ok(Signal::Continue)
+            })
+            .await?;
+            match res {
+                Ok(Signal::Continue) => continue,
+                Ok(s) => return Ok(s),
+                Err(s) => return Err(s),
+            }
         }
         Err(Error::ExecutorShutdown)
     }
@@ -107,16 +109,7 @@ impl Executor {
         message_reader: CpnpReader<OwnedSegments>,
     ) -> Result<TaskOption> {
         let start = Instant::now();
-        let task_data = message_reader
-            .get_root::<serialized_data::Reader>()
-            .unwrap();
-        log::debug!(
-            "deserialized data task @{} executor with {} bytes, took {}ms",
-            self.port,
-            task_data.get_msg().unwrap().len(),
-            start.elapsed().as_millis()
-        );
-        let start = Instant::now();
+        let task_data = message_reader.get_root::<serialized_data::Reader>()?;
         let msg = match task_data.get_msg() {
             Ok(s) => {
                 log::debug!("got the task message in executor {}", self.port);
@@ -124,10 +117,17 @@ impl Executor {
             }
             Err(e) => {
                 log::debug!("problem while getting the task in executor: {:?}", e);
-                std::process::exit(0);
+                return Err(Error::CapnpDeserialization(e));
             }
         };
+        log::debug!(
+            "deserialized data task @{} executor with {} bytes, took {}ms",
+            self.port,
+            msg.len(),
+            start.elapsed().as_millis()
+        );
         std::mem::drop(task_data);
+        let start = Instant::now();
         let des_task: TaskOption = bincode::deserialize(&msg)?;
         log::debug!(
             "deserialized task at executor @{} with id #{}, deserialization, took {}ms",
@@ -179,13 +179,9 @@ impl Executor {
         let mut signal: Result<Signal> = Err(Error::ExecutorShutdown);
         while let Some(Ok(stream)) = listener.incoming().next().await {
             let stream = stream.compat();
-            let signal_data = if let Some(data) =
-                capnp_serialize::read_message(stream, CAPNP_BUF_READ_OPTS).await?
-            {
-                data
-            } else {
-                continue;
-            };
+            let signal_data = capnp_serialize::read_message(stream, CAPNP_BUF_READ_OPTS)
+                .await?
+                .ok_or_else(|| NetworkError::NoMessageReceived)?;
             let data = bincode::deserialize::<Signal>(
                 signal_data
                     .get_root::<serialized_data::Reader>()?
