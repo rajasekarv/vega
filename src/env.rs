@@ -30,7 +30,7 @@ pub(crate) struct Env {
     pub map_output_tracker: MapOutputTracker,
     pub shuffle_manager: ShuffleManager,
     pub shuffle_fetcher: ShuffleFetcher,
-    pub cache_tracker: CacheTracker,
+    pub cache_tracker: Arc<CacheTracker>,
 }
 
 impl Env {

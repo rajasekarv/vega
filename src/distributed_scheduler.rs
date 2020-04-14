@@ -319,7 +319,7 @@ impl NativeScheduler for DistributedScheduler {
         }
         log::debug!("inside submit task");
         let event_queues_clone = self.event_queues.clone();
-        futures::executor::block_on(async move {
+        tokio::spawn(async move {
             let mut num_retries = 0;
             loop {
                 match TcpStream::connect(&target_executor).await {
@@ -335,13 +335,15 @@ impl NativeScheduler for DistributedScheduler {
                             target_executor.port(),
                         );
 
-                        let mut message = capnp::message::Builder::new_default();
-                        let mut task_data = message.init_root::<serialized_data::Builder>();
-                        task_data.set_msg(&task_bytes);
-                        capnp_serialize::write_message(&mut writer, &message)
-                            .await
-                            .map_err(Error::CapnpDeserialization)
-                            .unwrap();
+                        futures::executor::block_on(async {
+                            let mut message = capnp::message::Builder::new_default();
+                            let mut task_data = message.init_root::<serialized_data::Builder>();
+                            task_data.set_msg(&task_bytes);
+                            capnp_serialize::write_message(&mut writer, &message)
+                                .await
+                                .map_err(Error::CapnpDeserialization)
+                                .unwrap();
+                        });
 
                         log::debug!("sent data to exec @{}", target_executor.port());
 

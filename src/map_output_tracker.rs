@@ -1,8 +1,7 @@
 use std::collections::HashSet;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::sync::Arc;
-use std::thread;
-use std::time;
+use std::time::Duration;
 
 use crate::env;
 use crate::serialized_data_capnp::serialized_data;
@@ -98,7 +97,7 @@ impl MapOutputTracker {
         if !self.is_master {
             return;
         }
-        log::debug!("mapoutput tracker server starting");
+        log::debug!("map output tracker server starting");
         let master_addr = self.master_addr;
         let server_uris = self.server_uris.clone();
         env::Env::run_in_async_rt(|| {
@@ -106,7 +105,7 @@ impl MapOutputTracker {
                 let mut listener = TcpListener::bind(master_addr)
                     .await
                     .map_err(NetworkError::TcpListener)?;
-                log::debug!("mapoutput tracker server started");
+                log::debug!("map output tracker server started");
                 while let Some(Ok(mut stream)) = listener.incoming().next().await {
                     let server_uris_clone = server_uris.clone();
                     tokio::spawn(async move {
@@ -132,14 +131,13 @@ impl MapOutputTracker {
                             == 0
                         {
                             //check whether this will hurt the performance or not
-                            let wait = time::Duration::from_millis(1);
-                            thread::sleep(wait);
+                            tokio::time::delay_for(Duration::from_millis(1)).await;
                         }
                         let locs = server_uris_clone
                             .get(&shuffle_id)
                             .map(|kv| {
                                 kv.value()
-                                    .into_iter()
+                                    .iter()
                                     .cloned()
                                     .map(|x| x.unwrap())
                                     .collect::<Vec<_>>()
@@ -240,8 +238,7 @@ impl MapOutputTracker {
             if self.fetching.read().contains(&shuffle_id) {
                 while self.fetching.read().contains(&shuffle_id) {
                     // TODO: check whether this will hurt the performance or not
-                    let wait = time::Duration::from_millis(1);
-                    thread::sleep(wait);
+                    tokio::time::delay_for(Duration::from_millis(1)).await;
                 }
                 let servers = self
                     .server_uris

@@ -14,7 +14,6 @@ use hyper::{
     client::Client, server::conn::AddrIncoming, service::Service, Body, Request, Response, Server,
     StatusCode, Uri,
 };
-use tokio::time::delay_for;
 use uuid::Uuid;
 
 pub(crate) type Result<T> = StdResult<T, ShuffleError>;
@@ -144,7 +143,7 @@ impl ShuffleManager {
                             send_child.send(Ok(res.status())).unwrap();
                         }
                         // sleep for a while before checking again if there are status requests
-                        delay_for(Duration::from_millis(25)).await
+                        tokio::time::delay_for(Duration::from_millis(25)).await
                     }
                     Ok::<(), ShuffleError>(())
                 },
