@@ -146,25 +146,21 @@ impl DistributedScheduler {
         // a temporary patch for preventing multiple jobs to update cache locks which affects
         // construction of dag task graph. dag task graph construction need to be altered
         let _lock = self.scheduler_lock.lock();
-        let jt = env::Env::run_in_async_rt(|| {
-            JobTracker::from_scheduler(&*self, func, final_rdd.clone(), partitions)
-        });
 
-        // TODO: update cache
+        let selfc = Arc::clone(&self);
+        env::Env::run_in_async_rt(move || -> Result<Vec<U>> {
+            let jt = JobTracker::from_scheduler(&*selfc, func, final_rdd.clone(), partitions);
 
-        if allow_local {
-            if let Some(result) = LocalScheduler::local_execution(jt.clone())? {
-                return Ok(result);
+            // TODO: update cache
+
+            if allow_local {
+                if let Some(result) = LocalScheduler::local_execution(jt.clone())? {
+                    return Ok(result);
+                }
             }
-        }
 
-        self.event_queues.insert(jt.run_id, VecDeque::new());
-
-        let self_clone = Arc::clone(&self);
-        let jt_clone = jt.clone();
-        let results = env::Env::run_in_async_rt(move || -> Result<Vec<Option<U>>> {
-            let self_borrow = &*self_clone;
-            let jt = jt_clone;
+            selfc.event_queues.insert(jt.run_id, VecDeque::new());
+            let self_borrow = &*selfc;
             let mut results: Vec<Option<U>> = (0..jt.num_output_parts).map(|_| None).collect();
             let mut fetch_failure_duration = Duration::new(0, 0);
 
@@ -232,17 +228,16 @@ impl DistributedScheduler {
                     jt.failed.lock().clear();
                 }
             }
-            Ok(results)
-        })?;
 
-        self.event_queues.remove(&jt.run_id);
-        Ok(results
-            .into_iter()
-            .map(|s| match s {
-                Some(v) => v,
-                None => panic!("some results still missing"),
-            })
-            .collect())
+            selfc.event_queues.remove(&jt.run_id);
+            Ok(results
+                .into_iter()
+                .map(|s| match s {
+                    Some(v) => v,
+                    None => panic!("some results still missing"),
+                })
+                .collect())
+        })
     }
 
     async fn receive_results<T: Data, U: Data, F, R>(

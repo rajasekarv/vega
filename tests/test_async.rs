@@ -7,7 +7,7 @@ use std::sync::Arc;
 
 static CONTEXT: Lazy<Arc<Context>> = Lazy::new(|| Context::new().unwrap());
 
-#[tokio::test]
+#[tokio::test(core_threads = 4)]
 async fn existing_tokio_rt() -> Result<()> {
     let initially = async { "initially" }.await;
     assert_eq!(initially, "initially");

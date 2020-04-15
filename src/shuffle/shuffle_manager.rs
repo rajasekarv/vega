@@ -104,12 +104,10 @@ impl ShuffleManager {
 
     fn launch_async_server(conn: TcpListener) -> Result<()> {
         let (s, r) = cb_channel::bounded::<Result<()>>(1);
-        env::Env::run_in_async_rt(|| {
-            tokio::task::spawn(async move {
-                Server::from_tcp(conn)?.serve(ShuffleSvcMaker).await?;
-                s.send(Err(ShuffleError::FailedToStart)).unwrap();
-                Err::<(), _>(ShuffleError::FailedToStart)
-            })
+        tokio::task::spawn(async move {
+            Server::from_tcp(conn)?.serve(ShuffleSvcMaker).await?;
+            s.send(Err(ShuffleError::FailedToStart)).unwrap();
+            Err::<(), _>(ShuffleError::FailedToStart)
         });
         cb_channel::select! {
             recv(r) -> msg => { msg.map_err(|_| ShuffleError::FailedToStart)??; }
@@ -130,25 +128,23 @@ impl ShuffleManager {
         let (send_main, rcv_child) = cb_channel::unbounded::<()>();
         let uri_str = format!("{}/status", server_uri);
         let status_uri = Uri::try_from(&uri_str)?;
-        env::Env::run_in_async_rt(|| {
-            tokio::task::spawn(
-                #[allow(unreachable_code)]
-                async move {
-                    let client = Client::builder().http2_only(true).build_http::<Body>();
-                    // loop forever waiting for requests to send
-                    loop {
-                        let res = client.get(status_uri.clone()).await?;
-                        // dispatch all queued requests responses
-                        while let Ok(()) = rcv_child.try_recv() {
-                            send_child.send(Ok(res.status())).unwrap();
-                        }
-                        // sleep for a while before checking again if there are status requests
-                        tokio::time::delay_for(Duration::from_millis(25)).await
+        tokio::task::spawn(
+            #[allow(unreachable_code)]
+            async move {
+                let client = Client::builder().http2_only(true).build_http::<Body>();
+                // loop forever waiting for requests to send
+                loop {
+                    let res = client.get(status_uri.clone()).await?;
+                    // dispatch all queued requests responses
+                    while let Ok(()) = rcv_child.try_recv() {
+                        send_child.send(Ok(res.status())).unwrap();
                     }
-                    Ok::<(), ShuffleError>(())
-                },
-            )
-        });
+                    // sleep for a while before checking again if there are status requests
+                    tokio::time::delay_for(Duration::from_millis(25)).await
+                }
+                Ok::<(), ShuffleError>(())
+            },
+        );
         Ok((send_main, rcv_main))
     }
 
@@ -308,16 +304,18 @@ mod tests {
     #[test]
     fn status_checking_ok() -> StdResult<(), Box<dyn std::error::Error + 'static>> {
         let parallelism = num_cpus::get();
-        let manager = Arc::new(ShuffleManager::new()?);
+        let manager = Arc::new(env::Env::run_in_async_rt(|| ShuffleManager::new().unwrap()));
         let mut threads = Vec::with_capacity(parallelism);
         for _ in 0..parallelism {
             let manager = manager.clone();
             threads.push(thread::spawn(move || -> Result<()> {
                 for _ in 0..10 {
-                    match manager.check_status() {
-                        Ok(StatusCode::OK) => {}
-                        _ => return Err(ShuffleError::AsyncRuntimeError),
-                    }
+                    env::Env::run_in_async_rt(|| -> Result<()> {
+                        match manager.check_status() {
+                            Ok(StatusCode::OK) => Ok(()),
+                            _ => Err(ShuffleError::AsyncRuntimeError),
+                        }
+                    })?;
                 }
                 Ok(())
             }));

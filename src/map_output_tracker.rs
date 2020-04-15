@@ -2,7 +2,6 @@ use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::sync::Arc;
 use std::time::Duration;
 
-use crate::env;
 use crate::serialized_data_capnp::serialized_data;
 use crate::{Error, NetworkError, Result};
 use capnp::message::{Builder as MsgBuilder, ReaderOptions};
@@ -99,72 +98,69 @@ impl MapOutputTracker {
         log::debug!("map output tracker server starting");
         let master_addr = self.master_addr;
         let server_uris = self.server_uris.clone();
-        env::Env::run_in_async_rt(|| {
-            tokio::spawn(async move {
-                let mut listener = TcpListener::bind(master_addr)
-                    .await
-                    .map_err(NetworkError::TcpListener)?;
-                log::debug!("map output tracker server started");
-                while let Some(Ok(mut stream)) = listener.incoming().next().await {
-                    let server_uris_clone = server_uris.clone();
-                    tokio::spawn(async move {
-                        let (reader, writer) = stream.split();
-                        let reader = reader.compat();
-                        let writer = writer.compat_write();
+        tokio::spawn(async move {
+            let mut listener = TcpListener::bind(master_addr)
+                .await
+                .map_err(NetworkError::TcpListener)?;
+            log::debug!("map output tracker server started");
+            while let Some(Ok(mut stream)) = listener.incoming().next().await {
+                let server_uris_clone = server_uris.clone();
+                tokio::spawn(async move {
+                    let (reader, writer) = stream.split();
+                    let reader = reader.compat();
+                    let writer = writer.compat_write();
 
-                        // reading
-                        let message_reader =
-                            capnp_serialize::read_message(reader, CAPNP_BUF_READ_OPTS)
-                                .await?
-                                .ok_or_else(|| NetworkError::NoMessageReceived)?;
-                        let shuffle_id = {
-                            let data = message_reader.get_root::<serialized_data::Reader>()?;
-                            bincode::deserialize(data.get_msg()?)?
-                        };
-                        while server_uris_clone
-                            .get(&shuffle_id)
-                            .ok_or_else(|| MapOutputError::ShuffleIdNotFound(shuffle_id))?
-                            .iter()
-                            .filter(|x| !x.is_none())
-                            .count()
-                            == 0
-                        {
-                            //check whether this will hurt the performance or not
-                            tokio::time::delay_for(Duration::from_millis(1)).await;
-                        }
-                        let locs = server_uris_clone
-                            .get(&shuffle_id)
-                            .map(|kv| {
-                                kv.value()
-                                    .iter()
-                                    .cloned()
-                                    .map(|x| x.unwrap())
-                                    .collect::<Vec<_>>()
-                            })
-                            .unwrap_or_default();
-                        log::debug!(
-                            "locs inside map output tracker server for shuffle id #{}: {:?}",
-                            shuffle_id,
-                            locs
-                        );
+                    // reading
+                    let message_reader = capnp_serialize::read_message(reader, CAPNP_BUF_READ_OPTS)
+                        .await?
+                        .ok_or_else(|| NetworkError::NoMessageReceived)?;
+                    let shuffle_id = {
+                        let data = message_reader.get_root::<serialized_data::Reader>()?;
+                        bincode::deserialize(data.get_msg()?)?
+                    };
+                    while server_uris_clone
+                        .get(&shuffle_id)
+                        .ok_or_else(|| MapOutputError::ShuffleIdNotFound(shuffle_id))?
+                        .iter()
+                        .filter(|x| !x.is_none())
+                        .count()
+                        == 0
+                    {
+                        //check whether this will hurt the performance or not
+                        tokio::time::delay_for(Duration::from_millis(1)).await;
+                    }
+                    let locs = server_uris_clone
+                        .get(&shuffle_id)
+                        .map(|kv| {
+                            kv.value()
+                                .iter()
+                                .cloned()
+                                .map(|x| x.unwrap())
+                                .collect::<Vec<_>>()
+                        })
+                        .unwrap_or_default();
+                    log::debug!(
+                        "locs inside map output tracker server for shuffle id #{}: {:?}",
+                        shuffle_id,
+                        locs
+                    );
 
-                        // writting response
-                        futures::executor::block_on(async {
-                            // hacky because MsgBuilder is not Send and cannot be awaited in the Tokio TP
-                            let result = bincode::serialize(&locs)?;
-                            let mut message = MsgBuilder::new_default();
-                            let mut locs_data = message.init_root::<serialized_data::Builder>();
-                            locs_data.set_msg(&result);
-                            capnp_futures::serialize::write_message(writer, message)
-                                .await
-                                .map_err(Error::CapnpDeserialization)?;
-                            Ok::<_, Error>(())
-                        })?;
+                    // writting response
+                    futures::executor::block_on(async {
+                        // hacky because MsgBuilder is not Send and cannot be awaited in the Tokio TP
+                        let result = bincode::serialize(&locs)?;
+                        let mut message = MsgBuilder::new_default();
+                        let mut locs_data = message.init_root::<serialized_data::Builder>();
+                        locs_data.set_msg(&result);
+                        capnp_futures::serialize::write_message(writer, message)
+                            .await
+                            .map_err(Error::CapnpDeserialization)?;
                         Ok::<_, Error>(())
-                    });
-                }
-                Err::<(), _>(Error::ExecutorShutdown)
-            });
+                    })?;
+                    Ok::<_, Error>(())
+                });
+            }
+            Err::<(), _>(Error::ExecutorShutdown)
         });
     }
 

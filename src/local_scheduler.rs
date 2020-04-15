@@ -96,29 +96,25 @@ impl LocalScheduler {
         // a temporary patch for preventing multiple jobs to update cache locks which affects
         // construction of dag task graph. dag task graph construction needs to be altered
         let _lock = self.scheduler_lock.lock();
-        let jt = env::Env::run_in_async_rt(|| {
-            JobTracker::from_scheduler(&*self, func, final_rdd.clone(), partitions)
-        });
 
-        // TODO: update cache
+        let selfc = Arc::clone(&self);
+        env::Env::run_in_async_rt(move || -> Result<Vec<U>> {
+            let jt = JobTracker::from_scheduler(&*selfc, func, final_rdd.clone(), partitions);
 
-        if allow_local {
-            if let Some(result) = LocalScheduler::local_execution(jt.clone())? {
-                return Ok(result);
+            // TODO: update cache
+
+            if allow_local {
+                if let Some(result) = LocalScheduler::local_execution(jt.clone())? {
+                    return Ok(result);
+                }
             }
-        }
 
-        self.event_queues.insert(jt.run_id, VecDeque::new());
+            selfc.event_queues.insert(jt.run_id, VecDeque::new());
 
-        let self_clone = Arc::clone(&self);
-        let jt_clone = jt.clone();
-        let results = env::Env::run_in_async_rt(move || -> Result<Vec<Option<U>>> {
-            let self_borrow = &*self_clone;
-            let jt = jt_clone;
             let mut results: Vec<Option<U>> = (0..jt.num_output_parts).map(|_| None).collect();
             let mut fetch_failure_duration = Duration::new(0, 0);
 
-            self_borrow.submit_stage(jt.final_stage.clone(), jt.clone());
+            selfc.submit_stage(jt.final_stage.clone(), jt.clone());
             log::debug!(
                 "pending stages and tasks: {:?}",
                 jt.pending_tasks
@@ -130,12 +126,12 @@ impl LocalScheduler {
 
             let mut num_finished = 0;
             while num_finished != jt.num_output_parts {
-                let event_option = self_borrow.wait_for_event(jt.run_id, self_borrow.poll_timeout);
+                let event_option = selfc.wait_for_event(jt.run_id, selfc.poll_timeout);
                 let start = Instant::now();
 
                 if let Some(evt) = event_option {
                     log::debug!("event starting");
-                    let stage = self_borrow
+                    let stage = selfc
                         .stage_cache
                         .get(&evt.task.get_stage_id())
                         .unwrap()
@@ -152,14 +148,11 @@ impl LocalScheduler {
                         .remove(&evt.task);
                     use super::dag_scheduler::TastEndReason::*;
                     match evt.reason {
-                        Success => self_borrow.on_event_success(
-                            evt,
-                            &mut results,
-                            &mut num_finished,
-                            jt.clone(),
-                        ),
+                        Success => {
+                            selfc.on_event_success(evt, &mut results, &mut num_finished, jt.clone())
+                        }
                         FetchFailed(failed_vals) => {
-                            self_borrow.on_event_failure(
+                            selfc.on_event_failure(
                                 jt.clone(),
                                 failed_vals,
                                 evt.task.get_stage_id(),
@@ -173,26 +166,24 @@ impl LocalScheduler {
             }
 
             if !jt.failed.lock().is_empty()
-                && fetch_failure_duration.as_millis() > self_borrow.resubmit_timeout
+                && fetch_failure_duration.as_millis() > selfc.resubmit_timeout
             {
-                futures::executor::block_on(self_borrow.update_cache_locs())?;
+                futures::executor::block_on(selfc.update_cache_locs())?;
                 for stage in jt.failed.lock().iter() {
-                    self_borrow.submit_stage(stage.clone(), jt.clone());
+                    selfc.submit_stage(stage.clone(), jt.clone());
                 }
                 jt.failed.lock().clear();
             }
-            Ok(results)
-        })
-        .unwrap();
 
-        self.event_queues.remove(&jt.run_id);
-        Ok(results
-            .into_iter()
-            .map(|s| match s {
-                Some(v) => v,
-                None => panic!("some results still missing"),
-            })
-            .collect())
+            selfc.event_queues.remove(&jt.run_id);
+            Ok(results
+                .into_iter()
+                .map(|s| match s {
+                    Some(v) => v,
+                    None => panic!("some results still missing"),
+                })
+                .collect())
+        })
     }
 
     fn run_task<T: Data, U: Data, F>(

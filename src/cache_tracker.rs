@@ -105,10 +105,8 @@ impl CacheTracker {
                 })
                 .await
         };
-        env::Env::run_in_async_rt(|| {
-            let local = tokio::task::LocalSet::new();
-            local.spawn_local(fut)
-        });
+        let local = tokio::task::LocalSet::new();
+        local.spawn_local(fut);
         Ok(cache)
     }
 
@@ -152,43 +150,40 @@ impl CacheTracker {
             return;
         }
         log::debug!("cache tracker server starting");
-        env::Env::run_in_async_rt(|| {
-            tokio::spawn(async move {
-                let mut listener = TcpListener::bind(self.master_addr)
-                    .await
-                    .map_err(NetworkError::TcpListener)?;
-                log::debug!("cache tracker server started");
-                while let Some(Ok(mut stream)) = listener.incoming().next().await {
-                    let selfc = Arc::clone(&self);
-                    tokio::spawn(async move {
-                        let (reader, writer) = stream.split();
-                        let reader = reader.compat();
-                        let writer = writer.compat_write();
+        tokio::spawn(async move {
+            let mut listener = TcpListener::bind(self.master_addr)
+                .await
+                .map_err(NetworkError::TcpListener)?;
+            log::debug!("cache tracker server started");
+            while let Some(Ok(mut stream)) = listener.incoming().next().await {
+                let selfc = Arc::clone(&self);
+                tokio::spawn(async move {
+                    let (reader, writer) = stream.split();
+                    let reader = reader.compat();
+                    let writer = writer.compat_write();
 
-                        //reading
-                        let message_reader =
-                            capnp_serialize::read_message(reader, CAPNP_BUF_READ_OPTS)
-                                .await?
-                                .ok_or_else(|| NetworkError::NoMessageReceived)?;
-                        let data = message_reader.get_root::<serialized_data::Reader>()?;
-                        let message: CacheTrackerMessage = bincode::deserialize(data.get_msg()?)?;
+                    //reading
+                    let message_reader = capnp_serialize::read_message(reader, CAPNP_BUF_READ_OPTS)
+                        .await?
+                        .ok_or_else(|| NetworkError::NoMessageReceived)?;
+                    let data = message_reader.get_root::<serialized_data::Reader>()?;
+                    let message: CacheTrackerMessage = bincode::deserialize(data.get_msg()?)?;
 
-                        // send reply
-                        let reply = selfc.process_message(message);
-                        futures::executor::block_on(async {
-                            let result = bincode::serialize(&reply)?;
-                            let mut message = capnp::message::Builder::new_default();
-                            let mut locs_data = message.init_root::<serialized_data::Builder>();
-                            locs_data.set_msg(&result);
-                            capnp_serialize::write_message(writer, &message).await?;
-                            Ok::<_, Error>(())
-                        })?;
-
+                    // send reply
+                    let reply = selfc.process_message(message);
+                    futures::executor::block_on(async {
+                        let result = bincode::serialize(&reply)?;
+                        let mut message = capnp::message::Builder::new_default();
+                        let mut locs_data = message.init_root::<serialized_data::Builder>();
+                        locs_data.set_msg(&result);
+                        capnp_serialize::write_message(writer, &message).await?;
                         Ok::<_, Error>(())
-                    });
-                }
-                Err::<(), _>(Error::ExecutorShutdown)
-            });
+                    })?;
+
+                    Ok::<_, Error>(())
+                });
+            }
+            Err::<(), _>(Error::ExecutorShutdown)
         });
     }
 
