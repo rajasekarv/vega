@@ -5,11 +5,8 @@ use std::fmt::Display;
 use std::sync::Arc;
 
 // this is strange. see into this in more detail
-//#[derive(Derivative)]
-//#[derivative(PartialEq)]
-//#[derive(Clone, Ord, PartialOrd, Eq)]
 #[derive(Clone)]
-pub struct Stage {
+pub(crate) struct Stage {
     pub id: usize,
     pub num_partitions: usize,
     pub shuffle_dependency: Option<Arc<dyn ShuffleDependencyTrait>>,
@@ -78,7 +75,7 @@ impl Stage {
             true
         } else {
             log::debug!(
-                "num available outputs and num partitions in is available method in stage{} {:?}",
+                "num available outputs {}, and num partitions {}, in is available method in stage",
                 self.num_available_outputs,
                 self.num_partitions
             );
@@ -88,7 +85,7 @@ impl Stage {
 
     pub fn add_output_loc(&mut self, partition: usize, host: String) {
         log::debug!(
-            "adding loc for partition inside stage {} {:?}",
+            "adding loc for partition inside stage {} @{}",
             partition,
             host
         );

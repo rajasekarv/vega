@@ -59,6 +59,9 @@ pub enum Error {
         path: PathBuf,
     },
 
+    #[error(transparent)]
+    MapOutputError(#[from] crate::map_output_tracker::MapOutputError),
+
     #[error("network error")]
     NetworkError(#[from] NetworkError),
 
@@ -68,7 +71,7 @@ pub enum Error {
     #[error("failed to convert {:?} to a String", .0)]
     OsStringToString(OsString),
 
-    #[error("failed writing to output source")]
+    #[error("failed writing to output destination")]
     OutputWrite(#[source] std::io::Error),
 
     #[error("failed to parse hosts file at {}", path.display())]
@@ -104,12 +107,15 @@ impl Error {
 
 #[derive(Debug, Error)]
 pub enum NetworkError {
-    #[error(transparent)]
-    TcpListener(#[from] tokio::io::Error),
-
     #[error("disconnected from address")]
     ConnectionFailure,
 
     #[error("failed to find free port {0}, tried {1} times")]
     FreePortNotFound(u16, usize),
+
+    #[error("no message received")]
+    NoMessageReceived,
+
+    #[error(transparent)]
+    TcpListener(#[from] tokio::io::Error),
 }

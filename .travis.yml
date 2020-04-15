@@ -25,7 +25,7 @@ install:
   - cd ../
 script:
 - cargo build
-- for file in $(find userGuide -name '*.md'); do rustdoc --test $file  -L ./target/debug/deps; done
+- for file in $(find user_guide -name '*.md'); do rustdoc --test $file  -L ./target/debug/deps; done
 - sed -i 's/ip/0.0.0.0/g' config_files/hosts.conf
 - cp config_files/hosts.conf ~/hosts.conf
 - cargo doc --no-deps
@@ -34,6 +34,6 @@ after_success: |
   [ $TRAVIS_BRANCH = master ] &&
   [ $TRAVIS_PULL_REQUEST = false ] &&
   cargo install mdbook &&
-  (cd userGuide; mdbook build) &&
-  ghp-import -n userGuide/book &&
+  (cd user_guide; mdbook build) &&
+  ghp-import -n user_guide/book &&
   git push -fq https://${GH_TOKEN}@github.com/${TRAVIS_REPO_SLUG}.git gh-pages

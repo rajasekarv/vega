@@ -1,25 +1,40 @@
 use std::collections::HashSet;
-use std::net::{IpAddr, Ipv4Addr, SocketAddr, TcpListener, TcpStream};
+use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::sync::Arc;
-use std::thread;
-use std::time;
+use std::time::Duration;
 
+use crate::env;
 use crate::serialized_data_capnp::serialized_data;
-use capnp::serialize_packed;
+use crate::{Error, NetworkError, Result};
+use capnp::message::{Builder as MsgBuilder, ReaderOptions};
+use capnp_futures::serialize as capnp_serialize;
 use dashmap::DashMap;
 use parking_lot::{Mutex, RwLock};
+use thiserror::Error;
+use tokio::{
+    net::{TcpListener, TcpStream},
+    stream::StreamExt,
+};
+use tokio_util::compat::{Tokio02AsyncReadCompatExt, Tokio02AsyncWriteCompatExt};
 
-pub enum MapOutputTrackerMessage {
-    //contains shuffle_id
+const CAPNP_BUF_READ_OPTS: ReaderOptions = ReaderOptions {
+    traversal_limit_in_words: std::u64::MAX,
+    nesting_limit: 64,
+};
+
+pub(crate) enum MapOutputTrackerMessage {
+    // Contains shuffle_id
     GetMapOutputLocations(i64),
     StopMapOutputTracker,
 }
 
-// starts the server in master node and client in slave nodes. Similar to cache tracker
+pub type ServerUris = Arc<DashMap<usize, Vec<Option<String>>>>;
+
+// Starts the server in master node and client in slave nodes. Similar to cache tracker.
 #[derive(Clone, Debug)]
 pub(crate) struct MapOutputTracker {
     is_master: bool,
-    pub server_uris: Arc<DashMap<usize, Vec<Option<String>>>>,
+    pub server_uris: ServerUris,
     fetching: Arc<RwLock<HashSet<usize>>>,
     generation: Arc<Mutex<i64>>,
     master_addr: SocketAddr,
@@ -51,114 +66,120 @@ impl MapOutputTracker {
         m
     }
 
-    fn client(&self, shuffle_id: usize) -> Vec<String> {
-        //        if !self.is_master {
-
-        while let Err(_) = TcpStream::connect(self.master_addr) {
-            continue;
-        }
-        let mut stream = TcpStream::connect(self.master_addr).unwrap();
-        let shuffle_id_bytes = bincode::serialize(&shuffle_id).unwrap();
-        let mut message = ::capnp::message::Builder::new_default();
+    async fn client(&self, shuffle_id: usize) -> Result<Vec<String>> {
+        let mut stream = loop {
+            match TcpStream::connect(self.master_addr).await {
+                Ok(stream) => break stream,
+                Err(_) => continue,
+            }
+        };
+        let (reader, writer) = stream.split();
+        let reader = reader.compat();
+        let mut writer = writer.compat_write();
+        log::debug!(
+            "connected to master to fetch shuffle task #{} data hosts",
+            shuffle_id
+        );
+        let shuffle_id_bytes = bincode::serialize(&shuffle_id)?;
+        let mut message = MsgBuilder::new_default();
         let mut shuffle_data = message.init_root::<serialized_data::Builder>();
         shuffle_data.set_msg(&shuffle_id_bytes);
-        serialize_packed::write_message(&mut stream, &message).unwrap();
-
-        let r = ::capnp::message::ReaderOptions {
-            traversal_limit_in_words: std::u64::MAX,
-            nesting_limit: 64,
-        };
-        let mut stream_r = std::io::BufReader::new(&mut stream);
-        let message_reader = serialize_packed::read_message(&mut stream_r, r).unwrap();
-        let shuffle_data = message_reader
-            .get_root::<serialized_data::Reader>()
-            .unwrap();
-        let locs: Vec<String> = bincode::deserialize(&shuffle_data.get_msg().unwrap()).unwrap();
-        locs
-        //        }
-        //        else {
-        //
-        //            let locs = self
-        //                .server_uris
-        //                .read()
-        //                .unwrap()
-        //                .get(&shuffle_id)
-        //                .unwrap_or(&Vec::new())
-        //                .clone();
-        //            let locs = locs.into_iter().map(|x| x.unwrap()).collect::<Vec<_>>();
-        //            return locs;
-        //        }
+        capnp_serialize::write_message(&mut writer, &message).await?;
+        let message_reader = capnp_serialize::read_message(reader, CAPNP_BUF_READ_OPTS)
+            .await?
+            .ok_or_else(|| NetworkError::NoMessageReceived)?;
+        let shuffle_data = message_reader.get_root::<serialized_data::Reader>()?;
+        let locs: Vec<String> = bincode::deserialize(&shuffle_data.get_msg()?)?;
+        Ok(locs)
     }
 
     fn server(&self) {
-        if self.is_master {
-            log::debug!("mapoutput tracker server starting");
-            let master_addr = self.master_addr;
-            let server_uris = self.server_uris.clone();
-            thread::spawn(move || {
-                // TODO: make this use async rt
-                let listener = TcpListener::bind(master_addr).unwrap();
-                log::debug!("mapoutput tracker server started");
-                for stream in listener.incoming() {
-                    match stream {
-                        Err(_) => continue,
-                        Ok(mut stream) => {
-                            let server_uris_clone = server_uris.clone();
-                            thread::spawn(move || {
-                                //reading
-                                let r = ::capnp::message::ReaderOptions {
-                                    traversal_limit_in_words: std::u64::MAX,
-                                    nesting_limit: 64,
-                                };
-                                let mut stream_r = std::io::BufReader::new(&mut stream);
-                                let message_reader =
-                                    match serialize_packed::read_message(&mut stream_r, r) {
-                                        Ok(s) => s,
-                                        Err(_) => return,
-                                    };
-                                let data = message_reader
-                                    .get_root::<serialized_data::Reader>()
-                                    .unwrap();
-                                let shuffle_id: usize =
-                                    bincode::deserialize(data.get_msg().unwrap()).unwrap();
-                                while server_uris_clone
-                                    .get(&shuffle_id)
-                                    .unwrap()
-                                    .iter()
-                                    .filter(|x| !x.is_none())
-                                    .count()
-                                    == 0
-                                {
-                                    //check whether this will hurt the performance or not
-                                    let wait = time::Duration::from_millis(1);
-                                    thread::sleep(wait);
-                                }
-                                let locs = server_uris_clone
-                                    .get(&shuffle_id)
-                                    .map(|kv| kv.value().clone())
-                                    .unwrap_or(Vec::new());
-                                log::debug!("locs inside mapoutput tracker server before unwrapping for shuffle id {:?} {:?}",shuffle_id,locs);
-                                let locs = locs.into_iter().map(|x| x.unwrap()).collect::<Vec<_>>();
-                                log::debug!("locs inside mapoutput tracker server after unwrapping for shuffle id {:?} {:?} ", shuffle_id, locs);
-
-                                //writing
-                                let result = bincode::serialize(&locs).unwrap();
-                                let mut message = ::capnp::message::Builder::new_default();
-                                let mut locs_data = message.init_root::<serialized_data::Builder>();
-                                locs_data.set_msg(&result);
-                                serialize_packed::write_message(&mut stream, &message).unwrap();
-                            });
-                        }
-                    }
-                }
-            });
+        if !self.is_master {
+            return;
         }
+        log::debug!("map output tracker server starting");
+        let master_addr = self.master_addr;
+        let server_uris = self.server_uris.clone();
+        env::Env::run_in_async_rt(|| {
+            tokio::spawn(async move {
+                let mut listener = TcpListener::bind(master_addr)
+                    .await
+                    .map_err(NetworkError::TcpListener)?;
+                log::debug!("map output tracker server started");
+                while let Some(Ok(mut stream)) = listener.incoming().next().await {
+                    let server_uris_clone = server_uris.clone();
+                    tokio::spawn(async move {
+                        let (reader, writer) = stream.split();
+                        let reader = reader.compat();
+                        let mut writer = writer.compat_write();
+
+                        // reading
+                        let message_reader =
+                            capnp_serialize::read_message(reader, CAPNP_BUF_READ_OPTS)
+                                .await?
+                                .ok_or_else(|| NetworkError::NoMessageReceived)?;
+                        let shuffle_id = {
+                            let data = message_reader.get_root::<serialized_data::Reader>()?;
+                            bincode::deserialize(data.get_msg()?)?
+                        };
+                        while server_uris_clone
+                            .get(&shuffle_id)
+                            .ok_or_else(|| MapOutputError::ShuffleIdNotFound(shuffle_id))?
+                            .iter()
+                            .filter(|x| !x.is_none())
+                            .count()
+                            == 0
+                        {
+                            //check whether this will hurt the performance or not
+                            tokio::time::delay_for(Duration::from_millis(1)).await;
+                        }
+                        let locs = server_uris_clone
+                            .get(&shuffle_id)
+                            .map(|kv| {
+                                kv.value()
+                                    .iter()
+                                    .cloned()
+                                    .map(|x| x.unwrap())
+                                    .collect::<Vec<_>>()
+                            })
+                            .unwrap_or_default();
+                        log::debug!(
+                            "locs inside map output tracker server for shuffle id #{}: {:?}",
+                            shuffle_id,
+                            locs
+                        );
+                        // writing
+                        let result = bincode::serialize(&locs)?;
+                        // hacky because MsgBuilder is not Send and cannot be awaited in the Tokio TP
+                        futures::executor::block_on(MapOutputTracker::send_output_uris(
+                            &mut writer,
+                            &result,
+                        ))?;
+                        Ok::<_, Error>(())
+                    });
+                }
+                Err::<(), _>(Error::ExecutorShutdown)
+            });
+        });
+    }
+
+    async fn send_output_uris<W>(writer: &mut W, result: &[u8]) -> Result<()>
+    where
+        W: futures::AsyncWrite + Unpin,
+    {
+        let mut message = MsgBuilder::new_default();
+        let mut locs_data = message.init_root::<serialized_data::Builder>();
+        locs_data.set_msg(result);
+        capnp_futures::serialize::write_message(writer, message)
+            .await
+            .map_err(Error::CapnpDeserialization)?;
+        Ok(())
     }
 
     pub fn register_shuffle(&self, shuffle_id: usize, num_maps: usize) {
         log::debug!("inside register shuffle");
         if self.server_uris.get(&shuffle_id).is_some() {
-            //TODO error handling
+            // TODO: error handling
             log::debug!("map tracker register shuffle none");
             return;
         }
@@ -167,35 +188,25 @@ impl MapOutputTracker {
     }
 
     pub fn register_map_output(&self, shuffle_id: usize, map_id: usize, server_uri: String) {
-        //        if !self.is_master {
-        //            return;
-        //        }
+        log::debug!(
+            "registering map output from shuffle task #{} with map id #{} at server: {}",
+            shuffle_id,
+            map_id,
+            server_uri
+        );
         self.server_uris.get_mut(&shuffle_id).unwrap()[map_id] = Some(server_uri);
     }
 
     pub fn register_map_outputs(&self, shuffle_id: usize, locs: Vec<Option<String>>) {
-        //        if !self.is_master {
-        //            let fetched = self.client(shuffle_id);
-        //            println!("fetched locs from client {:?}", fetched);
-        //            self.server_uris.write().insert(
-        //                shuffle_id,
-        //                fetched.iter().map(|x| Some(x.clone())).collect(),
-        //            );
-        //            return;
-        //        }
         log::debug!(
-            "registering map outputs inside map output tracker for shuffle id {} {:?}",
+            "registering map outputs inside map output tracker for shuffle id #{}: {:?}",
             shuffle_id,
             locs
         );
         self.server_uris.insert(shuffle_id, locs);
-        //        .insert(shuffle_id, locs.into_iter().map(|x| Some(x)).collect());
     }
 
     pub fn unregister_map_output(&self, shuffle_id: usize, map_id: usize, server_uri: String) {
-        //        if !self.is_master {
-        //            return;
-        //        }
         let array = self.server_uris.get(&shuffle_id);
         if let Some(arr) = array {
             if arr.get(map_id).unwrap() == &Some(server_uri) {
@@ -206,74 +217,61 @@ impl MapOutputTracker {
             }
             self.increment_generation();
         } else {
-            //TODO error logging
+            // TODO: error logging
         }
     }
 
-    pub fn get_server_uris(&self, shuffle_id: usize) -> Vec<String> {
+    pub async fn get_server_uris(&self, shuffle_id: usize) -> Result<Vec<String>> {
         log::debug!(
-            "server uris inside get_server_uris method {:?}",
+            "trying to get uri for shuffle task #{}, current server uris: {:?}",
+            shuffle_id,
             self.server_uris
         );
+
         if self
             .server_uris
             .get(&shuffle_id)
-            .unwrap()
-            .iter()
-            .filter(|x| !x.is_none())
-            .map(|x| x.clone().unwrap())
-            .next()
+            .map(|some| some.iter().filter_map(|x| x.clone()).next())
+            .flatten()
             .is_none()
         {
-            // if self.server_uris.read().get(&shuffle_id).is_empty(){
             if self.fetching.read().contains(&shuffle_id) {
                 while self.fetching.read().contains(&shuffle_id) {
-                    //check whether this will hurt the performance or not
-                    let wait = time::Duration::from_millis(1);
-                    thread::sleep(wait);
+                    // TODO: check whether this will hurt the performance or not
+                    tokio::time::delay_for(Duration::from_millis(1)).await;
                 }
-                log::debug!(
-                    "returning after fetching done {:?}",
-                    self.server_uris
-                        .get(&shuffle_id)
-                        .unwrap()
-                        .iter()
-                        .filter(|x| !x.is_none())
-                        .map(|x| x.clone().unwrap())
-                        .collect::<Vec<_>>()
-                );
-                return self
+                let servers = self
                     .server_uris
                     .get(&shuffle_id)
-                    .unwrap()
+                    .ok_or_else(|| MapOutputError::ShuffleIdNotFound(shuffle_id))?
                     .iter()
                     .filter(|x| !x.is_none())
                     .map(|x| x.clone().unwrap())
-                    .collect();
+                    .collect::<Vec<_>>();
+                log::debug!("returning after fetching done, return: {:?}", servers);
+                return Ok(servers);
             } else {
                 log::debug!("adding to fetching queue");
                 self.fetching.write().insert(shuffle_id);
             }
-            // TODO logging
-            let fetched = self.client(shuffle_id);
-            log::debug!("fetched locs from client {:?}", fetched);
+            let fetched = self.client(shuffle_id).await?;
+            log::debug!("fetched locs from client: {:?}", fetched);
             self.server_uris.insert(
                 shuffle_id,
                 fetched.iter().map(|x| Some(x.clone())).collect(),
             );
-            log::debug!("wriiten to server_uris after fetching");
+            log::debug!("added locs to server uris after fetching");
             self.fetching.write().remove(&shuffle_id);
-            log::debug!("returning from get server uri");
-
-            fetched
+            Ok(fetched)
         } else {
-            self.server_uris
+            Ok(self
+                .server_uris
                 .get(&shuffle_id)
-                .unwrap()
+                .ok_or_else(|| MapOutputError::ShuffleIdNotFound(shuffle_id))?
                 .iter()
                 .filter(|x| !x.is_none())
                 .map(|x| x.clone().unwrap())
-                .collect()
+                .collect())
         }
     }
 
@@ -291,4 +289,10 @@ impl MapOutputTracker {
             *self.generation.lock() = new_gen;
         }
     }
+}
+
+#[derive(Debug, Error)]
+pub enum MapOutputError {
+    #[error("Shuffle id output #{0} not found in the map")]
+    ShuffleIdNotFound(usize),
 }

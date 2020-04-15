@@ -3,14 +3,13 @@ use std::sync::Arc;
 
 use itertools::{Itertools, MinMaxResult};
 use serde_derive::{Deserialize, Serialize};
-use serde_traitobject::Arc as SerArc;
 
 use crate::context::Context;
 use crate::dependency::{Dependency, NarrowDependencyTrait, OneToOneDependency, RangeDependency};
 use crate::error::{Error, Result};
 use crate::partitioner::Partitioner;
 use crate::rdd::union_rdd::UnionVariants::{NonUniquePartitioner, PartitionerAware};
-use crate::rdd::{Rdd, RddBase, RddVals};
+use crate::rdd::*;
 use crate::serializable_traits::{AnyData, Data};
 use crate::split::Split;
 
@@ -200,8 +199,8 @@ impl<T: Data> RddBase for UnionRdd<T> {
 
     fn get_context(&self) -> Arc<Context> {
         match &self.0 {
-            NonUniquePartitioner { vals, .. } => vals.context.clone(),
-            PartitionerAware { vals, .. } => vals.context.clone(),
+            NonUniquePartitioner { vals, .. } => vals.context.upgrade().unwrap(),
+            PartitionerAware { vals, .. } => vals.context.upgrade().unwrap(),
         }
     }
 
@@ -239,7 +238,7 @@ impl<T: Data> RddBase for UnionRdd<T> {
                             parent_locations
                         });
 
-                // Find the location that maximum number of parent partitions prefer
+                // find the location that maximum number of parent partitions prefer
                 let location = match locations.flatten().minmax_by_key(|loc| *loc) {
                     MinMaxResult::MinMax(_, max) => Some(max),
                     MinMaxResult::OneElement(e) => Some(e),

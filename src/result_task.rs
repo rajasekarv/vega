@@ -7,11 +7,12 @@ use crate::env;
 use crate::rdd::Rdd;
 use crate::serializable_traits::Data;
 use crate::task::{Task, TaskBase, TaskContext};
+use crate::SerBox;
 use serde_derive::{Deserialize, Serialize};
 use serde_traitobject::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize)]
-pub struct ResultTask<T: Data, U: Data, F>
+pub(crate) struct ResultTask<T: Data, U: Data, F>
 where
     F: Fn((TaskContext, Box<dyn Iterator<Item = T>>)) -> U
         + 'static
@@ -155,10 +156,10 @@ where
         + Deserialize
         + Clone,
 {
-    fn run(&self, id: usize) -> serde_traitobject::Box<dyn serde_traitobject::Any + Send + Sync> {
+    fn run(&self, id: usize) -> SerBox<dyn serde_traitobject::Any + Send + Sync> {
         let split = self.rdd.splits()[self.partition].clone();
         let context = TaskContext::new(self.stage_id, self.partition, id);
-        serde_traitobject::Box::new((self.func)((context, self.rdd.iterator(split).unwrap())))
-            as serde_traitobject::Box<dyn serde_traitobject::Any + Send + Sync>
+        SerBox::new((self.func)((context, self.rdd.iterator(split).unwrap())))
+            as SerBox<dyn serde_traitobject::Any + Send + Sync>
     }
 }

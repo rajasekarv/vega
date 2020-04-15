@@ -9,13 +9,13 @@ use crate::error::Result;
 use crate::partitioner::{HashPartitioner, Partitioner};
 use crate::rdd::co_grouped_rdd::CoGroupedRdd;
 use crate::rdd::shuffled_rdd::ShuffledRdd;
-use crate::rdd::{Rdd, RddBase, RddVals};
+use crate::rdd::*;
 use crate::serializable_traits::{AnyData, Data, Func, SerFunc};
 use crate::split::Split;
 use serde_derive::{Deserialize, Serialize};
-use serde_traitobject::{Arc as SerArc, Deserialize, Serialize};
+use serde_traitobject::{Deserialize, Serialize};
 
-// Trait containing pair rdd methods. No need of implicit conversion like in Spark version
+// Trait containing pair rdd methods. No need of implicit conversion like in Spark version.
 pub trait PairRdd<K: Data + Eq + Hash, V: Data>: Rdd<Item = (K, V)> + Send + Sync {
     fn combine_by_key<C: Data>(
         &self,
@@ -103,7 +103,7 @@ pub trait PairRdd<K: Data + Eq + Hash, V: Data>: Rdd<Item = (K, V)> + Send + Syn
 
     fn join<W: Data>(
         &self,
-        other: serde_traitobject::Arc<dyn Rdd<Item = (K, W)>>,
+        other: SerArc<dyn Rdd<Item = (K, W)>>,
         num_splits: usize,
     ) -> SerArc<dyn Rdd<Item = (K, (V, W))>> {
         let f = Fn!(|v: (Vec<V>, Vec<W>)| {
@@ -122,12 +122,12 @@ pub trait PairRdd<K: Data + Eq + Hash, V: Data>: Rdd<Item = (K, V)> + Send + Syn
 
     fn cogroup<W: Data>(
         &self,
-        other: serde_traitobject::Arc<dyn Rdd<Item = (K, W)>>,
+        other: SerArc<dyn Rdd<Item = (K, W)>>,
         partitioner: Box<dyn Partitioner>,
     ) -> SerArc<dyn Rdd<Item = (K, (Vec<V>, Vec<W>))>> {
-        let rdds: Vec<serde_traitobject::Arc<dyn RddBase>> = vec![
-            serde_traitobject::Arc::from(self.get_rdd_base()),
-            serde_traitobject::Arc::from(other.get_rdd_base()),
+        let rdds: Vec<SerArc<dyn RddBase>> = vec![
+            SerArc::from(self.get_rdd_base()),
+            SerArc::from(other.get_rdd_base()),
         ];
         let cg_rdd = CoGroupedRdd::<K>::new(rdds, partitioner);
         let f = Fn!(|v: Vec<Vec<Box<dyn AnyData>>>| -> (Vec<V>, Vec<W>) {
@@ -235,7 +235,7 @@ where
         self.vals.id
     }
     fn get_context(&self) -> Arc<Context> {
-        self.vals.context.clone()
+        self.vals.context.upgrade().unwrap()
     }
     fn get_dependencies(&self) -> Vec<Dependency> {
         self.vals.dependencies.clone()
@@ -246,12 +246,12 @@ where
     fn number_of_splits(&self) -> usize {
         self.prev.number_of_splits()
     }
-    // TODO Analyze the possible error in invariance here
+    // TODO: Analyze the possible error in invariance here
     fn iterator_any(
         &self,
         split: Box<dyn Split>,
     ) -> Result<Box<dyn Iterator<Item = Box<dyn AnyData>>>> {
-        log::debug!("inside iterator_any mapvaluesrdd",);
+        log::debug!("inside iterator_any mapvaluesrdd");
         Ok(Box::new(
             self.iterator(split)?
                 .map(|(k, v)| Box::new((k, v)) as Box<dyn AnyData>),
@@ -261,7 +261,7 @@ where
         &self,
         split: Box<dyn Split>,
     ) -> Result<Box<dyn Iterator<Item = Box<dyn AnyData>>>> {
-        log::debug!("inside iterator_any mapvaluesrdd",);
+        log::debug!("inside cogroup_iterator_any mapvaluesrdd");
         Ok(Box::new(self.iterator(split)?.map(|(k, v)| {
             Box::new((k, Box::new(v) as Box<dyn AnyData>)) as Box<dyn AnyData>
         })))
@@ -347,7 +347,7 @@ where
         self.vals.id
     }
     fn get_context(&self) -> Arc<Context> {
-        self.vals.context.clone()
+        self.vals.context.upgrade().unwrap()
     }
     fn get_dependencies(&self) -> Vec<Dependency> {
         self.vals.dependencies.clone()
@@ -358,7 +358,7 @@ where
     fn number_of_splits(&self) -> usize {
         self.prev.number_of_splits()
     }
-    // TODO Analyze the possible error in invariance here
+    // TODO: Analyze the possible error in invariance here
     fn iterator_any(
         &self,
         split: Box<dyn Split>,

@@ -7,7 +7,6 @@ use std::sync::{
     atomic::{AtomicUsize, Ordering},
     Arc,
 };
-use std::thread;
 use std::time::{Duration, Instant};
 
 use crate::dag_scheduler::{CompletionEvent, TastEndReason};
@@ -18,22 +17,21 @@ use crate::job::{Job, JobTracker};
 use crate::map_output_tracker::MapOutputTracker;
 use crate::rdd::{Rdd, RddBase};
 use crate::result_task::ResultTask;
-use crate::scheduler::NativeScheduler;
+use crate::scheduler::{EventQueue, NativeScheduler};
 use crate::serializable_traits::{Data, SerFunc};
 use crate::shuffle::ShuffleMapTask;
 use crate::stage::Stage;
 use crate::task::{TaskBase, TaskContext, TaskOption, TaskResult};
-use crate::utils;
 use dashmap::DashMap;
 use parking_lot::Mutex;
 
 #[derive(Clone, Default)]
-pub struct LocalScheduler {
+pub(crate) struct LocalScheduler {
     max_failures: usize,
     attempt_id: Arc<AtomicUsize>,
     resubmit_timeout: u128,
     poll_timeout: u64,
-    event_queues: Arc<DashMap<usize, VecDeque<CompletionEvent>>>,
+    event_queues: EventQueue,
     pub(crate) next_job_id: Arc<AtomicUsize>,
     next_run_id: Arc<AtomicUsize>,
     next_task_id: Arc<AtomicUsize>,
@@ -43,7 +41,7 @@ pub struct LocalScheduler {
     cache_locs: Arc<DashMap<usize, Vec<Vec<Ipv4Addr>>>>,
     master: bool,
     framework_name: String,
-    is_registered: bool, //TODO check if it is necessary
+    is_registered: bool, // TODO: check if it is necessary
     active_jobs: HashMap<usize, Job>,
     active_job_queue: Vec<Job>,
     taskid_to_jobid: HashMap<String, usize>,
@@ -51,7 +49,7 @@ pub struct LocalScheduler {
     job_tasks: HashMap<usize, HashSet<String>>,
     slaves_with_executors: HashSet<String>,
     map_output_tracker: MapOutputTracker,
-    // TODO fix proper locking mechanism
+    // TODO: fix proper locking mechanism
     scheduler_lock: Arc<Mutex<bool>>,
 }
 
@@ -72,7 +70,7 @@ impl LocalScheduler {
             cache_locs: Arc::new(DashMap::new()),
             master,
             framework_name: "spark".to_string(),
-            is_registered: true, //TODO check if it is necessary
+            is_registered: true, // TODO: check if it is necessary
             active_jobs: HashMap::new(),
             active_job_queue: Vec::new(),
             taskid_to_jobid: HashMap::new(),
@@ -100,7 +98,7 @@ impl LocalScheduler {
         let _lock = self.scheduler_lock.lock();
         let jt = JobTracker::from_scheduler(&*self, func, final_rdd.clone(), partitions);
 
-        //TODO update cache
+        // TODO: update cache
 
         if allow_local {
             if let Some(result) = LocalScheduler::local_execution(jt.clone())? {
@@ -112,18 +110,15 @@ impl LocalScheduler {
 
         let self_clone = Arc::clone(&self);
         let jt_clone = jt.clone();
-        // run in async executor
-        let executor = env::Env::get_async_handle();
-        let results = executor.enter(move || {
+        let results = env::Env::run_in_async_rt(move || {
             let self_borrow = &*self_clone;
             let jt = jt_clone;
             let mut results: Vec<Option<U>> = (0..jt.num_output_parts).map(|_| None).collect();
             let mut fetch_failure_duration = Duration::new(0, 0);
 
             self_borrow.submit_stage(jt.final_stage.clone(), jt.clone());
-            utils::yield_tokio_futures();
             log::debug!(
-                "pending stages and tasks {:?}",
+                "pending stages and tasks: {:?}",
                 jt.pending_tasks
                     .lock()
                     .iter()
@@ -144,7 +139,7 @@ impl LocalScheduler {
                         .unwrap()
                         .clone();
                     log::debug!(
-                        "removing stage task from pending tasks {} {}",
+                        "removing stage #{} task from pending task #{}",
                         stage.id,
                         evt.task.get_task_id()
                     );
@@ -182,7 +177,6 @@ impl LocalScheduler {
                 for stage in jt.failed.lock().iter() {
                     self_borrow.submit_stage(stage.clone(), jt.clone());
                 }
-                utils::yield_tokio_futures();
                 jt.failed.lock().clear();
             }
             results
@@ -247,7 +241,7 @@ impl LocalScheduler {
         task: Box<dyn TaskBase>,
         reason: TastEndReason,
         result: Box<dyn Any + Send + Sync>,
-        //TODO accumvalues needs to be done
+        // TODO: accumvalues needs to be done
     ) {
         let result = Some(result);
         if let Some(mut queue) = event_queues.get_mut(&(task.get_run_id())) {

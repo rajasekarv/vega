@@ -1,11 +1,13 @@
-use crate::dependency::ShuffleDependencyTrait;
-use crate::env;
-use crate::rdd::RddBase;
-use crate::task::{Task, TaskBase};
-use serde_derive::{Deserialize, Serialize};
 use std::fmt::Display;
 use std::net::Ipv4Addr;
 use std::sync::Arc;
+
+use crate::dependency::ShuffleDependencyTrait;
+use crate::env;
+use crate::rdd::RddBase;
+use crate::shuffle::*;
+use crate::task::{Task, TaskBase};
+use serde_derive::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize, Clone)]
 pub(crate) struct ShuffleMapTask {
@@ -81,8 +83,8 @@ impl TaskBase for ShuffleMapTask {
 }
 
 impl Task for ShuffleMapTask {
-    fn run(&self, _id: usize) -> serde_traitobject::Box<dyn serde_traitobject::Any + Send + Sync> {
-        serde_traitobject::Box::new(self.dep.do_shuffle_task(self.rdd.clone(), self.partition))
-            as serde_traitobject::Box<dyn serde_traitobject::Any + Send + Sync>
+    fn run(&self, _id: usize) -> SerBox<dyn serde_traitobject::Any + Send + Sync> {
+        SerBox::new(self.dep.do_shuffle_task(self.rdd.clone(), self.partition))
+            as SerBox<dyn serde_traitobject::Any + Send + Sync>
     }
 }

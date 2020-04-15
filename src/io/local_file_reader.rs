@@ -8,14 +8,13 @@ use std::sync::Arc;
 use crate::context::Context;
 use crate::dependency::Dependency;
 use crate::error::{Error, Result};
-use crate::io::ReaderConfiguration;
+use crate::io::*;
 use crate::rdd::{MapPartitionsRdd, MapperRdd, Rdd, RddBase};
 use crate::serializable_traits::{AnyData, Data, SerFunc};
 use crate::split::Split;
 use log::debug;
 use rand::prelude::*;
 use serde_derive::{Deserialize, Serialize};
-use serde_traitobject::Arc as SerArc;
 
 pub struct LocalFsReaderConfig {
     filter_ext: Option<std::ffi::OsString>,

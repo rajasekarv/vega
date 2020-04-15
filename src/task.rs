@@ -4,7 +4,8 @@ use std::net::Ipv4Addr;
 use crate::result_task::ResultTask;
 use crate::serializable_traits::{Data, SerFunc};
 use crate::shuffle::ShuffleMapTask;
-use downcast_rs::Downcast;
+use crate::SerBox;
+use downcast_rs::{impl_downcast, Downcast};
 use serde_derive::{Deserialize, Serialize};
 use serde_traitobject::{Deserialize, Serialize};
 
@@ -60,19 +61,20 @@ impl Ord for dyn TaskBase {
     }
 }
 
-pub trait Task: TaskBase + Send + Sync + Downcast {
-    fn run(&self, id: usize) -> serde_traitobject::Box<dyn serde_traitobject::Any + Send + Sync>;
+pub(crate) trait Task: TaskBase + Send + Sync + Downcast {
+    fn run(&self, id: usize) -> SerBox<dyn serde_traitobject::Any + Send + Sync>;
 }
+
 impl_downcast!(Task);
 
-pub trait TaskBox: Task + Serialize + Deserialize + 'static + Downcast {}
+pub(crate) trait TaskBox: Task + Serialize + Deserialize + 'static + Downcast {}
 
 impl<K> TaskBox for K where K: Task + Serialize + Deserialize + 'static {}
 
 impl_downcast!(TaskBox);
 
 #[derive(Serialize, Deserialize)]
-pub enum TaskOption {
+pub(crate) enum TaskOption {
     #[serde(with = "serde_traitobject")]
     ResultTask(Box<dyn TaskBox>),
     #[serde(with = "serde_traitobject")]
@@ -95,12 +97,11 @@ impl From<ShuffleMapTask> for TaskOption {
 }
 
 #[derive(Serialize, Deserialize)]
-pub enum TaskResult {
-    //    //    #[serde(with = "serde_traitobject")]
-    ResultTask(serde_traitobject::Box<dyn serde_traitobject::Any + Send + Sync>),
-    ShuffleTask(serde_traitobject::Box<dyn serde_traitobject::Any + Send + Sync>),
+pub(crate) enum TaskResult {
+    ResultTask(SerBox<dyn serde_traitobject::Any + Send + Sync>),
+    ShuffleTask(SerBox<dyn serde_traitobject::Any + Send + Sync>),
 }
-//
+
 impl TaskOption {
     pub fn run(&self, id: usize) -> TaskResult {
         match self {
@@ -108,18 +109,21 @@ impl TaskOption {
             TaskOption::ShuffleMapTask(tsk) => TaskResult::ShuffleTask(tsk.run(id)),
         }
     }
+
     pub fn get_task_id(&self) -> usize {
         match self {
             TaskOption::ResultTask(tsk) => tsk.get_task_id(),
             TaskOption::ShuffleMapTask(tsk) => tsk.get_task_id(),
         }
     }
+
     pub fn get_run_id(&self) -> usize {
         match self {
             TaskOption::ResultTask(tsk) => tsk.get_run_id(),
             TaskOption::ShuffleMapTask(tsk) => tsk.get_run_id(),
         }
     }
+
     pub fn get_stage_id(&self) -> usize {
         match self {
             TaskOption::ResultTask(tsk) => tsk.get_stage_id(),

@@ -62,7 +62,7 @@ impl<T: Data> RddBase for PartitionwiseSampledRdd<T> {
     }
 
     fn get_context(&self) -> Arc<Context> {
-        self.vals.context.clone()
+        self.vals.context.upgrade().unwrap()
     }
 
     fn get_dependencies(&self) -> Vec<Dependency> {
@@ -109,7 +109,7 @@ impl<T: Data, V: Data> RddBase for PartitionwiseSampledRdd<(T, V)> {
         &self,
         split: Box<dyn Split>,
     ) -> Result<Box<dyn Iterator<Item = Box<dyn AnyData>>>> {
-        log::debug!("inside iterator_any maprdd",);
+        log::debug!("inside PartitionwiseSampledRdd cogroup_iterator_any",);
         Ok(Box::new(self.iterator(split)?.map(|(k, v)| {
             Box::new((k, Box::new(v) as Box<dyn AnyData>)) as Box<dyn AnyData>
         })))

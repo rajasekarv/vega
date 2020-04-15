@@ -12,7 +12,7 @@ use crate::rdd::{Rdd, RddBase, RddVals};
 use crate::split::Split;
 
 #[derive(Clone, Serialize, Deserialize)]
-pub struct ZippedPartitionsSplit {
+struct ZippedPartitionsSplit {
     fst_idx: usize,
     sec_idx: usize,
     idx: usize,
@@ -56,7 +56,7 @@ impl<F: Data, S: Data> RddBase for ZippedPartitionsRdd<F, S> {
     }
 
     fn get_context(&self) -> Arc<Context> {
-        self.vals.context.clone()
+        self.vals.context.upgrade().unwrap()
     }
 
     fn get_dependencies(&self) -> Vec<Dependency> {

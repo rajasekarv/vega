@@ -3,7 +3,7 @@ use std::sync::Arc;
 use crate::context::Context;
 use crate::rdd::Rdd;
 use crate::serializable_traits::{Data, SerFunc};
-use serde_traitobject::Arc as SerArc;
+use crate::SerArc;
 
 mod local_file_reader;
 pub use local_file_reader::{LocalFsReader, LocalFsReaderConfig};

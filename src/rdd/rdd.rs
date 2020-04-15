@@ -4,7 +4,7 @@ use std::hash::Hash;
 use std::io::{BufWriter, Write};
 use std::net::Ipv4Addr;
 use std::path::Path;
-use std::sync::Arc;
+use std::sync::{Arc, Weak};
 
 use crate::context::Context;
 use crate::dependency::Dependency;
@@ -15,44 +15,45 @@ use crate::split::Split;
 use crate::task::TaskContext;
 use crate::utils;
 use crate::utils::random::{BernoulliSampler, PoissonSampler, RandomSampler};
+use crate::{SerArc, SerBox};
 use fasthash::MetroHasher;
 use rand::{Rng, SeedableRng};
 use serde_derive::{Deserialize, Serialize};
-use serde_traitobject::{Arc as SerArc, Deserialize, Serialize};
+use serde_traitobject::{Deserialize, Serialize};
 
-pub mod parallel_collection_rdd;
+mod parallel_collection_rdd;
 pub use parallel_collection_rdd::*;
-pub mod cartesian_rdd;
+mod cartesian_rdd;
 pub use cartesian_rdd::*;
-pub mod co_grouped_rdd;
+mod co_grouped_rdd;
 pub use co_grouped_rdd::*;
-pub mod coalesced_rdd;
+mod coalesced_rdd;
 pub use coalesced_rdd::*;
-pub mod mapper_rdd;
+mod flatmapper_rdd;
+mod mapper_rdd;
+pub use flatmapper_rdd::*;
 pub use mapper_rdd::*;
-pub mod flatmap_rdd;
-pub use flatmap_rdd::*;
-pub mod pair_rdd;
+mod pair_rdd;
 pub use pair_rdd::*;
-pub mod partitionwise_sampled_rdd;
+mod partitionwise_sampled_rdd;
 pub use partitionwise_sampled_rdd::*;
-pub mod shuffled_rdd;
+mod shuffled_rdd;
 pub use shuffled_rdd::*;
-pub mod map_partitions_rdd;
+mod map_partitions_rdd;
 pub use map_partitions_rdd::*;
-pub mod zip_rdd;
+mod zip_rdd;
 pub use zip_rdd::*;
-pub mod union_rdd;
+mod union_rdd;
 pub use union_rdd::*;
 
 // Values which are needed for all RDDs
 #[derive(Serialize, Deserialize)]
-pub struct RddVals {
+pub(crate) struct RddVals {
     pub id: usize,
     pub dependencies: Vec<Dependency>,
     should_cache: bool,
     #[serde(skip_serializing, skip_deserializing)]
-    pub context: Arc<Context>,
+    pub context: Weak<Context>,
 }
 
 impl RddVals {
@@ -61,7 +62,7 @@ impl RddVals {
             id: sc.new_rdd_id(),
             dependencies: Vec::new(),
             should_cache: false,
-            context: sc,
+            context: Arc::downgrade(&sc),
         }
     }
 
@@ -125,7 +126,7 @@ impl Ord for dyn RddBase {
     }
 }
 
-impl<I: Rdd + ?Sized> RddBase for serde_traitobject::Arc<I> {
+impl<I: Rdd + ?Sized> RddBase for SerArc<I> {
     fn get_rdd_id(&self) -> usize {
         (**self).get_rdd_base().get_rdd_id()
     }
@@ -146,7 +147,7 @@ impl<I: Rdd + ?Sized> RddBase for serde_traitobject::Arc<I> {
     }
 }
 
-impl<I: Rdd + ?Sized> Rdd for serde_traitobject::Arc<I> {
+impl<I: Rdd + ?Sized> Rdd for SerArc<I> {
     type Item = I::Item;
     fn get_rdd(&self) -> Arc<dyn Rdd<Item = Self::Item>> {
         (**self).get_rdd()
@@ -327,7 +328,7 @@ pub trait Rdd: RddBase + 'static {
     /// elements (a, b) where a is in `this` and b is in `other`.
     fn cartesian<U: Data>(
         &self,
-        other: serde_traitobject::Arc<dyn Rdd<Item = U>>,
+        other: SerArc<dyn Rdd<Item = U>>,
     ) -> SerArc<dyn Rdd<Item = (Self::Item, U)>>
     where
         Self: Sized,
@@ -420,6 +421,18 @@ pub trait Rdd: RddBase + 'static {
             .sum())
     }
 
+    /// Return the count of each unique value in this RDD as a dictionary of (value, count) pairs.
+    fn count_by_value(&self) -> SerArc<dyn Rdd<Item = (Self::Item, u64)>>
+    where
+        Self: Sized,
+        Self::Item: Data + Eq + Hash,
+    {
+        self.map(Fn!(|x| (x, 1u64))).reduce_by_key(
+            Box::new(Fn!(|(x, y)| x + y)) as Box<dyn Func((u64, u64)) -> u64>,
+            self.number_of_splits(),
+        )
+    }
+
     /// Return a new RDD containing the distinct elements in this RDD.
     fn distinct_with_num_partitions(
         &self,
@@ -488,7 +501,7 @@ pub trait Rdd: RddBase + 'static {
     where
         Self: Sized,
     {
-        //TODO: in original spark this is configurable; see rdd/RDD.scala:1397
+        // TODO: in original spark this is configurable; see rdd/RDD.scala:1397
         // Math.max(conf.get(RDD_LIMIT_SCALE_UP_FACTOR), 2)
         const SCALE_UP_FACTOR: f64 = 2.0;
         if num == 0 {
@@ -595,7 +608,7 @@ pub trait Rdd: RddBase + 'static {
     {
         const NUM_STD_DEV: f64 = 10.0f64;
         const REPETITION_GUARD: u8 = 100;
-        //TODO: this could be const eval when the support is there for the necessary functions
+        // TODO: this could be const eval when the support is there for the necessary functions
         let max_sample_size = std::u64::MAX - (NUM_STD_DEV * (std::u64::MAX as f64).sqrt()) as u64;
         assert!(num <= max_sample_size);
 

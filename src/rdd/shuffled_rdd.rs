@@ -62,8 +62,9 @@ impl<K: Data + Eq + Hash, V: Data, C: Data> ShuffledRdd<K, V, C> {
         aggregator: Arc<Aggregator<K, V, C>>,
         part: Box<dyn Partitioner>,
     ) -> Self {
-        let mut vals = RddVals::new(parent.get_context());
-        let shuffle_id = vals.context.new_shuffle_id();
+        let ctx = parent.get_context();
+        let shuffle_id = ctx.new_shuffle_id();
+        let mut vals = RddVals::new(ctx);
 
         vals.dependencies
             .push(Dependency::ShuffleDependency(Arc::new(
@@ -92,7 +93,7 @@ impl<K: Data + Eq + Hash, V: Data, C: Data> RddBase for ShuffledRdd<K, V, C> {
     }
 
     fn get_context(&self) -> Arc<Context> {
-        self.vals.context.clone()
+        self.vals.context.upgrade().unwrap()
     }
 
     fn get_dependencies(&self) -> Vec<Dependency> {
@@ -166,8 +167,7 @@ impl<K: Data + Eq + Hash, V: Data, C: Data> Rdd for ShuffledRdd<K, V, C> {
 
         let shuffle_id = self.shuffle_id;
         let split_idx = split.get_index();
-        let executor = env::Env::get_async_handle();
-        executor.enter(|| -> Result<()> {
+        env::Env::run_in_async_rt(|| -> Result<()> {
             let fut = ShuffleFetcher::fetch(shuffle_id, split_idx, merge_pair);
             Ok(futures::executor::block_on(fut)?)
         })?;

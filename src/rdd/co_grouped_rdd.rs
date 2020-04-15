@@ -13,7 +13,7 @@ use crate::dependency::{
 use crate::env;
 use crate::error::Result;
 use crate::partitioner::Partitioner;
-use crate::rdd::{Rdd, RddBase, RddVals};
+use crate::rdd::*;
 use crate::serializable_traits::{AnyData, Data};
 use crate::shuffle::ShuffleFetcher;
 use crate::split::Split;
@@ -66,14 +66,14 @@ impl Split for CoGroupSplit {
 #[derive(Clone, Serialize, Deserialize)]
 pub struct CoGroupedRdd<K: Data> {
     pub(crate) vals: Arc<RddVals>,
-    pub(crate) rdds: Vec<serde_traitobject::Arc<dyn RddBase>>,
+    pub(crate) rdds: Vec<SerArc<dyn RddBase>>,
     #[serde(with = "serde_traitobject")]
     pub(crate) part: Box<dyn Partitioner>,
     _marker: PhantomData<K>,
 }
 
 impl<K: Data + Eq + Hash> CoGroupedRdd<K> {
-    pub fn new(rdds: Vec<serde_traitobject::Arc<dyn RddBase>>, part: Box<dyn Partitioner>) -> Self {
+    pub fn new(rdds: Vec<SerArc<dyn RddBase>>, part: Box<dyn Partitioner>) -> Self {
         let context = rdds[0].get_context();
         let mut vals = RddVals::new(context.clone());
         let create_combiner = Box::new(Fn!(|v: Box<dyn AnyData>| vec![v]));
@@ -144,7 +144,7 @@ impl<K: Data + Eq + Hash> RddBase for CoGroupedRdd<K> {
     }
 
     fn get_context(&self) -> Arc<Context> {
-        self.vals.context.clone()
+        self.vals.context.upgrade().unwrap()
     }
 
     fn get_dependencies(&self) -> Vec<Dependency> {
@@ -209,14 +209,13 @@ impl<K: Data + Eq + Hash> Rdd for CoGroupedRdd<K> {
     fn compute(&self, split: Box<dyn Split>) -> Result<Box<dyn Iterator<Item = Self::Item>>> {
         if let Ok(split) = split.downcast::<CoGroupSplit>() {
             let agg: Arc<DashMap<K, Vec<Vec<Box<dyn AnyData>>>>> = Arc::new(DashMap::new());
-            let executor = env::Env::get_async_handle();
             for (dep_num, dep) in split.clone().deps.into_iter().enumerate() {
                 match dep {
                     CoGroupSplitDep::NarrowCoGroupSplitDep { rdd, split } => {
-                        log::debug!("inside iterator cogrouprdd  narrow dep");
+                        log::debug!("inside iterator CoGroupedRdd narrow dep");
                         for i in rdd.iterator_any(split)? {
                             log::debug!(
-                                "inside iterator cogrouprdd  narrow dep iterator any {:?}",
+                                "inside iterator CoGroupedRdd narrow dep iterator any: {:?}",
                                 i
                             );
                             let b = i
@@ -231,7 +230,7 @@ impl<K: Data + Eq + Hash> Rdd for CoGroupedRdd<K> {
                         }
                     }
                     CoGroupSplitDep::ShuffleCoGroupSplitDep { shuffle_id } => {
-                        log::debug!("inside iterator cogrouprdd  shuffle dep agg {:?}", agg);
+                        log::debug!("inside iterator CoGroupedRdd shuffle dep, agg: {:?}", agg);
                         let num_rdds = self.rdds.len();
                         let agg_clone = agg.clone();
                         let merge_pair = move |(k, c): (K, Vec<Box<dyn AnyData>>)| {
@@ -244,7 +243,7 @@ impl<K: Data + Eq + Hash> Rdd for CoGroupedRdd<K> {
                         };
 
                         let split_idx = split.get_index();
-                        executor.enter(|| -> Result<()> {
+                        env::Env::run_in_async_rt(|| -> Result<()> {
                             let fut = ShuffleFetcher::fetch(shuffle_id, split_idx, merge_pair);
                             Ok(futures::executor::block_on(fut)?)
                         })?;

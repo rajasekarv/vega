@@ -7,11 +7,12 @@ use std::sync::Arc;
 use parking_lot::Mutex;
 use rand::Rng;
 use serde_derive::{Deserialize, Serialize};
-use serde_traitobject::{Arc as SerArc, Box as SerBox, Deserialize, Serialize};
+use serde_traitobject::{Deserialize, Serialize};
 
 use crate::context::Context;
 use crate::dependency::{Dependency, NarrowDependencyTrait};
 use crate::error::{Error, Result};
+use crate::rdd::*;
 use crate::rdd::{Rdd, RddBase, RddVals};
 use crate::serializable_traits::{AnyData, Data};
 use crate::split::Split;
@@ -164,7 +165,7 @@ impl<T: Data> RddBase for CoalescedRdd<T> {
     }
 
     fn get_context(&self) -> Arc<Context> {
-        self.vals.context.clone()
+        self.vals.context.upgrade().unwrap()
     }
 
     fn get_dependencies(&self) -> Vec<Dependency> {
@@ -379,7 +380,7 @@ impl PartitionLocations {
 
     /// Gets the *current* preferred locations from the DAGScheduler (as opposed to the static ones).
     fn current_pref_locs(part: Box<dyn Split>, prev: &dyn RddBase) -> Vec<Ipv4Addr> {
-        //TODO: this is inefficient and likely to happen in more places,
+        // TODO: this is inefficient and likely to happen in more places,
         //we should add a preferred_locs method that takes split by ref (&dyn Split) not by value
         prev.preferred_locations(part)
     }
