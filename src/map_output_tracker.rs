@@ -1,4 +1,3 @@
-use std::collections::HashSet;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::sync::Arc;
 use std::time::Duration;
@@ -8,8 +7,8 @@ use crate::serialized_data_capnp::serialized_data;
 use crate::{Error, NetworkError, Result};
 use capnp::message::{Builder as MsgBuilder, ReaderOptions};
 use capnp_futures::serialize as capnp_serialize;
-use dashmap::DashMap;
-use parking_lot::{Mutex, RwLock};
+use dashmap::{DashMap, DashSet};
+use parking_lot::Mutex;
 use thiserror::Error;
 use tokio::{
     net::{TcpListener, TcpStream},
@@ -35,7 +34,7 @@ pub type ServerUris = Arc<DashMap<usize, Vec<Option<String>>>>;
 pub(crate) struct MapOutputTracker {
     is_master: bool,
     pub server_uris: ServerUris,
-    fetching: Arc<RwLock<HashSet<usize>>>,
+    fetching: Arc<DashSet<usize>>,
     generation: Arc<Mutex<i64>>,
     master_addr: SocketAddr,
 }
@@ -55,15 +54,15 @@ impl Default for MapOutputTracker {
 
 impl MapOutputTracker {
     pub fn new(is_master: bool, master_addr: SocketAddr) -> Self {
-        let m = MapOutputTracker {
+        let output_tracker = MapOutputTracker {
             is_master,
             server_uris: Arc::new(DashMap::new()),
-            fetching: Arc::new(RwLock::new(HashSet::new())),
+            fetching: Arc::new(DashSet::new()),
             generation: Arc::new(Mutex::new(0)),
             master_addr,
         };
-        m.server();
-        m
+        output_tracker.server();
+        output_tracker
     }
 
     async fn client(&self, shuffle_id: usize) -> Result<Vec<String>> {
@@ -111,7 +110,7 @@ impl MapOutputTracker {
                     tokio::spawn(async move {
                         let (reader, writer) = stream.split();
                         let reader = reader.compat();
-                        let mut writer = writer.compat_write();
+                        let writer = writer.compat_write();
 
                         // reading
                         let message_reader =
@@ -148,32 +147,25 @@ impl MapOutputTracker {
                             shuffle_id,
                             locs
                         );
-                        // writing
-                        let result = bincode::serialize(&locs)?;
-                        // hacky because MsgBuilder is not Send and cannot be awaited in the Tokio TP
-                        futures::executor::block_on(MapOutputTracker::send_output_uris(
-                            &mut writer,
-                            &result,
-                        ))?;
+
+                        // writting response
+                        futures::executor::block_on(async {
+                            // hacky because MsgBuilder is not Send and cannot be awaited in the Tokio TP
+                            let result = bincode::serialize(&locs)?;
+                            let mut message = MsgBuilder::new_default();
+                            let mut locs_data = message.init_root::<serialized_data::Builder>();
+                            locs_data.set_msg(&result);
+                            capnp_futures::serialize::write_message(writer, message)
+                                .await
+                                .map_err(Error::CapnpDeserialization)?;
+                            Ok::<_, Error>(())
+                        })?;
                         Ok::<_, Error>(())
                     });
                 }
                 Err::<(), _>(Error::ExecutorShutdown)
             });
         });
-    }
-
-    async fn send_output_uris<W>(writer: &mut W, result: &[u8]) -> Result<()>
-    where
-        W: futures::AsyncWrite + Unpin,
-    {
-        let mut message = MsgBuilder::new_default();
-        let mut locs_data = message.init_root::<serialized_data::Builder>();
-        locs_data.set_msg(result);
-        capnp_futures::serialize::write_message(writer, message)
-            .await
-            .map_err(Error::CapnpDeserialization)?;
-        Ok(())
     }
 
     pub fn register_shuffle(&self, shuffle_id: usize, num_maps: usize) {
@@ -235,8 +227,8 @@ impl MapOutputTracker {
             .flatten()
             .is_none()
         {
-            if self.fetching.read().contains(&shuffle_id) {
-                while self.fetching.read().contains(&shuffle_id) {
+            if self.fetching.contains(&shuffle_id) {
+                while self.fetching.contains(&shuffle_id) {
                     // TODO: check whether this will hurt the performance or not
                     tokio::time::delay_for(Duration::from_millis(1)).await;
                 }
@@ -252,7 +244,7 @@ impl MapOutputTracker {
                 return Ok(servers);
             } else {
                 log::debug!("adding to fetching queue");
-                self.fetching.write().insert(shuffle_id);
+                self.fetching.insert(shuffle_id);
             }
             let fetched = self.client(shuffle_id).await?;
             log::debug!("fetched locs from client: {:?}", fetched);
@@ -261,7 +253,7 @@ impl MapOutputTracker {
                 fetched.iter().map(|x| Some(x.clone())).collect(),
             );
             log::debug!("added locs to server uris after fetching");
-            self.fetching.write().remove(&shuffle_id);
+            self.fetching.remove(&shuffle_id);
             Ok(fetched)
         } else {
             Ok(self

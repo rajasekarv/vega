@@ -37,6 +37,7 @@ pub trait Scheduler {
 pub(crate) type EventQueue = Arc<DashMap<usize, VecDeque<CompletionEvent>>>;
 
 /// Functionality by the library built-in schedulers
+#[async_trait::async_trait]
 pub(crate) trait NativeScheduler {
     /// Fast path for execution. Runs the DD in the driver main thread if possible.
     fn local_execution<T: Data, U: Data, F>(jt: JobTracker<F, U, T>) -> Result<Option<Vec<U>>>
@@ -65,9 +66,18 @@ pub(crate) trait NativeScheduler {
         shuffle_dependency: Option<Arc<dyn ShuffleDependencyTrait>>,
     ) -> Stage {
         log::debug!("creating new stage");
-        env::Env::get()
-            .cache_tracker
-            .register_rdd(rdd_base.get_rdd_id(), rdd_base.number_of_splits());
+        let rddc = rdd_base.clone();
+        let fut = async move {
+            env::Env::get()
+                .cache_tracker
+                .register_rdd(rddc.get_rdd_id(), rddc.number_of_splits())
+                .await
+        };
+        env::Env::run_in_async_rt(|| {
+            let local = tokio::task::LocalSet::new();
+            futures::executor::block_on(local.run_until(fut))
+        })
+        .unwrap();
         if shuffle_dependency.is_some() {
             log::debug!("shuffle dependency exists, registering to map output tracker");
             self.register_shuffle(
@@ -155,9 +165,12 @@ pub(crate) trait NativeScheduler {
         );
         if !visited.contains(&rdd) {
             visited.insert(rdd.clone());
-            env::Env::get()
-                .cache_tracker
-                .register_rdd(rdd.get_rdd_id(), rdd.number_of_splits());
+            futures::executor::block_on(
+                env::Env::get()
+                    .cache_tracker
+                    .register_rdd(rdd.get_rdd_id(), rdd.number_of_splits()),
+            )
+            .unwrap();
             for dep in rdd.get_dependencies() {
                 match dep {
                     Dependency::ShuffleDependency(shuf_dep) => {
@@ -311,7 +324,7 @@ pub(crate) trait NativeScheduler {
                     log::debug!("finished registering map outputs");
                 }
                 // TODO: Cache
-                self.update_cache_locs();
+                futures::executor::block_on(self.update_cache_locs()).unwrap();
                 let mut newly_runnable = Vec::new();
                 for stage in jt.waiting.lock().iter() {
                     log::debug!(
@@ -462,7 +475,7 @@ pub(crate) trait NativeScheduler {
     fn register_shuffle(&self, shuffle_id: usize, num_maps: usize);
     fn register_map_outputs(&self, shuffle_id: usize, locs: Vec<Option<String>>);
     fn remove_output_loc_from_stage(&self, shuffle_id: usize, map_id: usize, server_uri: &str);
-    fn update_cache_locs(&self);
+    async fn update_cache_locs(&self) -> Result<()>;
     fn unregister_map_output(&self, shuffle_id: usize, map_id: usize, server_uri: String);
 
     // getters:
@@ -534,14 +547,6 @@ macro_rules! impl_common_scheduler_funcs {
             self.shuffle_to_map_stage.get(&id).unwrap().clone()
         }
 
-        fn update_cache_locs(&self) {
-            self.cache_locs.clear();
-            env::Env::get()
-                .cache_tracker
-                .get_location_snapshot()
-                .into_iter()
-                .for_each(|(k, v)| { self.cache_locs.insert(k, v); });
-        }
 
         fn unregister_map_output(&self, shuffle_id: usize, map_id: usize, server_uri: String) {
             self.map_output_tracker.unregister_map_output(

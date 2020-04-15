@@ -96,7 +96,9 @@ impl LocalScheduler {
         // a temporary patch for preventing multiple jobs to update cache locks which affects
         // construction of dag task graph. dag task graph construction needs to be altered
         let _lock = self.scheduler_lock.lock();
-        let jt = JobTracker::from_scheduler(&*self, func, final_rdd.clone(), partitions);
+        let jt = env::Env::run_in_async_rt(|| {
+            JobTracker::from_scheduler(&*self, func, final_rdd.clone(), partitions)
+        });
 
         // TODO: update cache
 
@@ -110,7 +112,7 @@ impl LocalScheduler {
 
         let self_clone = Arc::clone(&self);
         let jt_clone = jt.clone();
-        let results = env::Env::run_in_async_rt(move || {
+        let results = env::Env::run_in_async_rt(move || -> Result<Vec<Option<U>>> {
             let self_borrow = &*self_clone;
             let jt = jt_clone;
             let mut results: Vec<Option<U>> = (0..jt.num_output_parts).map(|_| None).collect();
@@ -173,14 +175,15 @@ impl LocalScheduler {
             if !jt.failed.lock().is_empty()
                 && fetch_failure_duration.as_millis() > self_borrow.resubmit_timeout
             {
-                self_borrow.update_cache_locs();
+                futures::executor::block_on(self_borrow.update_cache_locs())?;
                 for stage in jt.failed.lock().iter() {
                     self_borrow.submit_stage(stage.clone(), jt.clone());
                 }
                 jt.failed.lock().clear();
             }
-            results
-        });
+            Ok(results)
+        })
+        .unwrap();
 
         self.event_queues.remove(&jt.run_id);
         Ok(results
@@ -257,6 +260,7 @@ impl LocalScheduler {
     }
 }
 
+#[async_trait::async_trait]
 impl NativeScheduler for LocalScheduler {
     /// Every single task is run in the local thread pool
     fn submit_task<T: Data, U: Data, F>(
@@ -280,6 +284,19 @@ impl NativeScheduler for LocalScheduler {
     fn next_executor_server(&self, _rdd: &dyn TaskBase) -> SocketAddrV4 {
         // Just point to the localhost
         SocketAddrV4::new(Ipv4Addr::LOCALHOST, 0)
+    }
+
+    async fn update_cache_locs(&self) -> Result<()> {
+        self.cache_locs.clear();
+        env::Env::get()
+            .cache_tracker
+            .get_location_snapshot()
+            .await?
+            .into_iter()
+            .for_each(|(k, v)| {
+                self.cache_locs.insert(k, v);
+            });
+        Ok(())
     }
 
     impl_common_scheduler_funcs!();

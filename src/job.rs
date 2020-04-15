@@ -5,6 +5,7 @@ use std::marker::PhantomData;
 use std::option::Option;
 use std::sync::Arc;
 
+use crate::env;
 use crate::scheduler::NativeScheduler;
 use crate::serializable_traits::{Data, SerFunc};
 use crate::stage::Stage;
@@ -81,7 +82,9 @@ where
         S: NativeScheduler,
     {
         let run_id = scheduler.get_next_job_id();
-        let final_stage = scheduler.new_stage(final_rdd.clone().get_rdd_base(), None);
+        let final_stage = env::Env::run_in_async_rt(|| {
+            scheduler.new_stage(final_rdd.clone().get_rdd_base(), None)
+        });
         JobTracker::new(run_id, final_stage, func, final_rdd, output_parts)
     }
 
