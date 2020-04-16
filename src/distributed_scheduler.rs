@@ -148,95 +148,107 @@ impl DistributedScheduler {
         let _lock = self.scheduler_lock.lock();
 
         let selfc = Arc::clone(&self);
-        env::Env::run_in_async_rt(move || -> Result<Vec<U>> {
-            let jt = JobTracker::from_scheduler(&*selfc, func, final_rdd.clone(), partitions);
+        env::Env::run_in_async_rt(|| -> Result<Vec<U>> {
+            futures::executor::block_on(async move {
+                let jt = JobTracker::from_scheduler(&*selfc, func, final_rdd.clone(), partitions)
+                    .await?;
 
-            // TODO: update cache
+                // TODO: update cache
 
-            if allow_local {
-                if let Some(result) = LocalScheduler::local_execution(jt.clone())? {
-                    return Ok(result);
+                if allow_local {
+                    if let Some(result) = LocalScheduler::local_execution(jt.clone())? {
+                        return Ok(result);
+                    }
                 }
-            }
 
-            selfc.event_queues.insert(jt.run_id, VecDeque::new());
-            let self_borrow = &*selfc;
-            let mut results: Vec<Option<U>> = (0..jt.num_output_parts).map(|_| None).collect();
-            let mut fetch_failure_duration = Duration::new(0, 0);
+                selfc.event_queues.insert(jt.run_id, VecDeque::new());
+                let self_borrow = &*selfc;
+                let mut results: Vec<Option<U>> = (0..jt.num_output_parts).map(|_| None).collect();
+                let mut fetch_failure_duration = Duration::new(0, 0);
 
-            self_borrow.submit_stage(jt.final_stage.clone(), jt.clone());
-            log::debug!(
-                "pending stages and tasks: {:?}",
-                jt.pending_tasks
-                    .lock()
-                    .iter()
-                    .map(|(k, v)| (k.id, v.iter().map(|x| x.get_task_id()).collect::<Vec<_>>()))
-                    .collect::<Vec<_>>()
-            );
-
-            let mut num_finished = 0;
-            while num_finished != jt.num_output_parts {
-                let event_option = self_borrow.wait_for_event(jt.run_id, self_borrow.poll_timeout);
-                let start_time = Instant::now();
-
-                if let Some(evt) = event_option {
-                    log::debug!("event starting");
-                    let stage = self_borrow
-                        .stage_cache
-                        .get(&evt.task.get_stage_id())
-                        .unwrap()
-                        .clone();
-                    log::debug!(
-                        "removing stage #{} task from pending task #{}",
-                        stage.id,
-                        evt.task.get_task_id()
-                    );
+                self_borrow
+                    .submit_stage(jt.final_stage.clone(), jt.clone())
+                    .await?;
+                log::debug!(
+                    "pending stages and tasks: {:?}",
                     jt.pending_tasks
                         .lock()
-                        .get_mut(&stage)
-                        .unwrap()
-                        .remove(&evt.task);
-                    use super::dag_scheduler::TastEndReason::*;
-                    match evt.reason {
-                        Success => self_borrow.on_event_success(
-                            evt,
-                            &mut results,
-                            &mut num_finished,
-                            jt.clone(),
-                        ),
-                        FetchFailed(failed_vals) => {
-                            self_borrow.on_event_failure(
-                                jt.clone(),
-                                failed_vals,
-                                evt.task.get_stage_id(),
-                            );
-                            fetch_failure_duration = start_time.elapsed();
+                        .iter()
+                        .map(|(k, v)| (k.id, v.iter().map(|x| x.get_task_id()).collect::<Vec<_>>()))
+                        .collect::<Vec<_>>()
+                );
+
+                let mut num_finished = 0;
+                while num_finished != jt.num_output_parts {
+                    let event_option =
+                        self_borrow.wait_for_event(jt.run_id, self_borrow.poll_timeout);
+                    let start_time = Instant::now();
+
+                    if let Some(evt) = event_option {
+                        log::debug!("event starting");
+                        let stage = self_borrow
+                            .stage_cache
+                            .get(&evt.task.get_stage_id())
+                            .unwrap()
+                            .clone();
+                        log::debug!(
+                            "removing stage #{} task from pending task #{}",
+                            stage.id,
+                            evt.task.get_task_id()
+                        );
+                        jt.pending_tasks
+                            .lock()
+                            .get_mut(&stage)
+                            .unwrap()
+                            .remove(&evt.task);
+                        use super::dag_scheduler::TastEndReason::*;
+                        match evt.reason {
+                            Success => {
+                                self_borrow
+                                    .on_event_success(
+                                        evt,
+                                        &mut results,
+                                        &mut num_finished,
+                                        jt.clone(),
+                                    )
+                                    .await?;
+                            }
+                            FetchFailed(failed_vals) => {
+                                self_borrow
+                                    .on_event_failure(
+                                        jt.clone(),
+                                        failed_vals,
+                                        evt.task.get_stage_id(),
+                                    )
+                                    .await;
+                                fetch_failure_duration = start_time.elapsed();
+                            }
+                            _ => {
+                                // TODO: error handling
+                            }
                         }
-                        _ => {
-                            // TODO: error handling
+                    }
+
+                    if !jt.failed.lock().is_empty()
+                        && fetch_failure_duration.as_millis() > self_borrow.resubmit_timeout
+                    {
+                        self_borrow.update_cache_locs().await?;
+                        for stage in jt.failed.lock().iter() {
+                            self_borrow.submit_stage(stage.clone(), jt.clone()).await?;
                         }
+                        jt.failed.lock().clear();
                     }
                 }
 
-                if !jt.failed.lock().is_empty()
-                    && fetch_failure_duration.as_millis() > self_borrow.resubmit_timeout
-                {
-                    futures::executor::block_on(self_borrow.update_cache_locs())?;
-                    for stage in jt.failed.lock().iter() {
-                        self_borrow.submit_stage(stage.clone(), jt.clone());
-                    }
-                    jt.failed.lock().clear();
-                }
-            }
-
-            selfc.event_queues.remove(&jt.run_id);
-            Ok(results
-                .into_iter()
-                .map(|s| match s {
-                    Some(v) => v,
-                    None => panic!("some results still missing"),
-                })
-                .collect())
+                selfc.event_queues.remove(&jt.run_id);
+                Ok(results
+                    .into_iter()
+                    .map(|s| match s {
+                        Some(v) => v,
+                        None => panic!("some results still missing"),
+                    })
+                    .collect())
+            })
         })
     }
 
@@ -324,7 +336,7 @@ impl NativeScheduler for DistributedScheduler {
                     Ok(mut stream) => {
                         let (reader, writer) = stream.split();
                         let reader = reader.compat();
-                        let mut writer = writer.compat_write();
+                        let writer = writer.compat_write();
                         let task_bytes = bincode::serialize(&task).unwrap();
                         log::debug!(
                             "sending task #{} of {} bytes to exec @{},",
@@ -333,11 +345,12 @@ impl NativeScheduler for DistributedScheduler {
                             target_executor.port(),
                         );
 
+                        // TODO: remove blocking call when possible
                         futures::executor::block_on(async {
                             let mut message = capnp::message::Builder::new_default();
                             let mut task_data = message.init_root::<serialized_data::Builder>();
                             task_data.set_msg(&task_bytes);
-                            capnp_serialize::write_message(&mut writer, &message)
+                            capnp_serialize::write_message(writer, message)
                                 .await
                                 .map_err(Error::CapnpDeserialization)
                                 .unwrap();
@@ -403,6 +416,36 @@ impl NativeScheduler for DistributedScheduler {
                 self.cache_locs.insert(k, v);
             });
         Ok(())
+    }
+
+    async fn get_shuffle_map_stage(&self, shuf: Arc<dyn ShuffleDependencyTrait>) -> Result<Stage> {
+        log::debug!("getting shuffle map stage");
+        let stage = self
+            .shuffle_to_map_stage
+            .get(&shuf.get_shuffle_id())
+            .map(|s| s.clone());
+        match stage {
+            Some(stage) => Ok(stage),
+            None => {
+                log::debug!("started creating shuffle map stage before");
+                let stage = self
+                    .new_stage(shuf.get_rdd_base(), Some(shuf.clone()))
+                    .await?;
+                self.shuffle_to_map_stage
+                    .insert(shuf.get_shuffle_id(), stage.clone());
+                log::debug!("finished inserting newly created shuffle stage");
+                Ok(stage)
+            }
+        }
+    }
+
+    async fn get_missing_parent_stages<'a>(&'a self, stage: Stage) -> Result<Vec<Stage>> {
+        log::debug!("getting missing parent stages");
+        let mut missing: BTreeSet<Stage> = BTreeSet::new();
+        let mut visited: BTreeSet<Arc<dyn RddBase>> = BTreeSet::new();
+        self.visit_for_missing_parent_stages(&mut missing, &mut visited, stage.get_rdd())
+            .await?;
+        Ok(missing.into_iter().collect())
     }
 
     impl_common_scheduler_funcs!();

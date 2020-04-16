@@ -16,10 +16,7 @@ use capnp::message::ReaderOptions;
 use capnp_futures::serialize as capnp_serialize;
 use dashmap::{DashMap, DashSet};
 use serde_derive::{Deserialize, Serialize};
-use tokio::{
-    net::{TcpListener, TcpStream},
-    stream::StreamExt,
-};
+use tokio::{net::TcpListener, stream::StreamExt};
 use tokio_util::compat::{Tokio02AsyncReadCompatExt, Tokio02AsyncWriteCompatExt};
 
 const CAPNP_BUF_READ_OPTS: ReaderOptions = ReaderOptions {
@@ -105,38 +102,34 @@ impl CacheTracker {
                 })
                 .await
         };
-        let local = tokio::task::LocalSet::new();
-        local.spawn_local(fut);
+        tokio::task::LocalSet::new().spawn_local(fut);
         Ok(cache)
     }
 
     // Slave node will ask master node for cache locs
     async fn client(&self, message: CacheTrackerMessage) -> Result<CacheTrackerMessageReply> {
+        use futures::io::AllowStdIo;
+        use std::net::TcpStream;
+
         let mut stream = loop {
-            match TcpStream::connect(self.master_addr).await {
+            match TcpStream::connect(self.master_addr) {
                 Ok(stream) => break stream,
                 Err(_) => continue,
             }
         };
+        let mut stream = AllowStdIo::new(&mut stream);
 
-        let stream = std::thread::spawn(move || -> Result<TcpStream> {
-            let (_, writer) = stream.split();
-            let mut writer = writer.compat_write();
-            futures::executor::block_on(async move {
-                let shuffle_id_bytes = bincode::serialize(&message)?;
-                let mut message = capnp::message::Builder::new_default();
-                let mut shuffle_data = message.init_root::<serialized_data::Builder>();
-                shuffle_data.set_msg(&shuffle_id_bytes);
-                capnp_serialize::write_message(&mut writer, &message).await?;
-                Ok::<_, Error>(())
-            })?;
-            Ok(stream)
-        })
-        .join()
-        .unwrap()?;
+        {
+            // Due to current limitations w/ capnp_futures not being Send we use the normal
+            // sync Write version here to avoid spawning a second thread to run the future to completion
+            let shuffle_id_bytes = bincode::serialize(&message)?;
+            let mut message = capnp::message::Builder::new_default();
+            let mut shuffle_data = message.init_root::<serialized_data::Builder>();
+            shuffle_data.set_msg(&shuffle_id_bytes);
+            capnp::serialize::write_message(&mut stream, &message).map_err(Error::OutputWrite)?;
+        }
 
-        let reader = stream.compat();
-        let message_reader = capnp_serialize::read_message(reader, CAPNP_BUF_READ_OPTS)
+        let message_reader = capnp_serialize::read_message(stream, CAPNP_BUF_READ_OPTS)
             .await?
             .ok_or_else(|| NetworkError::NoMessageReceived)?;
         let shuffle_data = message_reader.get_root::<serialized_data::Reader>()?;
@@ -171,12 +164,13 @@ impl CacheTracker {
 
                     // send reply
                     let reply = selfc.process_message(message);
+                    let result = bincode::serialize(&reply)?;
+                    let mut message = capnp::message::Builder::new_default();
+                    let mut locs_data = message.init_root::<serialized_data::Builder>();
+                    locs_data.set_msg(&result);
+                    // TODO: remove blocking call when possible
                     futures::executor::block_on(async {
-                        let result = bincode::serialize(&reply)?;
-                        let mut message = capnp::message::Builder::new_default();
-                        let mut locs_data = message.init_root::<serialized_data::Builder>();
-                        locs_data.set_msg(&result);
-                        capnp_serialize::write_message(writer, &message).await?;
+                        capnp_serialize::write_message(writer, message).await?;
                         Ok::<_, Error>(())
                     })?;
 

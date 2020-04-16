@@ -94,6 +94,9 @@ pub enum Error {
 
     #[error("operation not supported: {0}")]
     UnsupportedOperation(&'static str),
+
+    #[error("unrecognized error (todo!)")]
+    Other,
 }
 
 impl Error {

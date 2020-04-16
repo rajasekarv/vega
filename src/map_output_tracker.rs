@@ -146,12 +146,12 @@ impl MapOutputTracker {
                     );
 
                     // writting response
+                    let result = bincode::serialize(&locs)?;
+                    let mut message = MsgBuilder::new_default();
+                    let mut locs_data = message.init_root::<serialized_data::Builder>();
+                    locs_data.set_msg(&result);
+                    // TODO: remove blocking call when possible
                     futures::executor::block_on(async {
-                        // hacky because MsgBuilder is not Send and cannot be awaited in the Tokio TP
-                        let result = bincode::serialize(&locs)?;
-                        let mut message = MsgBuilder::new_default();
-                        let mut locs_data = message.init_root::<serialized_data::Builder>();
-                        locs_data.set_msg(&result);
                         capnp_futures::serialize::write_message(writer, message)
                             .await
                             .map_err(Error::CapnpDeserialization)?;

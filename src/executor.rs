@@ -62,7 +62,7 @@ impl Executor {
         while let Some(Ok(mut stream)) = listener.incoming().next().await {
             let rcv_main = rcv_main.clone();
             let selfc = Arc::clone(&self);
-            let res: Result<Signal> = tokio::spawn(async move {
+            let res: Result<Signal> = spawn(async move {
                 let (reader, writer) = stream.split();
                 let reader = reader.compat();
                 let mut writer = writer.compat_write();
@@ -88,6 +88,7 @@ impl Executor {
                     })
                     .await??
                 };
+                // TODO: remove blocking call when possible
                 futures::executor::block_on(capnp_serialize::write_message(&mut writer, &message))
                     .map_err(Error::CapnpDeserialization)?;
                 log::debug!("sent result data to driver");
