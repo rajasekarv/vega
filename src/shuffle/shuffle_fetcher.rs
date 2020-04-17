@@ -69,7 +69,7 @@ impl ShuffleFetcher {
                     for input_id in input_ids {
                         if failure.load(atomic::Ordering::Acquire) {
                             // Abort early since the work failed in an other future
-                            return Err(ShuffleError::AsyncRuntimeError);
+                            return Err(ShuffleError::Other);
                         }
                         log::debug!("inside parallel fetch {}", input_id);
                         let chunk_uri = ShuffleFetcher::make_chunk_uri(
@@ -120,7 +120,7 @@ impl ShuffleFetcher {
                     }
                     Ok(())
                 } else {
-                    Err(ShuffleError::AsyncRuntimeError)
+                    Err(ShuffleError::Other)
                 }
             })
             .fold(Ok(()), |curr, res| if res.is_err() { res } else { curr })

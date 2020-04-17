@@ -107,7 +107,9 @@ impl Context {
         match mode {
             env::DeploymentMode::Distributed => {
                 if env::Configuration::get().is_driver {
-                    Context::init_distributed_driver()
+                    let ctx = Context::init_distributed_driver()?;
+                    ctx.clone().set_cleanup_process()?;
+                    Ok(ctx)
                 } else {
                     Context::init_distributed_worker()?
                 }
@@ -116,11 +118,38 @@ impl Context {
         }
     }
 
+    /// Sets a handler to receives any external signal to stop the process
+    /// and shuts down gracefully any ongoing op
+    fn set_cleanup_process(self: Arc<Self>) -> Result<()> {
+        use futures::{compat::Stream01CompatExt, StreamExt};
+        use signal_hook::iterator::Signals;
+
+        env::Env::run_in_async_rt(|| -> Result<()> {
+            let mut sig_iter = Signals::new(&[
+                signal_hook::SIGTERM,
+                signal_hook::SIGQUIT,
+                signal_hook::SIGINT,
+            ])
+            .map_err(Error::InputRead)?
+            .into_async()
+            .map_err(Error::InputRead)?
+            .compat();
+            tokio::spawn(async move {
+                if let Some(Ok(_signal)) = sig_iter.next().await {
+                    log::info!("received termination signal, cleaning up");
+                    self.drop_executors();
+                    std::process::exit(0);
+                }
+            });
+            Ok(())
+        })
+    }
+
     fn init_local_scheduler() -> Result<Arc<Self>> {
         let job_id = Uuid::new_v4().to_string();
         let job_work_dir = env::Configuration::get()
             .local_dir
-            .join(format!("ns-job-{}", job_id));
+            .join(format!("ns-session-{}", job_id));
         fs::create_dir_all(&job_work_dir).unwrap();
 
         initialize_loggers(job_work_dir.join("ns-driver.log"));
@@ -147,7 +176,7 @@ impl Context {
         let job_id = Uuid::new_v4().to_string();
         let job_work_dir = env::Configuration::get()
             .local_dir
-            .join(format!("ns-job-{}", job_id));
+            .join(format!("ns-session-{}", job_id));
         let job_work_dir_str = job_work_dir
             .to_str()
             .ok_or_else(|| Error::PathToString(job_work_dir.clone()))?;

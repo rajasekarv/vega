@@ -1,6 +1,6 @@
 use std::net::SocketAddr;
 use std::sync::Arc;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use crate::env;
 use crate::error::{Error, NetworkError, Result};
@@ -17,6 +17,7 @@ use tokio::{
     net::TcpListener,
     stream::StreamExt,
     task::{spawn, spawn_blocking},
+    time::delay_for,
 };
 use tokio_util::compat::{Tokio02AsyncReadCompatExt, Tokio02AsyncWriteCompatExt};
 
@@ -193,7 +194,7 @@ impl Executor {
                     log::info!("received error shutdown signal @ {}", self.port);
                     send_child
                         .send(Signal::ShutDownError)
-                        .map_err(|_| Error::AsyncRuntimeError)?;
+                        .map_err(|_| Error::Other)?;
                     signal = Err(Error::ExecutorShutdown);
                     break;
                 }
@@ -201,13 +202,15 @@ impl Executor {
                     log::info!("received graceful shutdown signal @ {}", self.port);
                     send_child
                         .send(Signal::ShutDownGracefully)
-                        .map_err(|_| Error::AsyncRuntimeError)?;
+                        .map_err(|_| Error::Other)?;
                     signal = Ok(Signal::ShutDownGracefully);
                     break;
                 }
                 _ => {}
             }
         }
+        // give some time to the executor threads to shut down hopefully
+        delay_for(Duration::from_millis(1_000)).await;
         signal
     }
 }
@@ -259,7 +262,7 @@ mod tests {
                 break;
             }
         }
-        Err(Error::AsyncRuntimeError)
+        Err(Error::Other)
     }
 
     fn send_shutdown_signal_msg(stream: &mut std::net::TcpStream) -> Result<()> {
@@ -294,7 +297,7 @@ mod tests {
             while Instant::now() < end {
                 match client_rcv.try_recv() {
                     Ok(Ok(_)) => return Ok(()),
-                    Ok(Err(_)) => return Err(Error::AsyncRuntimeError),
+                    Ok(Err(_)) => return Err(Error::Other),
                     _ => {}
                 }
                 if let Ok(mut stream) = connect_to_executor(port, true) {
@@ -303,7 +306,7 @@ mod tests {
                 }
                 thread::sleep_ms(5);
             }
-            Err(Error::AsyncRuntimeError)
+            Err(Error::Other)
         }
 
         fn result_checker(sender: Sender<ComputeResult>, result: Result<Signal>) -> Result<()> {
@@ -314,7 +317,7 @@ mod tests {
                 }
                 Ok(_) | Err(_) => {
                     sender.send(Err(()));
-                    Err(Error::AsyncRuntimeError)
+                    Err(Error::Other)
                 }
             }
         }
@@ -346,14 +349,14 @@ mod tests {
             while Instant::now() < end {
                 match client_rcv.try_recv() {
                     Ok(Ok(_)) => return Ok(()),
-                    Ok(Err(_)) => return Err(Error::AsyncRuntimeError),
+                    Ok(Err(_)) => return Err(Error::Other),
                     _ => {}
                 }
                 if let Ok(mut stream) = connect_to_executor(port, false) {
                     // Send task to executor:
                     stream.write_all(&*buf).map_err(Error::OutputWrite)?;
                     if let Ok(Err(_)) = client_rcv.try_recv() {
-                        return Err(Error::AsyncRuntimeError);
+                        return Err(Error::Other);
                     }
 
                     // Get the results back:
@@ -371,12 +374,12 @@ mod tests {
                         send_shutdown_signal_msg(&mut signal_handler)?;
                         return Ok(());
                     } else {
-                        return Err(Error::AsyncRuntimeError);
+                        return Err(Error::Other);
                     }
                 }
                 thread::sleep_ms(5);
             }
-            Err(Error::AsyncRuntimeError)
+            Err(Error::Other)
         };
 
         fn result_checker(sender: Sender<ComputeResult>, result: Result<Signal>) -> Result<()> {
@@ -384,7 +387,7 @@ mod tests {
                 Ok(Signal::ShutDownGracefully) => Ok(()),
                 Ok(_) => {
                     sender.send(Ok(()));
-                    Err(Error::AsyncRuntimeError)
+                    Err(Error::Other)
                 }
                 Err(err) => {
                     sender.send(Err(()));

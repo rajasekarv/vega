@@ -16,9 +16,6 @@ pub(crate) type Result<T> = StdResult<T, ShuffleError>;
 
 #[derive(Debug, Error)]
 pub enum ShuffleError {
-    #[error("failure while initializing/running the async runtime")]
-    AsyncRuntimeError,
-
     #[error("failed to create local shuffle dir after 10 attempts")]
     CouldNotCreateShuffleDir,
 
@@ -54,6 +51,9 @@ pub enum ShuffleError {
 
     #[error("failed fetching shuffle data uris")]
     FailFetchingShuffleUris { source: Box<crate::Error> },
+
+    #[error("unrecognized error (todo!)")]
+    Other,
 }
 
 impl Into<Response<Body>> for ShuffleError {

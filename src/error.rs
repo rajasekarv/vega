@@ -8,9 +8,6 @@ pub type StdResult<T, E> = std::result::Result<T, E>;
 
 #[derive(Debug, Error)]
 pub enum Error {
-    #[error("async runtime configuration error")]
-    AsyncRuntimeError,
-
     #[error(transparent)]
     AsyncJoinError(#[from] tokio::task::JoinError),
 

@@ -77,9 +77,7 @@ impl ShuffleManager {
 
     pub fn check_status(&self) -> Result<StatusCode> {
         self.ask_status.send(()).unwrap();
-        self.rcv_status
-            .recv()
-            .map_err(|_| ShuffleError::AsyncRuntimeError)?
+        self.rcv_status.recv().map_err(|_| ShuffleError::Other)?
     }
 
     /// Returns the shuffle server URI as a string.
@@ -313,7 +311,7 @@ mod tests {
                     env::Env::run_in_async_rt(|| -> Result<()> {
                         match manager.check_status() {
                             Ok(StatusCode::OK) => Ok(()),
-                            _ => Err(ShuffleError::AsyncRuntimeError),
+                            _ => Err(ShuffleError::Other),
                         }
                     })?;
                 }
