@@ -1,5 +1,8 @@
+use std::fs;
 use std::net::{Ipv4Addr, SocketAddr, TcpListener};
+use std::path::Path;
 
+use crate::env;
 use crate::error;
 use rand::Rng;
 
@@ -34,6 +37,35 @@ pub(crate) fn get_dynamic_port() -> u16 {
     const FIRST_DYNAMIC_PORT: u16 = 49152;
     const LAST_DYNAMIC_PORT: u16 = 65535;
     FIRST_DYNAMIC_PORT + rand::thread_rng().gen_range(0, LAST_DYNAMIC_PORT - FIRST_DYNAMIC_PORT)
+}
+
+#[allow(unused_must_use)]
+pub(crate) fn clean_up_work_dir(work_dir: &Path) {
+    if env::Configuration::get().loggin.log_cleanup {
+        // Remove created files.
+        if fs::remove_dir_all(&work_dir).is_err() {
+            log::error!("failed removing tmp work dir: {}", work_dir.display());
+        }
+    } else if let Ok(dir) = fs::read_dir(work_dir) {
+        for e in dir {
+            if let Ok(p) = e {
+                if let Ok(m) = p.metadata() {
+                    if m.is_dir() {
+                        fs::remove_dir_all(p.path());
+                    } else {
+                        let file = p.path();
+                        if let Some(ext) = file.extension() {
+                            if ext.to_str() != "log".into() {
+                                fs::remove_file(file);
+                            }
+                        } else {
+                            fs::remove_file(file);
+                        }
+                    }
+                }
+            }
+        }
+    }
 }
 
 #[test]
