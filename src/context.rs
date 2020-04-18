@@ -19,6 +19,7 @@ use crate::scheduler::NativeScheduler;
 use crate::serializable_traits::{Data, SerFunc};
 use crate::serialized_data_capnp::serialized_data;
 use crate::task::TaskContext;
+use crate::utils;
 use crate::SerArc;
 use crate::{env, hosts};
 use log::error;
@@ -77,7 +78,7 @@ pub struct Context {
     scheduler: Schedulers,
     pub(crate) address_map: Vec<SocketAddrV4>,
     distributed_driver: bool,
-    /// the executing job tmp work_dir
+    /// this context/session temp work dir
     work_dir: PathBuf,
 }
 
@@ -93,8 +94,7 @@ impl Drop for Context {
                 log::info!("inside context drop in executor");
             }
         }
-        self.drop_executors();
-        Context::clean_up_work_dir(&self.work_dir);
+        Context::driver_clean_up_directives(&self.work_dir, &self.address_map);
     }
 }
 
@@ -107,7 +107,9 @@ impl Context {
         match mode {
             env::DeploymentMode::Distributed => {
                 if env::Configuration::get().is_driver {
-                    Context::init_distributed_driver()
+                    let ctx = Context::init_distributed_driver()?;
+                    ctx.set_cleanup_process();
+                    Ok(ctx)
                 } else {
                     Context::init_distributed_worker()?
                 }
@@ -116,11 +118,29 @@ impl Context {
         }
     }
 
+    /// Sets a handler to receives any external signal to stop the process
+    /// and shuts down gracefully any ongoing op
+    fn set_cleanup_process(&self) {
+        let address_map = self.address_map.clone();
+        let work_dir = self.work_dir.clone();
+        env::Env::run_in_async_rt(|| {
+            tokio::spawn(async move {
+                // avoid moving a self clone here or drop won't be potentially called
+                // before termination and never clean up
+                if tokio::signal::ctrl_c().await.is_ok() {
+                    log::info!("received termination signal, cleaning up");
+                    Context::driver_clean_up_directives(&work_dir, &address_map);
+                    std::process::exit(0);
+                }
+            });
+        })
+    }
+
     fn init_local_scheduler() -> Result<Arc<Self>> {
         let job_id = Uuid::new_v4().to_string();
         let job_work_dir = env::Configuration::get()
             .local_dir
-            .join(format!("ns-job-{}", job_id));
+            .join(format!("ns-session-{}", job_id));
         fs::create_dir_all(&job_work_dir).unwrap();
 
         initialize_loggers(job_work_dir.join("ns-driver.log"));
@@ -147,7 +167,7 @@ impl Context {
         let job_id = Uuid::new_v4().to_string();
         let job_work_dir = env::Configuration::get()
             .local_dir
-            .join(format!("ns-job-{}", job_id));
+            .join(format!("ns-session-{}", job_id));
         let job_work_dir_str = job_work_dir
             .to_str()
             .ok_or_else(|| Error::PathToString(job_work_dir.clone()))?;
@@ -243,11 +263,11 @@ impl Context {
             Ok(binary_path) => {
                 match binary_path.parent().ok_or_else(|| Error::CurrentBinaryPath) {
                     Ok(dir) => work_dir = dir.into(),
-                    Err(err) => Context::worker_clean_up(Err(err), work_dir)?,
+                    Err(err) => Context::worker_clean_up_directives(Err(err), work_dir)?,
                 };
                 initialize_loggers(work_dir.join("ns-executor.log"));
             }
-            Err(err) => Context::worker_clean_up(Err(err), work_dir)?,
+            Err(err) => Context::worker_clean_up_directives(Err(err), work_dir)?,
         }
 
         log::debug!("starting worker");
@@ -258,54 +278,33 @@ impl Context {
             .ok_or(Error::GetOrCreateConfig("executor port not set"))
         {
             Ok(port) => port,
-            Err(err) => Context::worker_clean_up(Err(err), work_dir)?,
+            Err(err) => Context::worker_clean_up_directives(Err(err), work_dir)?,
         };
         let executor = Arc::new(Executor::new(port));
-        Context::worker_clean_up(executor.worker(), work_dir)
+        Context::worker_clean_up_directives(executor.worker(), work_dir)
     }
 
-    fn worker_clean_up(run_result: Result<Signal>, work_dir: PathBuf) -> Result<!> {
+    fn worker_clean_up_directives(run_result: Result<Signal>, work_dir: PathBuf) -> Result<!> {
+        env::Env::get().shuffle_manager.clean_up_shuffle_data();
+        utils::clean_up_work_dir(&work_dir);
         match run_result {
             Err(err) => {
                 log::error!("executor failed with error: {}", err);
-                Context::clean_up_work_dir(&work_dir);
                 std::process::exit(1);
             }
             Ok(value) => {
                 log::info!("executor closed gracefully with signal: {:?}", value);
-                Context::clean_up_work_dir(&work_dir);
                 std::process::exit(0);
             }
         }
     }
 
-    #[allow(unused_must_use)]
-    fn clean_up_work_dir(work_dir: &Path) {
-        if env::Configuration::get().loggin.log_cleanup {
-            // Remove created files.
-            if fs::remove_dir_all(&work_dir).is_err() {
-                log::error!("failed removing tmp work dir: {}", work_dir.display());
-            }
-        } else if let Ok(dir) = fs::read_dir(work_dir) {
-            for e in dir {
-                if let Ok(p) = e {
-                    if let Ok(m) = p.metadata() {
-                        if m.is_dir() {
-                            fs::remove_dir_all(p.path());
-                        } else {
-                            let file = p.path();
-                            if let Some(ext) = file.extension() {
-                                if ext.to_str() != "log".into() {
-                                    fs::remove_file(file);
-                                }
-                            } else {
-                                fs::remove_file(file);
-                            }
-                        }
-                    }
-                }
-            }
-        }
+    fn driver_clean_up_directives(work_dir: &Path, executors: &[SocketAddrV4]) {
+        Context::drop_executors(executors);
+        // Give some time for the executors to shut down and clean up
+        std::thread::sleep(std::time::Duration::from_millis(1_500));
+        env::Env::get().shuffle_manager.clean_up_shuffle_data();
+        utils::clean_up_work_dir(work_dir);
     }
 
     fn create_workers_config_file(local_ip: Ipv4Addr, port: u16, config_path: &str) -> Result<()> {
@@ -320,12 +319,12 @@ impl Context {
         Ok(())
     }
 
-    fn drop_executors(&self) {
+    fn drop_executors(address_map: &[SocketAddrV4]) {
         if env::Configuration::get().deployment_mode.is_local() {
             return;
         }
 
-        for socket_addr in self.address_map.clone() {
+        for socket_addr in address_map {
             log::debug!(
                 "dropping executor in {:?}:{:?}",
                 socket_addr.ip(),

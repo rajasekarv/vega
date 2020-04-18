@@ -36,7 +36,7 @@ pub trait Scheduler {
 
 pub(crate) type EventQueue = Arc<DashMap<usize, VecDeque<CompletionEvent>>>;
 
-/// Functionality by the library built-in schedulers
+/// Functionality of the library built-in schedulers
 #[async_trait::async_trait]
 pub(crate) trait NativeScheduler: Send + Sync {
     /// Fast path for execution. Runs the DD in the driver main thread if possible.

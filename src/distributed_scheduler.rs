@@ -420,12 +420,9 @@ impl NativeScheduler for DistributedScheduler {
 
     async fn get_shuffle_map_stage(&self, shuf: Arc<dyn ShuffleDependencyTrait>) -> Result<Stage> {
         log::debug!("getting shuffle map stage");
-        let stage = self
-            .shuffle_to_map_stage
-            .get(&shuf.get_shuffle_id())
-            .map(|s| s.clone());
+        let stage = self.shuffle_to_map_stage.get(&shuf.get_shuffle_id());
         match stage {
-            Some(stage) => Ok(stage),
+            Some(stage) => Ok(stage.clone()),
             None => {
                 log::debug!("started creating shuffle map stage before");
                 let stage = self
@@ -439,7 +436,7 @@ impl NativeScheduler for DistributedScheduler {
         }
     }
 
-    async fn get_missing_parent_stages<'a>(&'a self, stage: Stage) -> Result<Vec<Stage>> {
+    async fn get_missing_parent_stages(&'_ self, stage: Stage) -> Result<Vec<Stage>> {
         log::debug!("getting missing parent stages");
         let mut missing: BTreeSet<Stage> = BTreeSet::new();
         let mut visited: BTreeSet<Arc<dyn RddBase>> = BTreeSet::new();

@@ -311,7 +311,7 @@ impl CacheTracker {
                     (k, v)
                 })
                 .collect()),
-            Ok(_) => Err(Error::AsyncRuntimeError),
+            Ok(_) => Err(Error::Other),
             Err(err) => Err(err),
         }
     }
@@ -319,7 +319,7 @@ impl CacheTracker {
     async fn get_cache_status(&self) -> Result<Vec<(Ipv4Addr, usize, usize)>> {
         match self.client(CacheTrackerMessage::GetCacheStatus).await {
             Ok(CacheTrackerMessageReply::CacheStatus(s)) => Ok(s),
-            Ok(_) => Err(Error::AsyncRuntimeError),
+            Ok(_) => Err(Error::Other),
             Err(err) => Err(err),
         }
     }
