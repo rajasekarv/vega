@@ -93,8 +93,7 @@ impl Drop for Context {
                 log::info!("inside context drop in executor");
             }
         }
-        self.drop_executors();
-        Context::clean_up_work_dir(&self.work_dir);
+        self.clean_up_directives();
     }
 }
 
@@ -137,7 +136,7 @@ impl Context {
             tokio::spawn(async move {
                 if let Some(Ok(_signal)) = sig_iter.next().await {
                     log::info!("received termination signal, cleaning up");
-                    self.drop_executors();
+                    self.clean_up_directives();
                     std::process::exit(0);
                 }
             });
@@ -306,6 +305,11 @@ impl Context {
                 std::process::exit(0);
             }
         }
+    }
+
+    fn clean_up_directives(&self) {
+        self.drop_executors();
+        Context::clean_up_work_dir(&self.work_dir);
     }
 
     #[allow(unused_must_use)]
