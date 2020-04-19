@@ -221,7 +221,7 @@ pub trait Rdd: RddBase + 'static {
             |_index: usize, iter: Box<dyn Iterator<Item = Self::Item>>| Box::new(std::iter::once(
                 iter.collect::<Vec<_>>()
             ))
-                as Box<Iterator<Item = Vec<Self::Item>>>
+                as Box<dyn Iterator<Item = Vec<Self::Item>>>
         );
         SerArc::new(MapPartitionsRdd::new(self.get_rdd(), Box::new(func)))
     }
@@ -446,12 +446,12 @@ pub trait Rdd: RddBase + 'static {
             as Box<
                 dyn Func(Self::Item) -> (Option<Self::Item>, Option<Self::Item>),
             >)
-        .reduce_by_key(Box::new(Fn!(|(x, y)| y)), num_partitions)
+        .reduce_by_key(Box::new(Fn!(|(_x, y)| y)), num_partitions)
         .map(Box::new(Fn!(|x: (
             Option<Self::Item>,
             Option<Self::Item>
         )| {
-            let (x, y) = x;
+            let (x, _y) = x;
             x.unwrap()
         })))
     }
@@ -769,6 +769,13 @@ pub trait Rdd: RddBase + 'static {
             )
         )
     }
+
+    // fn group_by<K: Data, F>(&self, f: F) -> SerArc<dyn Rdd<Item = Vec<Self::Item>>>
+    // where
+    //     F: SerFunc(Box<dyn Iterator<Item = Self::Item>>),
+    // {
+    //     todo!()
+    // }
 }
 
 pub trait Reduce<T> {

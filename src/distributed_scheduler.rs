@@ -397,7 +397,7 @@ impl NativeScheduler for DistributedScheduler {
                 .find(|(_, e)| *e.ip() == location)
             {
                 let target_host = servers.remove(pos).unwrap();
-                servers.push_front(target_host.clone());
+                servers.push_front(target_host);
                 target_host
             } else {
                 unreachable!()

@@ -62,7 +62,7 @@ impl ReaderConfiguration<Vec<u8>> for LocalFsReaderConfig {
     {
         let reader = LocalFsReader::<BytesReader>::new(self, context);
         let read_files = Fn!(
-            |part: usize, readers: Box<dyn Iterator<Item = BytesReader>>| {
+            |_part: usize, readers: Box<dyn Iterator<Item = BytesReader>>| {
                 Box::new(readers.into_iter().map(|file| file.into_iter()).flatten())
                     as Box<dyn Iterator<Item = _>>
             }
@@ -82,7 +82,7 @@ impl ReaderConfiguration<PathBuf> for LocalFsReaderConfig {
     {
         let reader = LocalFsReader::<FileReader>::new(self, context);
         let read_files = Fn!(
-            |part: usize, readers: Box<dyn Iterator<Item = FileReader>>| {
+            |_part: usize, readers: Box<dyn Iterator<Item = FileReader>>| {
                 Box::new(readers.map(|reader| reader.into_iter()).flatten())
                     as Box<dyn Iterator<Item = _>>
             }
@@ -317,7 +317,7 @@ macro_rules! impl_common_lfs_rddb_funcs {
         ) -> Result<Box<dyn Iterator<Item = Box<dyn AnyData>>>> {
             Ok(Box::new(
                 self.iterator(split)?
-                .map(|x| Box::new(x) as Box<dyn AnyData>),
+                    .map(|x| Box::new(x) as Box<dyn AnyData>),
             ))
         }
     };
@@ -370,8 +370,8 @@ impl RddBase for LocalFsReader<FileReader> {
 macro_rules! impl_common_lfs_rdd_funcs {
     () => {
         fn get_rdd(&self) -> Arc<dyn Rdd<Item = Self::Item>>
-            where
-                Self: Sized,
+        where
+            Self: Sized,
         {
             Arc::new(self.clone()) as Arc<dyn Rdd<Item = Self::Item>>
         }

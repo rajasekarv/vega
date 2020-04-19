@@ -47,7 +47,7 @@ fn test_join() {
         (3, ("E".to_string(), "F".to_string())),
         (4, ("G".to_string(), "H".to_string())),
     ];
-    let col1 = sc.clone().parallelize(col1, 4);
+    let col1 = sc.parallelize(col1, 4);
     let col2 = vec![
         (1, "A1".to_string()),
         (1, "A2".to_string()),
