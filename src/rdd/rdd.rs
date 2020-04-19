@@ -794,6 +794,23 @@ pub trait Rdd: RddBase + 'static {
         })))
         .group_by_key(num_splits)
     }
+
+    fn group_by_with_partitioner<K, F>(
+        &self,
+        func: F,
+        partitioner: Box<dyn Partitioner>,
+    ) -> SerArc<dyn Rdd<Item = (K, Vec<Self::Item>)>>
+    where
+        Self: Sized,
+        K: Data + Hash + Eq,
+        F: SerFunc(&Self::Item) -> K,
+    {
+        self.map(Box::new(Fn!(move |val: Self::Item| -> (K, Self::Item) {
+            let key = (func)(&val);
+            (key, val)
+        })))
+        .group_by_key_using_partitioner(partitioner)
+    }
 }
 
 pub trait Reduce<T> {
