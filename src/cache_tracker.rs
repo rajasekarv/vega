@@ -185,7 +185,7 @@ impl CacheTracker {
         // TODO: logging
         match message {
             CacheTrackerMessage::SlaveCacheStarted { host, size } => {
-                self.slave_capacity.insert(host.clone(), size);
+                self.slave_capacity.insert(host, size);
                 self.slave_usage.insert(host, 0);
                 CacheTrackerMessageReply::Ok
             }
@@ -207,7 +207,7 @@ impl CacheTracker {
             } => {
                 if size > 0 {
                     self.slave_usage
-                        .insert(host.clone(), self.get_cache_usage(host) + size);
+                        .insert(host, self.get_cache_usage(host) + size);
                 } else {
                     // TODO: logging
                 }
@@ -226,7 +226,7 @@ impl CacheTracker {
             } => {
                 if size > 0 {
                     let remaining = self.get_cache_usage(host) - size;
-                    self.slave_usage.insert(host.clone(), remaining);
+                    self.slave_usage.insert(host, remaining);
                 }
                 let remaining_locs = self
                     .locs

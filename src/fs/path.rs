@@ -30,7 +30,7 @@ impl Path {
             path_string = format!("/{:?}", path_string);
         }
         let mut scheme = None;
-        let mut authority = None;
+        let mut _authority = None;
         let mut index = 0;
 
         // parse uri scheme if any present
@@ -51,7 +51,7 @@ impl Path {
             } else {
                 path_string.len()
             };
-            authority = Some(path_string.get(index + 2..auth_end).unwrap());
+            _authority = Some(path_string.get(index + 2..auth_end).unwrap());
             index = auth_end;
         }
 
@@ -100,8 +100,8 @@ impl Path {
     }
 
     pub fn merge_paths(path1: Path, path2: Path) -> Path {
-        let mut path2 = path2.to_url().path().to_string();
-        path2 = path2
+        let path2 = path2.to_url().path().to_string();
+        let _path2: String = path2
             .get(Self::start_position_without_windows_drive(&path2)..)
             .unwrap()
             .into();

@@ -19,9 +19,7 @@ use crate::scheduler::NativeScheduler;
 use crate::serializable_traits::{Data, SerFunc};
 use crate::serialized_data_capnp::serialized_data;
 use crate::task::TaskContext;
-use crate::utils;
-use crate::SerArc;
-use crate::{env, hosts};
+use crate::{env, hosts, utils, Fn, SerArc};
 use log::error;
 use once_cell::sync::OnceCell;
 use simplelog::*;
@@ -413,7 +411,7 @@ impl Context {
     where
         F: SerFunc(Box<dyn Iterator<Item = T>>) -> U,
     {
-        let cl = Fn!(move |(task_context, iter)| (func)(iter));
+        let cl = Fn!(move |(_task_context, iter)| (func)(iter));
         let func = Arc::new(cl);
         self.scheduler.run_job(
             func,
@@ -433,7 +431,7 @@ impl Context {
         F: SerFunc(Box<dyn Iterator<Item = T>>) -> U,
         P: IntoIterator<Item = usize>,
     {
-        let cl = Fn!(move |(task_context, iter)| (func)(iter));
+        let cl = Fn!(move |(_task_context, iter)| (func)(iter));
         self.scheduler
             .run_job(Arc::new(cl), rdd, partitions.into_iter().collect(), false)
     }

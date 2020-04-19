@@ -87,7 +87,7 @@ mod tests {
         let p2_1 = HashPartitioner::<i32>::new(2);
         let p2_2 = HashPartitioner::<i32>::new(2);
         assert!(p1.equals(&p1));
-        assert!(p1.clone().equals(&p1));
+        assert!(p1.equals(&p1));
         assert!(p2_1.equals(&p2_1));
         assert!(p2_1.equals(&p2_2));
         assert!(p2_2.equals(&p2_1));

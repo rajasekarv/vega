@@ -163,7 +163,7 @@ pub trait PairRdd<K: Data + Eq + Hash, V: Data>: Rdd<Item = (K, V)> + Send + Syn
         );
         // Flatten the results of the combined partitions
         let flattener = Fn!(|grouped: (K, Vec<V>)| {
-            let (key, values) = grouped;
+            let (_key, values) = grouped;
             let iter: Box<dyn Iterator<Item = _>> = Box::new(values.into_iter());
             iter
         });

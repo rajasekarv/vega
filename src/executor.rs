@@ -229,6 +229,7 @@ mod tests {
     use super::*;
     use crate::task::{TaskContext, TaskResult};
     use crate::utils::{get_dynamic_port, test_utils::create_test_task};
+    use crate::Fn;
     use crossbeam::channel::{unbounded, Receiver, Sender};
     use std::io::Write;
     use std::thread;
@@ -329,14 +330,15 @@ mod tests {
     async fn send_task() -> Result<()> {
         fn test(client_rcv: Receiver<ComputeResult>, port: Port) -> Result<()> {
             // Mock data:
-            let func =
-                Fn!(
-                    move |(task_context, iter): (TaskContext, Box<dyn Iterator<Item = u8>>)| -> u8 {
-                        // let iter = iter.collect::<Vec<u8>>();
-                        // eprintln!("{:?}", iter);
-                        iter.into_iter().next().unwrap()
-                    }
-                );
+            let func = Fn!(move |(_task_context, iter): (
+                TaskContext,
+                Box<dyn Iterator<Item = u8>>
+            )|
+                  -> u8 {
+                // let iter = iter.collect::<Vec<u8>>();
+                // eprintln!("{:?}", iter);
+                iter.into_iter().next().unwrap()
+            });
             let mock_task: TaskOption = create_test_task(func).into();
             let ser_task = bincode::serialize(&mock_task)?;
             let mut message = capnp::message::Builder::new_default();

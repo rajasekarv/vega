@@ -1,16 +1,13 @@
-use native_spark::io::*;
-use native_spark::partitioner::HashPartitioner;
-use native_spark::rdd::CoGroupedRdd;
-use native_spark::*;
-use serde_traitobject::Arc as SerArc;
 use std::fs::{create_dir_all, File};
 use std::io::prelude::*;
 use std::sync::Arc;
 
-#[macro_use]
-extern crate serde_closure;
-
+use native_spark::io::*;
+use native_spark::partitioner::HashPartitioner;
+use native_spark::rdd::CoGroupedRdd;
+use native_spark::*;
 use once_cell::sync::Lazy;
+use serde_traitobject::Arc as SerArc;
 
 static CONTEXT: Lazy<Arc<Context>> = Lazy::new(|| Context::new().unwrap());
 //static AGGREGATOR: Lazy<Arc<Aggregator<data,dat1,dat2>>> = Lazy::new(|| Aggregator::new().unwrap());
@@ -68,7 +65,7 @@ fn test_basic_operations() -> Result<()> {
     //assert_eq!(nums.filter(Fn!(|x:i32| x>2)).collect(),vec![3i32,4])
     assert_eq!(
         nums.flat_map(Fn!(
-            |x: i32| Box::new((1..(1 + x))) as Box<Iterator<Item = _>>
+            |x: i32| Box::new((1..(1 + x))) as Box<dyn Iterator<Item = _>>
         ))
         .collect()?,
         vec![1i32, 1, 2, 1, 2, 3, 1, 2, 3, 4]
@@ -170,7 +167,7 @@ fn test_aggregate() {
 fn test_take() -> Result<()> {
     let sc = CONTEXT.clone();
     let col1 = vec![1, 2, 3, 4, 5, 6];
-    let col1_rdd = sc.clone().parallelize(col1, 4);
+    let col1_rdd = sc.parallelize(col1, 4);
 
     let taken_1 = col1_rdd.take(1)?;
     assert_eq!(taken_1.len(), 1);
@@ -192,7 +189,7 @@ fn test_take() -> Result<()> {
 fn test_first() {
     let sc = CONTEXT.clone();
     let col1 = vec![1, 2, 3, 4];
-    let col1_rdd = sc.clone().parallelize(col1, 4);
+    let col1_rdd = sc.parallelize(col1, 4);
 
     let taken_1 = col1_rdd.first();
     assert!(taken_1.is_ok());
@@ -317,7 +314,7 @@ fn test_partition_wise_sampling() -> Result<()> {
     let sc = CONTEXT.clone();
     // w/o replace & num < sample
     {
-        let rdd = sc.clone().parallelize(vec![1, 2, 3, 4, 5], 6);
+        let rdd = sc.parallelize(vec![1, 2, 3, 4, 5], 6);
         let result = rdd.take_sample(false, 6, Some(123))?;
         assert!(result.len() == 5);
         // guaranteed with this seed:
@@ -327,7 +324,7 @@ fn test_partition_wise_sampling() -> Result<()> {
     // replace & Poisson & no-GapSampling
     {
         // high enough samples param to guarantee drawing >1 times w/ replacement
-        let rdd = sc.clone().parallelize((0_i32..100).collect::<Vec<_>>(), 5);
+        let rdd = sc.parallelize((0_i32..100).collect::<Vec<_>>(), 5);
         let result = rdd.take_sample(true, 80, None)?;
         assert!(result.len() == 80);
     }
