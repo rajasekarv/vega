@@ -13,9 +13,8 @@ use crate::partitioner::{HashPartitioner, Partitioner};
 use crate::serializable_traits::{AnyData, Data, Func, SerFunc};
 use crate::split::Split;
 use crate::task::TaskContext;
-use crate::utils;
 use crate::utils::random::{BernoulliSampler, PoissonSampler, RandomSampler};
-use crate::{SerArc, SerBox};
+use crate::{utils, Fn, SerArc, SerBox};
 use fasthash::MetroHasher;
 use rand::{Rng, SeedableRng};
 use serde_derive::{Deserialize, Serialize};
@@ -770,12 +769,31 @@ pub trait Rdd: RddBase + 'static {
         )
     }
 
-    // fn group_by<K: Data, F>(&self, f: F) -> SerArc<dyn Rdd<Item = Vec<Self::Item>>>
-    // where
-    //     F: SerFunc(Box<dyn Iterator<Item = Self::Item>>),
-    // {
-    //     todo!()
-    // }
+    fn group_by<K, F>(&self, func: F) -> SerArc<dyn Rdd<Item = (K, Vec<Self::Item>)>>
+    where
+        Self: Sized,
+        K: Data + Hash + Eq,
+        F: SerFunc(&Self::Item) -> K,
+    {
+        self.group_by_with_num_partitions(func, self.number_of_splits())
+    }
+
+    fn group_by_with_num_partitions<K, F>(
+        &self,
+        func: F,
+        num_splits: usize,
+    ) -> SerArc<dyn Rdd<Item = (K, Vec<Self::Item>)>>
+    where
+        Self: Sized,
+        K: Data + Hash + Eq,
+        F: SerFunc(&Self::Item) -> K,
+    {
+        self.map(Box::new(Fn!(move |val: Self::Item| -> (K, Self::Item) {
+            let key = (func)(&val);
+            (key, val)
+        })))
+        .group_by_key(num_splits)
+    }
 }
 
 pub trait Reduce<T> {

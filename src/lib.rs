@@ -54,6 +54,5 @@ mod hosts;
 mod utils;
 
 // Import global external types and macros:
-#[macro_use]
-extern crate serde_closure;
+pub use serde_closure::Fn;
 use serde_traitobject::{Arc as SerArc, Box as SerBox};

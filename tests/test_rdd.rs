@@ -1,16 +1,13 @@
-use native_spark::io::*;
-use native_spark::partitioner::HashPartitioner;
-use native_spark::rdd::CoGroupedRdd;
-use native_spark::*;
-use serde_traitobject::Arc as SerArc;
 use std::fs::{create_dir_all, File};
 use std::io::prelude::*;
 use std::sync::Arc;
 
-#[macro_use]
-extern crate serde_closure;
-
+use native_spark::io::*;
+use native_spark::partitioner::HashPartitioner;
+use native_spark::rdd::CoGroupedRdd;
+use native_spark::*;
 use once_cell::sync::Lazy;
+use serde_traitobject::Arc as SerArc;
 
 static CONTEXT: Lazy<Arc<Context>> = Lazy::new(|| Context::new().unwrap());
 //static AGGREGATOR: Lazy<Arc<Aggregator<data,dat1,dat2>>> = Lazy::new(|| Aggregator::new().unwrap());

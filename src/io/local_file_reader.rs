@@ -12,6 +12,7 @@ use crate::io::*;
 use crate::rdd::{MapPartitionsRdd, MapperRdd, Rdd, RddBase};
 use crate::serializable_traits::{AnyData, Data, SerFunc};
 use crate::split::Split;
+use crate::Fn;
 use log::debug;
 use rand::prelude::*;
 use serde_derive::{Deserialize, Serialize};

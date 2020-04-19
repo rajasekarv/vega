@@ -229,6 +229,7 @@ mod tests {
     use super::*;
     use crate::task::{TaskContext, TaskResult};
     use crate::utils::{get_dynamic_port, test_utils::create_test_task};
+    use crate::Fn;
     use crossbeam::channel::{unbounded, Receiver, Sender};
     use std::io::Write;
     use std::thread;

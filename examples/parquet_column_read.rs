@@ -5,7 +5,6 @@ use native_spark::*;
 use parquet::column::reader::get_typed_column_reader;
 use parquet::data_type::{ByteArrayType, Int32Type, Int64Type};
 use parquet::file::reader::{FileReader, SerializedFileReader};
-use serde_closure::Fn;
 
 use std::fs::File;
 use std::path::PathBuf;

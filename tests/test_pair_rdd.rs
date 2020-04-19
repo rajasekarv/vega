@@ -1,14 +1,12 @@
-use native_spark::*;
-
 use std::sync::Arc;
 
-extern crate serde_closure;
+use native_spark::*;
 use once_cell::sync::Lazy;
 
 static CONTEXT: Lazy<Arc<Context>> = Lazy::new(|| Context::new().unwrap());
 
 #[test]
-fn test_group_by() {
+fn test_group_by_key() {
     let sc = CONTEXT.clone();
     let vec = vec![
         ("x".to_string(), 1),
@@ -91,7 +89,7 @@ fn test_count_by_value() -> Result<()> {
     {
         let rdd = sc.parallelize(vec![1i32, 2, 1, 3, 2, 3, 3, 2, 3], 4);
         let rdd = rdd.count_by_value();
-        let mut res = rdd.collect().unwrap();
+        let mut res = rdd.collect()?;
         res.sort_by_key(|&(k, _)| k);
 
         assert_eq!(res.len(), 3);
@@ -101,12 +99,38 @@ fn test_count_by_value() -> Result<()> {
     {
         let rdd = sc.parallelize(vec![1i32, 2, 1, 3, 2, 3, 3, 2, 3], 2);
         let rdd = rdd.count_by_value();
-        let mut res = rdd.collect().unwrap();
+        let mut res = rdd.collect()?;
         res.sort_by_key(|&(k, _)| k);
 
         assert_eq!(res.len(), 3);
         itertools::assert_equal(res, vec![(1, 2), (2, 3), (3, 4)]);
     }
 
+    Ok(())
+}
+
+#[test]
+fn group_by() -> Result<()> {
+    let sc = CONTEXT.clone();
+    let vec = vec![-3i32, -2, -1, 0, 1, 2, 3];
+    let r = sc.make_rdd(vec, 2);
+    let grouping_func = Fn!(|k: &i32| -> String {
+        if k.is_positive() {
+            "pos".to_string()
+        } else if k.is_negative() {
+            "neg".to_string()
+        } else {
+            "zero".to_string()
+        }
+    });
+    let g = r.group_by(grouping_func);
+    let mut res = g.collect()?;
+    res.sort();
+    let expected = vec![
+        ("neg".to_string(), vec![-3i32, -2, -1]),
+        ("pos".to_string(), vec![1, 2, 3]),
+        ("zero".to_string(), vec![0]),
+    ];
+    assert_eq!(expected, res);
     Ok(())
 }
