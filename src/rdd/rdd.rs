@@ -769,6 +769,15 @@ pub trait Rdd: RddBase + 'static {
         )
     }
 
+    /// Return an RDD of grouped items. Each group consists of a key and a sequence of elements
+    /// mapping to that key. The ordering of elements within each group is not guaranteed, and
+    /// may even differ each time the resulting RDD is evaluated.
+    ///
+    /// ## Notes
+    ///
+    /// This operation may be very expensive. If you are grouping in order to perform an
+    /// aggregation (such as a sum or average) over each key, using `aggregate_by_key`
+    /// or `reduce_by_key` will provide much better performance.
     fn group_by<K, F>(&self, func: F) -> SerArc<dyn Rdd<Item = (K, Vec<Self::Item>)>>
     where
         Self: Sized,
@@ -778,6 +787,15 @@ pub trait Rdd: RddBase + 'static {
         self.group_by_with_num_partitions(func, self.number_of_splits())
     }
 
+    /// Return an RDD of grouped items. Each group consists of a key and a sequence of elements
+    /// mapping to that key. The ordering of elements within each group is not guaranteed, and
+    /// may even differ each time the resulting RDD is evaluated.
+    ///
+    /// ## Notes
+    ///
+    /// This operation may be very expensive. If you are grouping in order to perform an
+    /// aggregation (such as a sum or average) over each key, using `aggregate_by_key`
+    /// or `reduce_by_key` will provide much better performance.
     fn group_by_with_num_partitions<K, F>(
         &self,
         func: F,
@@ -795,6 +813,15 @@ pub trait Rdd: RddBase + 'static {
         .group_by_key(num_splits)
     }
 
+    /// Return an RDD of grouped items. Each group consists of a key and a sequence of elements
+    /// mapping to that key. The ordering of elements within each group is not guaranteed, and
+    /// may even differ each time the resulting RDD is evaluated.
+    ///
+    /// ## Notes
+    ///
+    /// This operation may be very expensive. If you are grouping in order to perform an
+    /// aggregation (such as a sum or average) over each key, using `aggregate_by_key`
+    /// or `reduce_by_key` will provide much better performance.
     fn group_by_with_partitioner<K, F>(
         &self,
         func: F,
