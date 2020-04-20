@@ -44,6 +44,7 @@ pub use aggregator::*;
 mod env;
 mod job;
 mod map_output_tracker;
+mod partial;
 mod result_task;
 mod serializable_traits;
 pub use env::DeploymentMode;

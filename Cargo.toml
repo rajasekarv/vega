@@ -27,6 +27,7 @@ log = "0.4.8"
 once_cell = "1.3.1"
 parking_lot = { version = "0.10.2", features = ["serde"] }
 simplelog = "0.7.5"
+statrs = "0.12.0"
 thiserror = "1.0.15"
 threadpool = "1.7.1"
 toml = "0.5.6"

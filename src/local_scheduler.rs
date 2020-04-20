@@ -11,10 +11,9 @@ use std::time::{Duration, Instant};
 
 use crate::dag_scheduler::{CompletionEvent, TastEndReason};
 use crate::dependency::ShuffleDependencyTrait;
-use crate::env;
-use crate::error::Result;
 use crate::job::{Job, JobTracker};
 use crate::map_output_tracker::MapOutputTracker;
+use crate::partial::{ApproximateActionListener, ApproximateEvaluator};
 use crate::rdd::{Rdd, RddBase};
 use crate::result_task::ResultTask;
 use crate::scheduler::{EventQueue, NativeScheduler};
@@ -22,6 +21,7 @@ use crate::serializable_traits::{Data, SerFunc};
 use crate::shuffle::ShuffleMapTask;
 use crate::stage::Stage;
 use crate::task::{TaskBase, TaskContext, TaskOption, TaskResult};
+use crate::{env, Error, Result};
 use dashmap::DashMap;
 use parking_lot::Mutex;
 
@@ -80,6 +80,47 @@ impl LocalScheduler {
             map_output_tracker: env::Env::get().map_output_tracker.clone(),
             scheduler_lock: Arc::new(Mutex::new(())),
         }
+    }
+
+    /*
+    def runApproximateJob = {
+
+      val listener = new ApproximateActionListener(rdd, func, evaluator, timeout)
+      val func2 = func.asInstanceOf[(TaskContext, Iterator[_]) => _]
+      eventProcessLoop.post(JobSubmitted(
+        jobId, rdd, func2, rdd.partitions.indices.toArray, callSite, listener,
+        Utils.cloneProperties(properties)))
+      listener.awaitResult()    // Will throw an exception if the job fails
+
+    }
+    */
+
+    /// Run an approximate job on the given RDD and pass all the results to an ApproximateEvaluator
+    /// as they arrive. Returns a partial result object from the evaluator.
+    pub fn run_approximate_job<T: Data, U: Data, R, F, E>(
+        self: Arc<Self>,
+        func: Arc<F>,
+        final_rdd: Arc<dyn Rdd<Item = T>>,
+        evaluator: E,
+        timeout: Duration,
+    ) -> Result<Vec<U>>
+    where
+        F: SerFunc((TaskContext, Box<dyn Iterator<Item = T>>)) -> U,
+        E: ApproximateEvaluator<U, R>,
+    {
+        let _lock = self.scheduler_lock.lock();
+
+        let selfc = Arc::clone(&self);
+        env::Env::run_in_async_rt(|| -> Result<Vec<U>> {
+            futures::executor::block_on(async move {
+                if final_rdd.number_of_splits() == 0 {
+                    // Return immediately if the job is running 0 tasks
+                    return Ok(vec![]);
+                }
+                let listener = ApproximateActionListener::new(evaluator);
+                Err(Error::Other)
+            })
+        })
     }
 
     pub fn run_job<T: Data, U: Data, F>(

@@ -5,10 +5,12 @@ use std::io::{BufWriter, Write};
 use std::net::Ipv4Addr;
 use std::path::Path;
 use std::sync::{Arc, Weak};
+use std::time::Duration;
 
 use crate::context::Context;
 use crate::dependency::Dependency;
 use crate::error::{Error, Result};
+use crate::partial::CountEvaluator;
 use crate::partitioner::{HashPartitioner, Partitioner};
 use crate::serializable_traits::{AnyData, Data, Func, SerFunc};
 use crate::split::Split;
@@ -349,7 +351,7 @@ pub trait Rdd: RddBase + 'static {
     /// current upstream partitions will be executed in parallel (per whatever
     /// the current partitioning is).
     ///
-    /// ## Notes
+    /// # Notes
     ///
     /// With shuffle = true, you can actually coalesce to a larger number
     /// of partitions. This is useful if you have a small number of partitions,
@@ -773,7 +775,7 @@ pub trait Rdd: RddBase + 'static {
     /// mapping to that key. The ordering of elements within each group is not guaranteed, and
     /// may even differ each time the resulting RDD is evaluated.
     ///
-    /// ## Notes
+    /// # Notes
     ///
     /// This operation may be very expensive. If you are grouping in order to perform an
     /// aggregation (such as a sum or average) over each key, using `aggregate_by_key`
@@ -791,7 +793,7 @@ pub trait Rdd: RddBase + 'static {
     /// mapping to that key. The ordering of elements within each group is not guaranteed, and
     /// may even differ each time the resulting RDD is evaluated.
     ///
-    /// ## Notes
+    /// # Notes
     ///
     /// This operation may be very expensive. If you are grouping in order to perform an
     /// aggregation (such as a sum or average) over each key, using `aggregate_by_key`
@@ -817,7 +819,7 @@ pub trait Rdd: RddBase + 'static {
     /// mapping to that key. The ordering of elements within each group is not guaranteed, and
     /// may even differ each time the resulting RDD is evaluated.
     ///
-    /// ## Notes
+    /// # Notes
     ///
     /// This operation may be very expensive. If you are grouping in order to perform an
     /// aggregation (such as a sum or average) over each key, using `aggregate_by_key`
@@ -837,6 +839,38 @@ pub trait Rdd: RddBase + 'static {
             (key, val)
         })))
         .group_by_key_using_partitioner(partitioner)
+    }
+
+    /// Approximate version of count() that returns a potentially incomplete result
+    /// within a timeout, even if not all tasks have finished.
+    ///
+    /// The confidence is the probability that the error bounds of the result will
+    /// contain the true value. That is, if countApprox were called repeatedly
+    /// with confidence 0.9, we would expect 90% of the results to contain the
+    /// true count. The confidence must be in the range [0,1] or an exception will
+    /// be thrown.
+    ///
+    /// # Arguments
+    /// * `timeout` - maximum time to wait for the job, in milliseconds
+    /// * `confidence` - the desired statistical confidence in the result
+    fn count_approx(&self, timeout: Duration, confidence: Option<f64>)
+    where
+        Self: Sized,
+    {
+        let confidence = if let Some(confidence) = confidence {
+            confidence
+        } else {
+            0.95
+        };
+        let count_elements = Fn!(|(_ctx, iter): (
+            TaskContext,
+            Box<dyn Iterator<Item = Self::Item>>
+        )|
+         -> usize { iter.count() });
+
+        let evaluator = CountEvaluator::new(self.number_of_splits(), confidence);
+        self.get_context()
+            .run_approximate_job(count_elements, self.get_rdd(), evaluator, timeout);
     }
 }
 
