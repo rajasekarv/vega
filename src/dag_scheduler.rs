@@ -39,7 +39,7 @@ pub trait DAGTask: TaskBase {
 }
 
 pub trait DAGScheduler: Scheduler {
-    fn submit_tasks(&self, tasks: Vec<Box<dyn TaskBase>>, run_id: i64) -> ();
+    fn submit_tasks(&self, tasks: Vec<Box<dyn TaskBase>>, run_id: i64);
     fn task_ended(
         task: Box<dyn TaskBase>,
         reason: TastEndReason,

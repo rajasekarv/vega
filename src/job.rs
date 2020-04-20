@@ -9,7 +9,7 @@ use crate::scheduler::NativeScheduler;
 use crate::serializable_traits::{Data, SerFunc};
 use crate::stage::Stage;
 use crate::task::{TaskBase, TaskContext};
-use crate::Rdd;
+use crate::{Rdd, Result};
 use parking_lot::Mutex;
 
 #[derive(Clone, Debug)]
@@ -71,18 +71,26 @@ impl<F, U: Data, T: Data> JobTracker<F, U, T>
 where
     F: SerFunc((TaskContext, Box<dyn Iterator<Item = T>>)) -> U,
 {
-    pub fn from_scheduler<S>(
+    pub async fn from_scheduler<S>(
         scheduler: &S,
         func: Arc<F>,
         final_rdd: Arc<dyn Rdd<Item = T>>,
         output_parts: Vec<usize>,
-    ) -> JobTracker<F, U, T>
+    ) -> Result<JobTracker<F, U, T>>
     where
         S: NativeScheduler,
     {
         let run_id = scheduler.get_next_job_id();
-        let final_stage = scheduler.new_stage(final_rdd.clone().get_rdd_base(), None);
-        JobTracker::new(run_id, final_stage, func, final_rdd, output_parts)
+        let final_stage = scheduler
+            .new_stage(final_rdd.clone().get_rdd_base(), None)
+            .await?;
+        Ok(JobTracker::new(
+            run_id,
+            final_stage,
+            func,
+            final_rdd,
+            output_parts,
+        ))
     }
 
     fn new(

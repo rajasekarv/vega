@@ -1,6 +1,6 @@
 use std::net::SocketAddr;
 use std::sync::Arc;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use crate::env;
 use crate::error::{Error, NetworkError, Result};
@@ -17,6 +17,7 @@ use tokio::{
     net::TcpListener,
     stream::StreamExt,
     task::{spawn, spawn_blocking},
+    time::delay_for,
 };
 use tokio_util::compat::{Tokio02AsyncReadCompatExt, Tokio02AsyncWriteCompatExt};
 
@@ -62,7 +63,7 @@ impl Executor {
         while let Some(Ok(mut stream)) = listener.incoming().next().await {
             let rcv_main = rcv_main.clone();
             let selfc = Arc::clone(&self);
-            let res: Result<Signal> = tokio::spawn(async move {
+            let res: Result<Signal> = spawn(async move {
                 let (reader, writer) = stream.split();
                 let reader = reader.compat();
                 let mut writer = writer.compat_write();
@@ -88,6 +89,7 @@ impl Executor {
                     })
                     .await??
                 };
+                // TODO: remove blocking call when possible
                 futures::executor::block_on(capnp_serialize::write_message(&mut writer, &message))
                     .map_err(Error::CapnpDeserialization)?;
                 log::debug!("sent result data to driver");
@@ -192,7 +194,7 @@ impl Executor {
                     log::info!("received error shutdown signal @ {}", self.port);
                     send_child
                         .send(Signal::ShutDownError)
-                        .map_err(|_| Error::AsyncRuntimeError)?;
+                        .map_err(|_| Error::Other)?;
                     signal = Err(Error::ExecutorShutdown);
                     break;
                 }
@@ -200,13 +202,15 @@ impl Executor {
                     log::info!("received graceful shutdown signal @ {}", self.port);
                     send_child
                         .send(Signal::ShutDownGracefully)
-                        .map_err(|_| Error::AsyncRuntimeError)?;
+                        .map_err(|_| Error::Other)?;
                     signal = Ok(Signal::ShutDownGracefully);
                     break;
                 }
                 _ => {}
             }
         }
+        // give some time to the executor threads to shut down hopefully
+        delay_for(Duration::from_millis(1_000)).await;
         signal
     }
 }
@@ -225,6 +229,7 @@ mod tests {
     use super::*;
     use crate::task::{TaskContext, TaskResult};
     use crate::utils::{get_dynamic_port, test_utils::create_test_task};
+    use crate::Fn;
     use crossbeam::channel::{unbounded, Receiver, Sender};
     use std::io::Write;
     use std::thread;
@@ -258,7 +263,7 @@ mod tests {
                 break;
             }
         }
-        Err(Error::AsyncRuntimeError)
+        Err(Error::Other)
     }
 
     fn send_shutdown_signal_msg(stream: &mut std::net::TcpStream) -> Result<()> {
@@ -293,7 +298,7 @@ mod tests {
             while Instant::now() < end {
                 match client_rcv.try_recv() {
                     Ok(Ok(_)) => return Ok(()),
-                    Ok(Err(_)) => return Err(Error::AsyncRuntimeError),
+                    Ok(Err(_)) => return Err(Error::Other),
                     _ => {}
                 }
                 if let Ok(mut stream) = connect_to_executor(port, true) {
@@ -302,7 +307,7 @@ mod tests {
                 }
                 thread::sleep_ms(5);
             }
-            Err(Error::AsyncRuntimeError)
+            Err(Error::Other)
         }
 
         fn result_checker(sender: Sender<ComputeResult>, result: Result<Signal>) -> Result<()> {
@@ -313,7 +318,7 @@ mod tests {
                 }
                 Ok(_) | Err(_) => {
                     sender.send(Err(()));
-                    Err(Error::AsyncRuntimeError)
+                    Err(Error::Other)
                 }
             }
         }
@@ -325,14 +330,15 @@ mod tests {
     async fn send_task() -> Result<()> {
         fn test(client_rcv: Receiver<ComputeResult>, port: Port) -> Result<()> {
             // Mock data:
-            let func =
-                Fn!(
-                    move |(task_context, iter): (TaskContext, Box<dyn Iterator<Item = u8>>)| -> u8 {
-                        // let iter = iter.collect::<Vec<u8>>();
-                        // eprintln!("{:?}", iter);
-                        iter.into_iter().next().unwrap()
-                    }
-                );
+            let func = Fn!(move |(_task_context, iter): (
+                TaskContext,
+                Box<dyn Iterator<Item = u8>>
+            )|
+                  -> u8 {
+                // let iter = iter.collect::<Vec<u8>>();
+                // eprintln!("{:?}", iter);
+                iter.into_iter().next().unwrap()
+            });
             let mock_task: TaskOption = create_test_task(func).into();
             let ser_task = bincode::serialize(&mock_task)?;
             let mut message = capnp::message::Builder::new_default();
@@ -345,14 +351,14 @@ mod tests {
             while Instant::now() < end {
                 match client_rcv.try_recv() {
                     Ok(Ok(_)) => return Ok(()),
-                    Ok(Err(_)) => return Err(Error::AsyncRuntimeError),
+                    Ok(Err(_)) => return Err(Error::Other),
                     _ => {}
                 }
                 if let Ok(mut stream) = connect_to_executor(port, false) {
                     // Send task to executor:
                     stream.write_all(&*buf).map_err(Error::OutputWrite)?;
                     if let Ok(Err(_)) = client_rcv.try_recv() {
-                        return Err(Error::AsyncRuntimeError);
+                        return Err(Error::Other);
                     }
 
                     // Get the results back:
@@ -370,12 +376,12 @@ mod tests {
                         send_shutdown_signal_msg(&mut signal_handler)?;
                         return Ok(());
                     } else {
-                        return Err(Error::AsyncRuntimeError);
+                        return Err(Error::Other);
                     }
                 }
                 thread::sleep_ms(5);
             }
-            Err(Error::AsyncRuntimeError)
+            Err(Error::Other)
         };
 
         fn result_checker(sender: Sender<ComputeResult>, result: Result<Signal>) -> Result<()> {
@@ -383,7 +389,7 @@ mod tests {
                 Ok(Signal::ShutDownGracefully) => Ok(()),
                 Ok(_) => {
                     sender.send(Ok(()));
-                    Err(Error::AsyncRuntimeError)
+                    Err(Error::Other)
                 }
                 Err(err) => {
                     sender.send(Err(()));

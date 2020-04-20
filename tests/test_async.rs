@@ -1,13 +1,12 @@
 //! Test whether the library can be used with different running async executors.
-use native_spark::*;
-#[macro_use]
-extern crate serde_closure;
-use once_cell::sync::Lazy;
 use std::sync::Arc;
+
+use native_spark::*;
+use once_cell::sync::Lazy;
 
 static CONTEXT: Lazy<Arc<Context>> = Lazy::new(|| Context::new().unwrap());
 
-#[tokio::test]
+#[tokio::test(core_threads = 4)]
 async fn existing_tokio_rt() -> Result<()> {
     let initially = async { "initially" }.await;
     assert_eq!(initially, "initially");

@@ -13,9 +13,8 @@ use crate::partitioner::{HashPartitioner, Partitioner};
 use crate::serializable_traits::{AnyData, Data, Func, SerFunc};
 use crate::split::Split;
 use crate::task::TaskContext;
-use crate::utils;
 use crate::utils::random::{BernoulliSampler, PoissonSampler, RandomSampler};
-use crate::{SerArc, SerBox};
+use crate::{utils, Fn, SerArc, SerBox};
 use fasthash::MetroHasher;
 use rand::{Rng, SeedableRng};
 use serde_derive::{Deserialize, Serialize};
@@ -221,7 +220,7 @@ pub trait Rdd: RddBase + 'static {
             |_index: usize, iter: Box<dyn Iterator<Item = Self::Item>>| Box::new(std::iter::once(
                 iter.collect::<Vec<_>>()
             ))
-                as Box<Iterator<Item = Vec<Self::Item>>>
+                as Box<dyn Iterator<Item = Vec<Self::Item>>>
         );
         SerArc::new(MapPartitionsRdd::new(self.get_rdd(), Box::new(func)))
     }
@@ -446,12 +445,12 @@ pub trait Rdd: RddBase + 'static {
             as Box<
                 dyn Func(Self::Item) -> (Option<Self::Item>, Option<Self::Item>),
             >)
-        .reduce_by_key(Box::new(Fn!(|(x, y)| y)), num_partitions)
+        .reduce_by_key(Box::new(Fn!(|(_x, y)| y)), num_partitions)
         .map(Box::new(Fn!(|x: (
             Option<Self::Item>,
             Option<Self::Item>
         )| {
-            let (x, y) = x;
+            let (x, _y) = x;
             x.unwrap()
         })))
     }
@@ -768,6 +767,76 @@ pub trait Rdd: RddBase + 'static {
                 )
             )
         )
+    }
+
+    /// Return an RDD of grouped items. Each group consists of a key and a sequence of elements
+    /// mapping to that key. The ordering of elements within each group is not guaranteed, and
+    /// may even differ each time the resulting RDD is evaluated.
+    ///
+    /// ## Notes
+    ///
+    /// This operation may be very expensive. If you are grouping in order to perform an
+    /// aggregation (such as a sum or average) over each key, using `aggregate_by_key`
+    /// or `reduce_by_key` will provide much better performance.
+    fn group_by<K, F>(&self, func: F) -> SerArc<dyn Rdd<Item = (K, Vec<Self::Item>)>>
+    where
+        Self: Sized,
+        K: Data + Hash + Eq,
+        F: SerFunc(&Self::Item) -> K,
+    {
+        self.group_by_with_num_partitions(func, self.number_of_splits())
+    }
+
+    /// Return an RDD of grouped items. Each group consists of a key and a sequence of elements
+    /// mapping to that key. The ordering of elements within each group is not guaranteed, and
+    /// may even differ each time the resulting RDD is evaluated.
+    ///
+    /// ## Notes
+    ///
+    /// This operation may be very expensive. If you are grouping in order to perform an
+    /// aggregation (such as a sum or average) over each key, using `aggregate_by_key`
+    /// or `reduce_by_key` will provide much better performance.
+    fn group_by_with_num_partitions<K, F>(
+        &self,
+        func: F,
+        num_splits: usize,
+    ) -> SerArc<dyn Rdd<Item = (K, Vec<Self::Item>)>>
+    where
+        Self: Sized,
+        K: Data + Hash + Eq,
+        F: SerFunc(&Self::Item) -> K,
+    {
+        self.map(Box::new(Fn!(move |val: Self::Item| -> (K, Self::Item) {
+            let key = (func)(&val);
+            (key, val)
+        })))
+        .group_by_key(num_splits)
+    }
+
+    /// Return an RDD of grouped items. Each group consists of a key and a sequence of elements
+    /// mapping to that key. The ordering of elements within each group is not guaranteed, and
+    /// may even differ each time the resulting RDD is evaluated.
+    ///
+    /// ## Notes
+    ///
+    /// This operation may be very expensive. If you are grouping in order to perform an
+    /// aggregation (such as a sum or average) over each key, using `aggregate_by_key`
+    /// or `reduce_by_key` will provide much better performance.
+    fn group_by_with_partitioner<K, F>(
+        &self,
+        func: F,
+        partitioner: Box<dyn Partitioner>,
+    ) -> SerArc<dyn Rdd<Item = (K, Vec<Self::Item>)>>
+    where
+        Self: Sized,
+        K: Data + Hash + Eq,
+        F: SerFunc(&Self::Item) -> K,
+    {
+        self.map(Box::new(Fn!(move |val: Self::Item| -> (K, Self::Item) {
+            let key = (func)(&val);
+            (key, val)
+        })))
+        .group_by_key_using_partitioner(partitioner)
     }
 }
 

@@ -11,11 +11,11 @@
 #![allow(dead_code, where_clauses_object_safety, deprecated)]
 #![allow(clippy::single_component_path_imports)]
 
-pub mod serialized_data_capnp {
+mod serialized_data_capnp {
     include!(concat!(env!("OUT_DIR"), "/capnp/serialized_data_capnp.rs"));
 }
 
-pub mod context;
+mod context;
 pub use context::Context;
 mod executor;
 pub mod partitioner;
@@ -28,13 +28,13 @@ pub mod io;
 pub use io::*;
 mod dependency;
 pub use dependency::*;
-pub mod split;
+mod split;
 pub use split::*;
 mod cache;
 mod cache_tracker;
 #[macro_use]
 mod scheduler;
-pub mod aggregator;
+mod aggregator;
 mod dag_scheduler;
 mod distributed_scheduler;
 mod local_scheduler;
@@ -45,15 +45,14 @@ mod env;
 mod job;
 mod map_output_tracker;
 mod result_task;
-pub mod serializable_traits;
+mod serializable_traits;
 pub use env::DeploymentMode;
-pub mod error;
+mod error;
 pub use error::*;
 pub mod fs;
 mod hosts;
-pub mod utils;
+mod utils;
 
 // Import global external types and macros:
-#[macro_use]
-extern crate serde_closure;
+pub use serde_closure::Fn;
 use serde_traitobject::{Arc as SerArc, Box as SerBox};

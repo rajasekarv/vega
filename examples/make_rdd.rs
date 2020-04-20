@@ -1,6 +1,4 @@
-#![allow(where_clauses_object_safety)]
 use native_spark::*;
-use serde_closure::Fn;
 
 fn main() -> Result<()> {
     let sc = Context::new()?;

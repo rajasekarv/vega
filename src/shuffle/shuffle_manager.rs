@@ -8,6 +8,7 @@ use std::time::Duration;
 use crate::env;
 use crate::error::StdResult;
 use crate::shuffle::*;
+use crate::utils;
 use crossbeam::channel as cb_channel;
 use futures::future;
 use hyper::{
@@ -22,7 +23,6 @@ pub(crate) type Result<T> = StdResult<T, ShuffleError>;
 /// It also creates the file server required for serving files via HTTP request.
 #[derive(Debug)]
 pub(crate) struct ShuffleManager {
-    local_dir: PathBuf,
     shuffle_dir: PathBuf,
     server_uri: String,
     pub server_port: u16,
@@ -32,14 +32,12 @@ pub(crate) struct ShuffleManager {
 
 impl ShuffleManager {
     pub fn new() -> Result<Self> {
-        let local_dir = ShuffleManager::get_local_work_dir()?;
-        let shuffle_dir = local_dir.join("shuffle");
+        let shuffle_dir = ShuffleManager::get_shuffle_data_dir()?;
         fs::create_dir_all(&shuffle_dir).map_err(|_| ShuffleError::CouldNotCreateShuffleDir)?;
         let shuffle_port = env::Configuration::get().shuffle_svc_port;
         let (server_uri, server_port) = ShuffleManager::start_server(shuffle_port)?;
         let (send_main, rcv_main) = ShuffleManager::init_status_checker(&server_uri)?;
         let manager = ShuffleManager {
-            local_dir,
             shuffle_dir,
             server_uri,
             server_port,
@@ -55,6 +53,10 @@ impl ShuffleManager {
 
     pub fn get_server_uri(&self) -> String {
         self.server_uri.clone()
+    }
+
+    pub fn clean_up_shuffle_data(&self) {
+        utils::clean_up_work_dir(&self.shuffle_dir);
     }
 
     pub fn get_output_file(
@@ -77,9 +79,7 @@ impl ShuffleManager {
 
     pub fn check_status(&self) -> Result<StatusCode> {
         self.ask_status.send(()).unwrap();
-        self.rcv_status
-            .recv()
-            .map_err(|_| ShuffleError::AsyncRuntimeError)?
+        self.rcv_status.recv().map_err(|_| ShuffleError::Other)?
     }
 
     /// Returns the shuffle server URI as a string.
@@ -104,12 +104,10 @@ impl ShuffleManager {
 
     fn launch_async_server(conn: TcpListener) -> Result<()> {
         let (s, r) = cb_channel::bounded::<Result<()>>(1);
-        env::Env::run_in_async_rt(|| {
-            tokio::task::spawn(async move {
-                Server::from_tcp(conn)?.serve(ShuffleSvcMaker).await?;
-                s.send(Err(ShuffleError::FailedToStart)).unwrap();
-                Err::<(), _>(ShuffleError::FailedToStart)
-            })
+        tokio::spawn(async move {
+            Server::from_tcp(conn)?.serve(ShuffleSvcMaker).await?;
+            s.send(Err(ShuffleError::FailedToStart)).unwrap();
+            Err::<(), _>(ShuffleError::FailedToStart)
         });
         cb_channel::select! {
             recv(r) -> msg => { msg.map_err(|_| ShuffleError::FailedToStart)??; }
@@ -130,32 +128,31 @@ impl ShuffleManager {
         let (send_main, rcv_child) = cb_channel::unbounded::<()>();
         let uri_str = format!("{}/status", server_uri);
         let status_uri = Uri::try_from(&uri_str)?;
-        env::Env::run_in_async_rt(|| {
-            tokio::task::spawn(
-                #[allow(unreachable_code)]
-                async move {
-                    let client = Client::builder().http2_only(true).build_http::<Body>();
-                    // loop forever waiting for requests to send
-                    loop {
-                        let res = client.get(status_uri.clone()).await?;
-                        // dispatch all queued requests responses
-                        while let Ok(()) = rcv_child.try_recv() {
-                            send_child.send(Ok(res.status())).unwrap();
-                        }
-                        // sleep for a while before checking again if there are status requests
-                        tokio::time::delay_for(Duration::from_millis(25)).await
+        tokio::spawn(
+            #[allow(unreachable_code)]
+            async move {
+                let client = Client::builder().http2_only(true).build_http::<Body>();
+                // loop forever waiting for requests to send
+                loop {
+                    let res = client.get(status_uri.clone()).await?;
+                    // dispatch all queued requests responses
+                    while let Ok(()) = rcv_child.try_recv() {
+                        send_child.send(Ok(res.status())).unwrap();
                     }
-                    Ok::<(), ShuffleError>(())
-                },
-            )
-        });
+                    // sleep for a while before checking again if there are status requests
+                    tokio::time::delay_for(Duration::from_millis(25)).await
+                }
+                Ok::<(), ShuffleError>(())
+            },
+        );
         Ok((send_main, rcv_main))
     }
 
-    fn get_local_work_dir() -> Result<PathBuf> {
+    fn get_shuffle_data_dir() -> Result<PathBuf> {
         let local_dir_root = &env::Configuration::get().local_dir;
         for _ in 0..10 {
-            let local_dir = local_dir_root.join(format!("ns-local-{}", Uuid::new_v4().to_string()));
+            let local_dir =
+                local_dir_root.join(format!("ns-shuffle-{}", Uuid::new_v4().to_string()));
             if !local_dir.exists() {
                 log::debug!("creating directory at path: {:?}", &local_dir);
                 fs::create_dir_all(&local_dir)
@@ -308,16 +305,18 @@ mod tests {
     #[test]
     fn status_checking_ok() -> StdResult<(), Box<dyn std::error::Error + 'static>> {
         let parallelism = num_cpus::get();
-        let manager = Arc::new(ShuffleManager::new()?);
+        let manager = Arc::new(env::Env::run_in_async_rt(|| ShuffleManager::new().unwrap()));
         let mut threads = Vec::with_capacity(parallelism);
         for _ in 0..parallelism {
             let manager = manager.clone();
             threads.push(thread::spawn(move || -> Result<()> {
                 for _ in 0..10 {
-                    match manager.check_status() {
-                        Ok(StatusCode::OK) => {}
-                        _ => return Err(ShuffleError::AsyncRuntimeError),
-                    }
+                    env::Env::run_in_async_rt(|| -> Result<()> {
+                        match manager.check_status() {
+                            Ok(StatusCode::OK) => Ok(()),
+                            _ => Err(ShuffleError::Other),
+                        }
+                    })?;
                 }
                 Ok(())
             }));
@@ -327,6 +326,7 @@ mod tests {
             .filter_map(|res| res.join().ok())
             .collect::<Result<Vec<_>>>()?;
         assert_eq!(results.len(), parallelism);
+        manager.clean_up_shuffle_data();
         Ok(())
     }
 

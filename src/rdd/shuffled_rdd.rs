@@ -5,7 +5,6 @@ use std::time::Instant;
 use crate::aggregator::Aggregator;
 use crate::context::Context;
 use crate::dependency::{Dependency, ShuffleDependency};
-use crate::env;
 use crate::error::Result;
 use crate::partitioner::Partitioner;
 use crate::rdd::{Rdd, RddBase, RddVals};
@@ -167,10 +166,8 @@ impl<K: Data + Eq + Hash, V: Data, C: Data> Rdd for ShuffledRdd<K, V, C> {
 
         let shuffle_id = self.shuffle_id;
         let split_idx = split.get_index();
-        env::Env::run_in_async_rt(|| -> Result<()> {
-            let fut = ShuffleFetcher::fetch(shuffle_id, split_idx, merge_pair);
-            Ok(futures::executor::block_on(fut)?)
-        })?;
+        let fut = ShuffleFetcher::fetch(shuffle_id, split_idx, merge_pair);
+        futures::executor::block_on(fut)?;
 
         log::debug!("time taken for fetching {}", start.elapsed().as_millis());
 

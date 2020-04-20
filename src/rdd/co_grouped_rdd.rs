@@ -10,7 +10,6 @@ use crate::dependency::{
     Dependency, NarrowDependencyTrait, OneToOneDependency, ShuffleDependency,
     ShuffleDependencyTrait,
 };
-use crate::env;
 use crate::error::Result;
 use crate::partitioner::Partitioner;
 use crate::rdd::*;
@@ -243,10 +242,8 @@ impl<K: Data + Eq + Hash> Rdd for CoGroupedRdd<K> {
                         };
 
                         let split_idx = split.get_index();
-                        env::Env::run_in_async_rt(|| -> Result<()> {
-                            let fut = ShuffleFetcher::fetch(shuffle_id, split_idx, merge_pair);
-                            Ok(futures::executor::block_on(fut)?)
-                        })?;
+                        let fut = ShuffleFetcher::fetch(shuffle_id, split_idx, merge_pair);
+                        futures::executor::block_on(fut)?;
                     }
                 }
             }

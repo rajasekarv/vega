@@ -71,19 +71,27 @@ impl Env {
     }
 
     fn new() -> Self {
-        let conf = Configuration::get();
-        let master_addr = Hosts::get().unwrap().master;
-        Env {
-            map_output_tracker: MapOutputTracker::new(conf.is_driver, master_addr),
-            shuffle_manager: ShuffleManager::new().unwrap(),
-            shuffle_fetcher: ShuffleFetcher,
-            cache_tracker: CacheTracker::new(
-                conf.is_driver,
-                master_addr,
-                conf.local_ip,
-                &BOUNDED_MEM_CACHE,
-            ),
-        }
+        Env::run_in_async_rt(|| -> Self {
+            let conf = Configuration::get();
+            let master_addr = Hosts::get()
+                .expect("fatal error: failed loading host file")
+                .master;
+            let map_output_tracker = MapOutputTracker::new(conf.is_driver, master_addr);
+            let shuffle_manager =
+                ShuffleManager::new().expect("fatal error: failed creating shuffle manager");
+            Env {
+                map_output_tracker,
+                shuffle_manager,
+                shuffle_fetcher: ShuffleFetcher,
+                cache_tracker: CacheTracker::new(
+                    conf.is_driver,
+                    master_addr,
+                    conf.local_ip,
+                    &BOUNDED_MEM_CACHE,
+                )
+                .expect("fatal error: failed creating cache tracker"),
+            }
+        })
     }
 }
 

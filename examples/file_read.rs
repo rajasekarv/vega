@@ -1,8 +1,6 @@
-#![allow(where_clauses_object_safety, clippy::single_component_path_imports)]
 use chrono::prelude::*;
 use native_spark::io::*;
 use native_spark::*;
-use serde_closure::Fn;
 
 fn main() -> Result<()> {
     let context = Context::new()?;
