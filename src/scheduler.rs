@@ -547,27 +547,19 @@ macro_rules! impl_common_scheduler_funcs {
             self.shuffle_to_map_stage.get(&id).unwrap().clone()
         }
 
-
         fn unregister_map_output(&self, shuffle_id: usize, map_id: usize, server_uri: String) {
-            self.map_output_tracker.unregister_map_output(
-                shuffle_id,
-                map_id,
-                server_uri
-            )
+            self.map_output_tracker
+                .unregister_map_output(shuffle_id, map_id, server_uri)
         }
 
         fn register_shuffle(&self, shuffle_id: usize, num_maps: usize) {
-            self.map_output_tracker.register_shuffle(
-                shuffle_id,
-                num_maps
-            )
+            self.map_output_tracker
+                .register_shuffle(shuffle_id, num_maps)
         }
 
         fn register_map_outputs(&self, shuffle_id: usize, locs: Vec<Option<String>>) {
-            self.map_output_tracker.register_map_outputs(
-                shuffle_id,
-                locs
-            )
+            self.map_output_tracker
+                .register_map_outputs(shuffle_id, locs)
         }
 
         fn remove_output_loc_from_stage(&self, shuffle_id: usize, map_id: usize, server_uri: &str) {
@@ -602,6 +594,5 @@ macro_rules! impl_common_scheduler_funcs {
         fn get_next_task_id(&self) -> usize {
             self.next_task_id.fetch_add(1, Ordering::SeqCst)
         }
-
     };
 }

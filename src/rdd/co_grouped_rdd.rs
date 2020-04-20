@@ -92,8 +92,6 @@ impl<K: Data + Eq + Hash> CoGroupedRdd<K> {
             b1
         }
         let merge_combiners = Box::new(Fn!(|(b1, b2)| merge_combiners(b1, b2)));
-        trait AnyDataWithEq: AnyData + PartialEq {}
-        impl<T: AnyData + PartialEq> AnyDataWithEq for T {}
         let aggr = Arc::new(
             Aggregator::<K, Box<dyn AnyData>, Vec<Box<dyn AnyData>>>::new(
                 create_combiner,
