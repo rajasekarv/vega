@@ -177,8 +177,9 @@ impl<T: Data> LocalFsReader<T> {
                     k = size;
                 }
                 // compute the necessary statistics
-                ex += (size - k) as f32;
-                ex2 += (size - k) as f32 * (size - k) as f32;
+                let remain = size as f32 - k as f32;
+                ex += remain;
+                ex2 += remain.powf(2.0);
                 total_size += size;
                 total_files += 1;
 
@@ -186,8 +187,12 @@ impl<T: Data> LocalFsReader<T> {
             }
         }
 
+        if total_files == 0 {
+            return Err(Error::NoFilesFound);
+        }
+
         let file_size_mean = (total_size / total_files) as u64;
-        let std_dev = ((ex2 - (ex * ex) / total_files as f32) / total_files as f32).sqrt();
+        let std_dev = ((ex2 - ex.powf(2.0) / total_files as f32) / total_files as f32).sqrt();
 
         if total_files < num_partitions {
             // Coerce the number of partitions to the number of files
