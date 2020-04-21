@@ -838,6 +838,13 @@ pub trait Rdd: RddBase + 'static {
         })))
         .group_by_key_using_partitioner(partitioner)
     }
+    
+    fn is_empty(&self) -> bool
+    where
+        Self: Sized,
+    {
+        self.number_of_splits() == 0 || self.take(1).unwrap().len() == 0
+    }
 }
 
 pub trait Reduce<T> {

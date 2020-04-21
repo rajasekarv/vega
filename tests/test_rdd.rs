@@ -518,3 +518,13 @@ fn test_range() {
     let expected: Vec<_> = (1..=12).collect();
     assert_eq!(res, expected);
 }
+
+#[test]
+fn test_is_empty() {
+
+    let sc = CONTEXT.clone();
+    let v: Vec<usize> = Vec::new();
+    let rdd = sc.parallelize(v, 1);
+
+    assert_eq!(rdd.is_empty(), true);
+}
