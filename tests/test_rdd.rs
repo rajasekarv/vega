@@ -518,3 +518,25 @@ fn test_range() {
     let expected: Vec<_> = (1..=12).collect();
     assert_eq!(res, expected);
 }
+
+#[test]
+fn test_is_empty() {
+
+    let sc = CONTEXT.clone();
+    let v: Vec<usize> = Vec::new();
+    let rdd = sc.parallelize(v, 1);
+
+    assert_eq!(rdd.is_empty(), true);
+}
+
+#[test]
+fn test_max_min() {
+    let sc = CONTEXT.clone();
+
+    let col1 = vec![13, 28, 3, 4, 51, 103, 12, 113, 19];
+
+    let rdd = sc.parallelize(col1, 2);
+
+    assert_eq!(rdd.max().unwrap().unwrap(), 113);
+    assert_eq!(rdd.min().unwrap().unwrap(), 3);
+}

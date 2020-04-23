@@ -838,7 +838,35 @@ pub trait Rdd: RddBase + 'static {
         })))
         .group_by_key_using_partitioner(partitioner)
     }
+    
+    fn is_empty(&self) -> bool
+    where
+        Self: Sized,
+    {
+        self.number_of_splits() == 0 || self.take(1).unwrap().len() == 0
+    }
+
+
+    fn max(&self) -> Result<Option<Self::Item>>
+    where
+        Self: Sized,
+        Self::Item: Data + Ord,
+    {
+        let max_fn = Fn!(|x: Self::Item, y: Self::Item| x.max(y));
+
+        self.reduce(max_fn)
+    }
+
+    fn min(&self) -> Result<Option<Self::Item>>
+    where
+        Self: Sized,
+        Self::Item: Data + Ord,
+    {
+        let min_fn = Fn!(|x: Self::Item, y: Self::Item| x.min(y));
+        self.reduce(min_fn)
+    }
 }
+
 
 pub trait Reduce<T> {
     fn reduce<F>(self, f: F) -> Option<T>
@@ -860,3 +888,4 @@ where
         self.next().map(|first| self.fold(first, f))
     }
 }
+
