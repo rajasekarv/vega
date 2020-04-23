@@ -83,6 +83,19 @@ fn test_basic_operations() -> Result<()> {
     Ok(())
 }
 
+
+#[test]
+fn test_filter() {
+    let sc = CONTEXT.clone();
+    let col1 = vec![13, 28, 3, 4, 51, 103, 12, 113, 19];
+
+    let rdd = sc.parallelize(col1, 2);
+
+    let predicate = Fn!(|&i: &usize| i > 100);
+
+    assert_eq!(rdd.filter(predicate).collect().unwrap(), vec![103, 113]);
+}
+
 #[test]
 fn test_map_partitions() -> Result<()> {
     let sc = CONTEXT.clone();
@@ -539,17 +552,4 @@ fn test_max_min() {
 
     assert_eq!(rdd.max().unwrap().unwrap(), 113);
     assert_eq!(rdd.min().unwrap().unwrap(), 3);
-}
-
-#[test]
-fn test_filter() {
-    let sc = CONTEXT.clone();
-
-    let col1 = vec![13, 28, 3, 4, 51, 103, 12, 113, 19];
-
-    let rdd = sc.parallelize(col1, 2);
-
-    let ff = Fn!(|i: i32| i >= 100);
-
-    assert_eq!(rdd.filter(ff).collect().unwrap(), vec![103, 113]);
 }
