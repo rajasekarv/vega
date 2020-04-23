@@ -77,6 +77,9 @@ pub enum Error {
         path: PathBuf,
     },
 
+    #[error(transparent)]
+    PartialJobError(#[from] crate::partial::PartialJobError),
+
     #[error("failed to convert {} to a String", .0.display())]
     PathToString(PathBuf),
 

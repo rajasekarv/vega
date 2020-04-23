@@ -82,19 +82,6 @@ impl LocalScheduler {
         }
     }
 
-    /*
-    def runApproximateJob = {
-
-      val listener = new ApproximateActionListener(rdd, func, evaluator, timeout)
-      val func2 = func.asInstanceOf[(TaskContext, Iterator[_]) => _]
-      eventProcessLoop.post(JobSubmitted(
-        jobId, rdd, func2, rdd.partitions.indices.toArray, callSite, listener,
-        Utils.cloneProperties(properties)))
-      listener.awaitResult()    // Will throw an exception if the job fails
-
-    }
-    */
-
     /// Run an approximate job on the given RDD and pass all the results to an ApproximateEvaluator
     /// as they arrive. Returns a partial result object from the evaluator.
     pub fn run_approximate_job<T: Data, U: Data, R, F, E>(
@@ -117,8 +104,12 @@ impl LocalScheduler {
                     // Return immediately if the job is running 0 tasks
                     return Ok(vec![]);
                 }
-                let listener = ApproximateActionListener::new(evaluator);
-                Err(Error::Other)
+                //   eventProcessLoop.post(JobSubmitted(
+                //     jobId, rdd, func2, rdd.partitions.indices.toArray, callSite, listener,
+                //     Utils.cloneProperties(properties)))
+                let mut listener = ApproximateActionListener::new(evaluator, timeout);
+                listener.get_result().await;
+                todo!()
             })
         })
     }

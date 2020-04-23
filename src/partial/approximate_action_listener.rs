@@ -1,6 +1,9 @@
 use std::marker::PhantomData;
+use std::time::{Duration, Instant};
 
+use crate::job_listener::JobListener;
 use crate::partial::*;
+use crate::{Error, Result};
 
 /// A JobListener for an approximate single-result action, such as count() or non-parallel reduce().
 /// This listener waits up to timeout milliseconds and will return a partial answer even if the
@@ -14,78 +17,75 @@ where
     E: ApproximateEvaluator<U, R>,
 {
     evaluator: E,
-    _marker_u: PhantomData<U>,
+    start_time: Instant,
+    timeout: Duration,
+    failure: Option<Error>,
+    total_tasks: usize,
+    finished_tasks: usize,
+    /// Set if we've already returned a PartialResult
+    result_object: Option<PartialResult<R>>,
     _marker_r: PhantomData<R>,
+    _marker_u: PhantomData<U>,
 }
 
-impl<E, U, R> ApproximateActionListener<U, R, E>
+impl<E, U: std::fmt::Debug, R> ApproximateActionListener<U, R, E>
 where
-    E: ApproximateEvaluator<U, R> + Sized,
+    E: ApproximateEvaluator<U, R>,
 {
-    pub fn new(evaluator: E) -> Self {
+    pub fn new(evaluator: E, timeout: Duration) -> Self {
         ApproximateActionListener {
             evaluator,
+            start_time: Instant::now(),
+            timeout,
+            /// Set if the job has failed (permanently)
+            failure: None,
+            total_tasks: 0,
+            finished_tasks: 0,
+            result_object: None,
             _marker_r: PhantomData,
             _marker_u: PhantomData,
         }
     }
+
+    /// Waits for up to timeout milliseconds since the listener was created and then returns a
+    /// PartialResult with the result so far. This may be complete if the whole job is done.
+    pub async fn get_result(&mut self) -> Result<PartialResult<R>> {
+        let finish_time = self.start_time + self.timeout;
+        while Instant::now() < finish_time {
+            if self.failure.is_some() {
+                return Err(self.failure.take().unwrap());
+            } else if self.finished_tasks >= self.total_tasks {
+                return Ok(PartialResult::new(self.evaluator.current_result(), true));
+            }
+        }
+        // Ran out of time before full completion, return partial job
+        let result = PartialResult::new(self.evaluator.current_result(), false);
+        // TODO: self.result_object = result.clone();
+        Ok(result)
+    }
 }
 
-/*
- private[spark] class ApproximateActionListener[T, U, R](
-    rdd: RDD[T],
-    func: (TaskContext, Iterator[T]) => U,
-    evaluator: ApproximateEvaluator[U, R],
-    timeout: Long)
-  extends JobListener {
-
-  val startTime = System.currentTimeMillis()
-  val totalTasks = rdd.partitions.length
-  var finishedTasks = 0
-  var failure: Option[Exception] = None             // Set if the job has failed (permanently)
-  var resultObject: Option[PartialResult[R]] = None // Set if we've already returned a PartialResult
-
-  override def taskSucceeded(index: Int, result: Any): Unit = {
-    synchronized {
-      evaluator.merge(index, result.asInstanceOf[U])
-      finishedTasks += 1
-      if (finishedTasks == totalTasks) {
-        // If we had already returned a PartialResult, set its final value
-        resultObject.foreach(r => r.setFinalValue(evaluator.currentResult()))
-        // Notify any waiting thread that may have called awaitResult
-        this.notifyAll()
-      }
+#[async_trait::async_trait]
+impl<E, U: Send, R> JobListener<R> for ApproximateActionListener<U, R, E>
+where
+    E: ApproximateEvaluator<U, R> + Send + Sync,
+    R: Into<U> + Send,
+{
+    async fn task_succeeded(&mut self, index: usize, result: R) -> Result<()> {
+        self.evaluator.merge(index, result.into());
+        self.finished_tasks += 1;
+        if self.finished_tasks == self.total_tasks {
+            // If we had already returned a PartialResult, set its final value
+            if let Some(ref mut value) = self.result_object {
+                value
+                    .set_final_value(self.evaluator.current_result())
+                    .await?;
+            }
+        }
+        Ok(())
     }
-  }
 
-  override def jobFailed(exception: Exception): Unit = {
-    synchronized {
-      failure = Some(exception)
-      this.notifyAll()
+    async fn job_failed(&mut self, err: Error) {
+        self.failure = Some(err);
     }
-  }
-
-  /**
-   ///Waits for up to timeout milliseconds since the listener was created and then returns a
-   ///PartialResult with the result so far. This may be complete if the whole job is done.
-   */
-  def awaitResult(): PartialResult[R] = synchronized {
-    val finishTime = startTime + timeout
-    while (true) {
-      val time = System.currentTimeMillis()
-      if (failure.isDefined) {
-        throw failure.get
-      } else if (finishedTasks == totalTasks) {
-        return new PartialResult(evaluator.currentResult(), true)
-      } else if (time >= finishTime) {
-        resultObject = Some(new PartialResult(evaluator.currentResult(), false))
-        return resultObject.get
-      } else {
-        this.wait(finishTime - time)
-      }
-    }
-    // Should never be reached, but required to keep the compiler happy
-    return null
-  }
 }
-*/

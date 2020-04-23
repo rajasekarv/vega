@@ -122,7 +122,6 @@ pub struct Context {
 
 impl Drop for Context {
     fn drop(&mut self) {
-        // TODO: clean up temp files
         #[cfg(debug_assertions)]
         {
             let deployment_mode = env::Configuration::get().deployment_mode;
