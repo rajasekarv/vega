@@ -172,6 +172,21 @@ pub trait Rdd: RddBase + 'static {
         self.compute(split)
     }
 
+
+    fn filter<F>(&self, predicate: F) -> SerArc<dyn Rdd<Item = Self::Item>>
+    where
+        F: SerFunc(&Self::Item) -> bool + Copy,
+        Self: Sized,
+    {    
+        let filter_fn = Fn!(
+            move |_index: usize, items: Box<dyn Iterator<Item = Self::Item>>| 
+            -> Box<dyn Iterator<Item = _>> { 
+                Box::new(items.filter(predicate))
+            }
+        );
+        SerArc::new(MapPartitionsRdd::new(self.get_rdd(), filter_fn))
+    }
+
     fn map<U: Data, F>(&self, f: F) -> SerArc<dyn Rdd<Item = U>>
     where
         F: SerFunc(Self::Item) -> U,
