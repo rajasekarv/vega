@@ -882,10 +882,10 @@ pub trait Rdd: RddBase + 'static {
         T: Data,
         F: SerFunc(&Self::Item) -> T,
     {
-        self.map(Box::new(Fn!(move |val: Self::Item| -> (Self::Item, T) {
-            let key = (func)(&val);
-            (val, key)
-        })))
+        self.map(Fn!(move |k: Self::Item| -> (Self::Item, T) {
+            let t = (func)(&k);
+            (k, t)
+        }))
     }
     
     fn is_empty(&self) -> bool
