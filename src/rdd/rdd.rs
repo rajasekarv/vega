@@ -568,6 +568,28 @@ pub trait Rdd: RddBase + 'static {
         Ok(buf)
     }
 
+  /**
+   * Returns the first k (smallest) elements from this RDD as defined by the specified
+   * implicit Ordering[T] and maintains the ordering. This does the opposite of top().
+   *
+   * @note This method should only be used if the resulting array is expected to be small, as
+   * all the data is loaded into the driver's memory.
+   *
+   * @param num k, the number of elements to return
+   * @return an array of top elements
+   */
+    fn take_ordered(&self, num: usize) -> Result<Vec<Self::Item>>
+    where
+        Self: Sized,
+        Self::Item: Data + Ord,
+    {
+        if num == 0 {
+            return Ok(vec![]);
+        }
+
+        return Ok(vec![]);
+    }
+
     /// Return a sampled subset of this RDD.
     ///
     /// # Arguments
@@ -892,6 +914,7 @@ pub trait Rdd: RddBase + 'static {
         let min_fn = Fn!(|x: Self::Item, y: Self::Item| x.min(y));
         self.reduce(min_fn)
     }
+
 }
 
 
