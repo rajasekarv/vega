@@ -853,6 +853,18 @@ pub trait Rdd: RddBase + 'static {
         })))
         .group_by_key_using_partitioner(partitioner)
     }
+
+    fn key_by<T, F>(&self, func: F) -> SerArc<dyn Rdd<Item = (Self::Item, T)>>
+    where
+        Self: Sized,
+        T: Data,
+        F: SerFunc(&Self::Item) -> T,
+    {
+        self.map(Box::new(Fn!(move |val: Self::Item| -> (Self::Item, T) {
+            let key = (func)(&val);
+            (val, key)
+        })))
+    }
     
     fn is_empty(&self) -> bool
     where

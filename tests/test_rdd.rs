@@ -553,3 +553,15 @@ fn test_max_min() {
     assert_eq!(rdd.max().unwrap().unwrap(), 113);
     assert_eq!(rdd.min().unwrap().unwrap(), 3);
 }
+
+#[test]
+fn test_key_by() {
+    let sc = CONTEXT.clone();
+
+    let col1 = vec![3, 4, 5];
+    let rdd = sc.parallelize(col1, 2);
+
+    let res = rdd.key_by(Fn!(|&i: &usize| i * 10)).collect().unwrap();
+
+    assert_eq!(res, vec![(3, 30), (4, 40), (5, 50)]);
+}
