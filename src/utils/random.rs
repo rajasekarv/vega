@@ -148,17 +148,21 @@ impl<T: Data> RandomSampler<T> for BernoulliSampler {
     }
 }
 
+/// A sampler based on Bernoulli trials for partitioning a data sequence.
 #[derive(Clone, Serialize, Deserialize)]
 pub(crate) struct BernoulliCellSampler {
+    /// lower bound of the acceptance range
     lb: f64,
+    /// upper bound of the acceptance range
     ub: f64,
+    /// whether to use the complement of the range specified, default to false
     complement: bool,
 }
 
 impl BernoulliCellSampler {
     pub fn new(lb: f64, ub: f64, complement: bool) -> BernoulliCellSampler {
 
-        /// epsilon slop to avoid failure from floating point jitter.
+        // epsilon slop to avoid failure from floating point jitter.
         assert!(
             lb <= (ub + ROUNDING_EPSILON),
             format!("Lower bound {} must be <= upper bound {}", lb, ub)
@@ -194,7 +198,6 @@ impl BernoulliCellSampler {
     }
 }
 
-/// Same as BernoulliCellSampler
 impl<T: Data> RandomSampler<T> for BernoulliCellSampler {
     /// Take a random sample
     fn get_sampler(&self) -> RSamplerFunc<T> {
