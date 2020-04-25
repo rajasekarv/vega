@@ -4,8 +4,8 @@ use std::time::{Duration, Instant};
 
 use crate::env;
 use crate::error::{Error, NetworkError, Result};
+use crate::scheduler::TaskOption;
 use crate::serialized_data_capnp::serialized_data;
-use crate::task::TaskOption;
 use capnp::{
     message::{Builder as MsgBuilder, HeapAllocator, Reader as CpnpReader, ReaderOptions},
     serialize::OwnedSegments,
@@ -227,7 +227,7 @@ mod tests {
     #![allow(unused_must_use)]
 
     use super::*;
-    use crate::task::{TaskContext, TaskResult};
+    use crate::scheduler::{TaskContext, TaskResult};
     use crate::utils::{get_dynamic_port, test_utils::create_test_task};
     use crate::Fn;
     use crossbeam::channel::{unbounded, Receiver, Sender};

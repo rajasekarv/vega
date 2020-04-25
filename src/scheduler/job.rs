@@ -5,10 +5,8 @@ use std::marker::PhantomData;
 use std::option::Option;
 use std::sync::Arc;
 
-use crate::scheduler::NativeScheduler;
+use crate::scheduler::{NativeScheduler, Stage, TaskBase, TaskContext};
 use crate::serializable_traits::{Data, SerFunc};
-use crate::stage::Stage;
-use crate::task::{TaskBase, TaskContext};
 use crate::{Rdd, Result};
 use parking_lot::Mutex;
 

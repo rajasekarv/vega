@@ -1,8 +1,9 @@
+use std::fmt::Debug;
 use std::marker::PhantomData;
 use std::time::{Duration, Instant};
 
-use crate::job_listener::JobListener;
 use crate::partial::*;
+use crate::scheduler::JobListener;
 use crate::{Error, Result};
 
 /// A JobListener for an approximate single-result action, such as count() or non-parallel reduce().
@@ -15,7 +16,7 @@ use crate::{Error, Result};
 pub(crate) struct ApproximateActionListener<U, R, E>
 where
     E: ApproximateEvaluator<U, R>,
-    R: Clone + Send + Sync + 'static,
+    R: Clone + Debug + Send + Sync + 'static,
 {
     evaluator: E,
     start_time: Instant,
@@ -29,10 +30,10 @@ where
     _marker_u: PhantomData<U>,
 }
 
-impl<E, U: std::fmt::Debug, R> ApproximateActionListener<U, R, E>
+impl<E, U: Debug, R> ApproximateActionListener<U, R, E>
 where
     E: ApproximateEvaluator<U, R>,
-    R: Clone + Send + Sync + 'static,
+    R: Clone + Debug + Send + Sync + 'static,
 {
     pub fn new(evaluator: E, timeout: Duration) -> Self {
         ApproximateActionListener {
@@ -71,7 +72,7 @@ where
 impl<E, U: Send, R> JobListener<R> for ApproximateActionListener<U, R, E>
 where
     E: ApproximateEvaluator<U, R> + Send + Sync,
-    R: Into<U> + Clone + Send + Sync + 'static,
+    R: Into<U> + Clone + Debug + Send + Sync + 'static,
 {
     async fn task_succeeded(&mut self, index: usize, result: R) -> Result<()> {
         self.evaluator.merge(index, result.into());

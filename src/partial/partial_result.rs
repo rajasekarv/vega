@@ -1,3 +1,4 @@
+use std::fmt::Debug;
 use std::sync::Arc;
 
 use crate::partial::PartialJobError;
@@ -16,7 +17,7 @@ type OnFail<R> = Arc<
 #[derive(Clone)]
 pub(crate) struct PartialResult<R>
 where
-    R: Clone,
+    R: Clone + Debug,
 {
     final_value: Arc<Mutex<Option<R>>>,
     failure: Arc<Mutex<Option<Error>>>,
@@ -41,7 +42,7 @@ fn _internal_on_complete<R>(
     handler: Box<dyn Fn(R) + Send + Sync>,
 ) -> Result<Arc<PartialResult<R>>>
 where
-    R: Clone + Send + Sync + 'static,
+    R: Clone + Debug + Send + Sync + 'static,
 {
     {
         let mut completion_handler = this.completion_handler.lock();
@@ -59,7 +60,7 @@ where
 
 impl<R> PartialResult<R>
 where
-    R: Clone + Send + Sync + 'static,
+    R: Clone + Debug + Send + Sync + 'static,
 {
     pub fn new(initial_value: R, is_final: bool) -> PartialResult<R> {
         let get_final_value = Arc::new(|this: Arc<PartialResult<R>>| -> Result<R> {
@@ -130,7 +131,7 @@ where
     /// Transform this PartialResult into a PartialResult of type T.
     pub fn map<T>(self: Arc<Self>) -> Result<PartialResult<T>>
     where
-        T: From<R> + Send + Sync + Clone + 'static,
+        T: From<R> + Debug + Send + Sync + Clone + 'static,
     {
         let initial_value = self.initial_value.clone().into();
         let mut new_partial_res: PartialResult<T> =
@@ -184,12 +185,18 @@ where
     }
 }
 
-impl<R: Clone> std::fmt::Display for PartialResult<R> {
+impl<R> Debug for PartialResult<R>
+where
+    R: Clone + Debug,
+{
     fn fmt(&self, fmt: &mut std::fmt::Formatter) -> std::fmt::Result {
-        // finalValue match {
-        //   case Some(value) => "(final: " + value + ")"
-        //   case None => "(partial: " + initialValue + ")"
-        // }
-        todo!()
+        match *self.final_value.lock() {
+            Some(ref value) => write!(fmt, "PartialResult {{ final: {:?} }})", value),
+            None => write!(
+                fmt,
+                "PartialResult {{ partial: {:?} }})",
+                self.initial_value
+            ),
+        }
     }
 }

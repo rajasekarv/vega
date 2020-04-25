@@ -1,7 +1,7 @@
 use std::cmp::Ordering;
 use std::net::Ipv4Addr;
 
-use crate::result_task::ResultTask;
+use crate::scheduler::ResultTask;
 use crate::serializable_traits::{Data, SerFunc};
 use crate::shuffle::ShuffleMapTask;
 use crate::SerBox;

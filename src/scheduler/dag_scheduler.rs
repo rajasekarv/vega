@@ -1,5 +1,4 @@
-use crate::scheduler::Scheduler;
-use crate::task::TaskBase;
+use crate::scheduler::{Scheduler, TaskBase};
 use std::any::Any;
 use std::collections::HashMap;
 use std::error::Error;

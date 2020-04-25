@@ -1,3 +1,8 @@
+/// Asynchronously passes SparkListenerEvents to registered SparkListeners.
+///
+/// Until `start()` is called, all posted events are only buffered. Only after this listener bus
+/// has started will events be actually propagated to all attached listeners. This listener bus
+/// is stopped when `stop()` is called, and it will drop further events after stopping.
 struct LiveListenerBus {}
 
 impl LiveListenerBus {
@@ -8,13 +13,6 @@ impl LiveListenerBus {
 
 /*
 
-/**
- * Asynchronously passes SparkListenerEvents to registered SparkListeners.
- *
- * Until `start()` is called, all posted events are only buffered. Only after this listener bus
- * has started will events be actually propagated to all attached listeners. This listener bus
- * is stopped when `stop()` is called, and it will drop further events after stopping.
- */
 private[spark] class LiveListenerBus(conf: SparkConf) {
 
   import LiveListenerBus._

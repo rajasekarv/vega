@@ -1,3 +1,4 @@
+use std::fmt::Debug;
 use std::fs;
 use std::io::Write;
 use std::net::{Ipv4Addr, SocketAddrV4, TcpStream};
@@ -10,17 +11,14 @@ use std::sync::{
 };
 use std::time::{Duration, Instant};
 
-use crate::distributed_scheduler::DistributedScheduler;
 use crate::error::{Error, Result};
 use crate::executor::{Executor, Signal};
 use crate::io::ReaderConfiguration;
-use crate::local_scheduler::LocalScheduler;
 use crate::partial::ApproximateEvaluator;
 use crate::rdd::{ParallelCollection, Rdd, RddBase, UnionRdd};
-use crate::scheduler::NativeScheduler;
+use crate::scheduler::{DistributedScheduler, LocalScheduler, NativeScheduler, TaskContext};
 use crate::serializable_traits::{Data, SerFunc};
 use crate::serialized_data_capnp::serialized_data;
-use crate::task::TaskContext;
 use crate::{env, hosts, utils, Fn, SerArc};
 use log::error;
 use once_cell::sync::OnceCell;
@@ -89,7 +87,7 @@ impl Schedulers {
     where
         F: SerFunc((TaskContext, Box<dyn Iterator<Item = T>>)) -> U,
         E: ApproximateEvaluator<U, R>,
-        R: Clone + Send + Sync + 'static,
+        R: Clone + Debug + Send + Sync + 'static,
     {
         let start = Instant::now();
         log::info!("starting job");
@@ -506,7 +504,7 @@ impl Context {
     where
         F: SerFunc((TaskContext, Box<dyn Iterator<Item = T>>)) -> U,
         E: ApproximateEvaluator<U, R>,
-        R: Clone + Send + Sync + 'static,
+        R: Clone + Debug + Send + Sync + 'static,
     {
         self.scheduler
             .run_approximate_job(Arc::new(func), rdd, evaluator, timeout)

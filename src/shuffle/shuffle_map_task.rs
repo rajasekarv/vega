@@ -5,8 +5,8 @@ use std::sync::Arc;
 use crate::dependency::ShuffleDependencyTrait;
 use crate::env;
 use crate::rdd::RddBase;
+use crate::scheduler::{Task, TaskBase};
 use crate::shuffle::*;
-use crate::task::{Task, TaskBase};
 use serde_derive::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize, Clone)]
