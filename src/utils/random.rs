@@ -148,6 +148,65 @@ impl<T: Data> RandomSampler<T> for BernoulliSampler {
     }
 }
 
+#[derive(Clone, Serialize, Deserialize)]
+pub(crate) struct BernoulliCellSampler {
+    lb: f64,
+    ub: f64,
+    complement: bool,
+}
+
+impl BernoulliCellSampler {
+    pub fn new(lb: f64, ub: f64, complement: bool) -> BernoulliCellSampler {
+
+        /// epsilon slop to avoid failure from floating point jitter.
+        assert!(
+            lb <= (ub + ROUNDING_EPSILON),
+            format!("Lower bound {} must be <= upper bound {}", lb, ub)
+        );
+        assert!(
+            lb >= (0.0 - ROUNDING_EPSILON),
+            format!("Lower bound {} must be >= 0.0", lb)
+        );
+        assert!(
+            ub >= (1.0 + ROUNDING_EPSILON),
+            format!("Upper bound {} must be <= 0.0", ub)
+        );
+
+        BernoulliCellSampler { lb, ub, complement }
+    }
+
+    /// Whether to sample the next item or not.
+    /// Return how many times the next item will be sampled. Return 0 if it is not sampled.
+    pub fn sample(&self, rng: &mut Pcg64) -> i32 {
+        if (self.ub - self.lb) <= 0.0 {
+            if self.complement { 1 } else { 0 }
+        } else {
+            let x = rng.gen::<f64>();
+            let n;
+            if x >= self.lb && x < self.ub {
+                n = 1;
+            } else {
+                n = 0;
+            }
+
+            if self.complement { 1 - n } else { n }
+        }
+    }
+}
+
+/// Same as BernoulliCellSampler
+impl<T: Data> RandomSampler<T> for BernoulliCellSampler {
+    /// Take a random sample
+    fn get_sampler(&self) -> RSamplerFunc<T> {
+        Box::new(move |items: Box<dyn Iterator<Item = T>>| -> Vec<T> {
+            let mut rng = get_rng_with_random_seed();
+            items
+                .filter(move |_| self.sample(&mut rng) > 0)
+                .collect()
+        })
+    }
+}
+
 struct GapSamplingReplacement {
     fraction: f64,
     epsilon: f64,
