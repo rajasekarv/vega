@@ -572,14 +572,29 @@ fn test_random_split() {
 
     let rdd = sc.range(1, 600, 1, 3);
 
-    let rdds = rdd.random_split(vec![1.0, 2.0, 3.0], None);
+    let rdds: Vec<Vec<u64>> = rdd
+        .random_split(vec![1.0, 2.0, 3.0], None)
+        .iter()
+        .map(|rdd| rdd.collect().unwrap())
+        .collect();
+    let rdd_lengths: Vec<i64> = rdds.iter().map(|v| v.len() as i64).collect();
 
+    // Total number of splited RDDs should be 3
     assert_eq!(rdds.len(), 3);
 
-    let rdd_lengths: Vec<usize> = rdds.iter().map(|rdd| rdd.collect().unwrap().len()).collect();
+    // Sum of of elements in each and every splited RDDs shall be equal to
+    // the sum of the original RDD.
+    assert_eq!(rdd_lengths.iter().sum::<i64>(), 600);
+
     dbg!(rdd_lengths.clone());
 
+    // The count of elements for each elements shall match its assigned weight.
     assert!((rdd_lengths[0] as i64 - 100).abs() < 50);
     assert!((rdd_lengths[1] as i64 - 200).abs() < 50);
     assert!((rdd_lengths[2] as i64 - 300).abs() < 50);
+
+    // The splitted RDDs shall be disjoint sets
+    assert!(rdds[1].iter().all(|i| !rdds[2].contains(i)));
+    assert!(rdds[1].iter().all(|i| !rdds[3].contains(i)));
+    assert!(rdds[2].iter().all(|i| !rdds[3].contains(i)));
 }
