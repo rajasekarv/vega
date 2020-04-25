@@ -3,7 +3,7 @@ use std::fmt::{Display, Error as FmtError, Formatter};
 
 use crate::StdResult;
 
-#[derive(Debug)]
+#[derive(Clone, Debug, Copy)]
 pub struct BoundedDouble {
     mean: f64,
     confidence: f64,

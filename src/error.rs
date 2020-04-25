@@ -62,6 +62,9 @@ pub enum Error {
     #[error("network error")]
     NetworkError(#[from] NetworkError),
 
+    #[error("unwrapped a non-unique shared reference")]
+    NotUniqueSharedRef,
+
     #[error("failed to determine the home directory")]
     NoHome,
 

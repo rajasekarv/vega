@@ -1,122 +1,190 @@
+use std::sync::Arc;
+
 use crate::partial::PartialJobError;
 use crate::{Error, Result};
+use parking_lot::Mutex;
 
-pub(crate) struct PartialResult<R> {
-    final_value: Option<R>,
-    failure: Option<Error>,
-    completion_handler: Option<Box<dyn Fn(&R) + Send>>,
-    failure_handler: Option<Box<dyn Fn(Error) + Send>>,
-    pub initial_value: R,
+type OnComplete<R> = Arc<
+    dyn Fn(Arc<PartialResult<R>>, Box<dyn Fn(R) + Send + Sync>) -> Result<Arc<PartialResult<R>>>
+        + Send
+        + Sync,
+>;
+type OnFail<R> = Arc<
+    dyn Fn(Arc<PartialResult<R>>, Box<dyn Fn(&Error) + Send + Sync>) -> Result<()> + Send + Sync,
+>;
+
+#[derive(Clone)]
+pub(crate) struct PartialResult<R>
+where
+    R: Clone,
+{
+    final_value: Arc<Mutex<Option<R>>>,
+    failure: Arc<Mutex<Option<Error>>>,
+    completion_handler: Arc<Mutex<Option<Box<dyn Fn(R) + Send + Sync>>>>,
+    failure_handler: Arc<Mutex<Option<Box<dyn Fn(&Error) + Send + Sync>>>>,
+    initial_value: R,
     pub is_final: bool,
+    // funcs:
+    /// Blocking method to wait for and return the final value.
+    get_final_value: Arc<dyn Fn(Arc<PartialResult<R>>) -> Result<R> + Send + Sync>,
+    /// Set a handler to be called when this PartialResult completes. Only one completion handler
+    /// is supported per PartialResult.
+    on_complete: OnComplete<R>,
+    /// Set a handler to be called if this PartialResult's job fails. Only one failure handler
+    /// is supported per PartialResult
+    on_fail: OnFail<R>,
 }
 
-impl<R> PartialResult<R> {
-    pub fn new(initial_value: R, is_final: bool) -> Self {
+#[inline(always)]
+fn _internal_on_complete<R>(
+    this: Arc<PartialResult<R>>,
+    handler: Box<dyn Fn(R) + Send + Sync>,
+) -> Result<Arc<PartialResult<R>>>
+where
+    R: Clone + Send + Sync + 'static,
+{
+    {
+        let mut completion_handler = this.completion_handler.lock();
+        if completion_handler.is_some() {
+            return Err(PartialJobError::SetOnCompleteTwice.into());
+        }
+        if let Some(final_value) = this.final_value.lock().take() {
+            // We already have a final value, so let's call the handler
+            handler(final_value);
+        }
+        completion_handler.replace(handler);
+    }
+    Ok(this)
+}
+
+impl<R> PartialResult<R>
+where
+    R: Clone + Send + Sync + 'static,
+{
+    pub fn new(initial_value: R, is_final: bool) -> PartialResult<R> {
+        let get_final_value = Arc::new(|this: Arc<PartialResult<R>>| -> Result<R> {
+            let final_value = &mut *this.final_value.lock();
+            let failure = &mut *this.failure.lock();
+
+            while final_value.is_none() && failure.is_none() {
+                // sleep
+            }
+            if final_value.is_some() {
+                Ok(final_value.take().ok_or_else(|| PartialJobError::None)?)
+            } else {
+                Err(failure.take().ok_or_else(|| PartialJobError::None)?)
+            }
+        });
+
+        let on_complete = Arc::new(
+            |this: Arc<PartialResult<R>>,
+             handler: Box<dyn Fn(R) + Send + Sync>|
+             -> Result<Arc<PartialResult<R>>> { _internal_on_complete(this, handler) },
+        );
+
+        let on_fail = Arc::new(
+            |this: Arc<PartialResult<R>>,
+             handler: Box<dyn Fn(&Error) + Send + Sync>|
+             -> Result<()> {
+                {
+                    let mut failure_handler = this.failure_handler.lock();
+                    if failure_handler.is_some() {
+                        return Err(PartialJobError::SetOnFailTwice.into());
+                    }
+                    if let Some(ref failure) = *this.failure.lock() {
+                        // We already have a failure, so let's call the handler
+                        handler(failure);
+                    }
+                    failure_handler.replace(handler);
+                }
+                Ok(())
+            },
+        );
+
         PartialResult {
-            final_value: None,
-            failure: None,
-            completion_handler: None,
-            failure_handler: None,
+            final_value: Arc::new(Mutex::new(None)),
+            failure: Arc::new(Mutex::new(None)),
+            completion_handler: Arc::new(Mutex::new(None)),
+            failure_handler: Arc::new(Mutex::new(None)),
             initial_value,
             is_final,
+            get_final_value,
+            on_complete,
+            on_fail,
         }
     }
 
-    pub async fn set_final_value(&mut self, value: R) -> Result<()> {
-        if self.final_value.is_some() {
+    pub fn set_final_value(&mut self, value: R) -> Result<()> {
+        let final_value = &mut *self.final_value.lock();
+        if final_value.is_some() {
             return Err(PartialJobError::SetFinalValTwice.into());
         }
         // Call the completion handler if it was set
-        if let Some(handler) = &self.completion_handler {
-            handler(&value);
+        if let Some(ref handler) = *self.completion_handler.lock() {
+            handler(value.clone());
         }
-        self.final_value = Some(value);
+        *final_value = Some(value);
         Ok(())
     }
 
-    /// Blocking method to wait for and return the final value.
-    pub async fn get_final_value(&mut self) -> Result<R> {
-        while self.final_value.is_none() && self.failure.is_none() {
-            // sleep
-        }
-        if self.final_value.is_some() {
-            Ok(self
-                .final_value
-                .take()
-                .ok_or_else(|| PartialJobError::None)?)
-        } else {
-            Err(self.failure.take().ok_or_else(|| PartialJobError::None)?)
-        }
-    }
-
-    /// Set a handler to be called when this PartialResult completes. Only one completion handler
-    /// is supported per PartialResult.
-    pub fn on_complete(&self, handler: &dyn Fn(R)) -> PartialResult<R> {
-        // if (completionHandler.isDefined) {
-        //   throw new UnsupportedOperationException("onComplete cannot be called twice")
-        // }
-        // completionHandler = Some(handler)
-        // if (finalValue.isDefined) {
-        //   // We already have a final value, so let's call the handler
-        //   handler(finalValue.get)
-        // }
-        // return this
-        todo!()
-    }
-
-    /// Set a handler to be called if this PartialResult's job fails. Only one failure handler
-    /// is supported per PartialResult.
-    pub fn on_fail(&self, handler: &dyn Fn(Error)) {
-        // if (failureHandler.isDefined) {
-        //   throw new UnsupportedOperationException("onFail cannot be called twice")
-        // }
-        // failureHandler = Some(handler)
-        // if (failure.isDefined) {
-        //   // We already have a failure, so let's call the handler
-        //   handler(failure.get)
-        // }
-        todo!()
-    }
-
     /// Transform this PartialResult into a PartialResult of type T.
-    pub fn map<T>(f: &dyn Fn(R) -> T) -> PartialResult<T> {
-        // new PartialResult[T](f(initialVal), isFinal) {
-        //    override def getFinalValue() : T = synchronized {
-        //      f(PartialResult.this.getFinalValue())
-        //    }
-        //    override def onComplete(handler: T => Unit): PartialResult[T] = synchronized {
-        //      PartialResult.this.onComplete(handler.compose(f)).map(f)
-        //    }
-        //   override def onFail(handler: Exception => Unit): Unit = {
-        //     synchronized {
-        //       PartialResult.this.onFail(handler)
-        //     }
-        //   }
-        //   override def toString : String = synchronized {
-        //     PartialResult.this.getFinalValueInternal() match {
-        //       case Some(value) => "(final: " + f(value) + ")"
-        //       case None => "(partial: " + initialValue + ")"
-        //     }
-        //   }
-        //   def getFinalValueInternal(): Option[T] = PartialResult.this.getFinalValueInternal().map(f)
-        // }
-        todo!()
+    pub fn map<T>(self: Arc<Self>) -> Result<PartialResult<T>>
+    where
+        T: From<R> + Send + Sync + Clone + 'static,
+    {
+        let initial_value = self.initial_value.clone().into();
+        let mut new_partial_res: PartialResult<T> =
+            PartialResult::new(initial_value, self.is_final);
+
+        // override the current closures
+        let sc = self.clone();
+        new_partial_res.get_final_value =
+            Arc::new(move |_this: Arc<PartialResult<T>>| -> Result<T> {
+                let ori_val = (sc.get_final_value)(sc.clone())?;
+                let transformed = ori_val.into();
+                Ok(transformed)
+            });
+
+        let sc = self.clone();
+        new_partial_res.on_fail = Arc::new(
+            move |_this: Arc<PartialResult<T>>,
+                  handler: Box<dyn Fn(&Error) + Send + Sync>|
+                  -> Result<()> {
+                (sc.on_fail)(sc.clone(), handler)?;
+                Ok(())
+            },
+        );
+
+        new_partial_res.on_complete = Arc::new(
+            move |_this: Arc<PartialResult<T>>,
+                  handler: Box<dyn Fn(T) + Send + Sync>|
+                  -> Result<Arc<PartialResult<T>>> {
+                let transformed_handler = Box::new(move |res: R| handler(res.into()));
+                let res: Arc<PartialResult<R>> =
+                    (self.on_complete)(self.clone(), transformed_handler)?;
+                Ok(Arc::new(res.map::<T>()?))
+            },
+        );
+
+        Ok(new_partial_res)
     }
 
-    pub fn set_failure(&mut self, err: Error) {
-        // if (failure.isDefined) {
-        //   throw new UnsupportedOperationException("setFailure called twice on a PartialResult")
-        // }
-        // failure = Some(exception)
+    pub fn set_failure(&mut self, err: Error) -> Result<()> {
+        let mut failure = self.failure.lock();
+        if failure.is_some() {
+            // We already have a failure, so let's call the handler
+            return Err(PartialJobError::SetFailureValTwice.into());
+        }
         // // Call the failure handler if it was set
-        // failureHandler.foreach(h => h(exception))
-        // // Notify any threads that may be calling getFinalValue()
-        // this.notifyAll()
-        todo!()
+        if let Some(ref handler) = *self.failure_handler.lock() {
+            handler(&err);
+        }
+        failure.replace(err);
+        Ok(())
     }
 }
 
-impl<R> std::fmt::Display for PartialResult<R> {
+impl<R: Clone> std::fmt::Display for PartialResult<R> {
     fn fmt(&self, fmt: &mut std::fmt::Formatter) -> std::fmt::Result {
         // finalValue match {
         //   case Some(value) => "(final: " + value + ")"

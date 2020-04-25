@@ -50,10 +50,10 @@ pub(super) fn bound(confidence: f64, sum: f64, p: f64) -> BoundedDouble {
     let dist = Poisson::new(sum * (1.0f64 - p) / p).unwrap();
 
     // Not quite symmetric; calculate interval straight from discrete distribution
-    // val low = dist.inverseCumulativeProbability((1 - confidence) / 2)
+    // FIXME: (should be) val low = dist.inverseCumulativeProbability((1 - confidence) / 2)
     let lower_range = (1.0 - confidence) / 2.0;
     let low_interval = dist.cdf(lower_range);
-    // val high = dist.inverseCumulativeProbability((1 + confidence) / 2)
+    // FIXME: (should be) val high = dist.inverseCumulativeProbability((1 + confidence) / 2)
     let higher_range = (1.0 + confidence) / 2.0;
     let high_interval = dist.cdf(higher_range);
 

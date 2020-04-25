@@ -21,7 +21,7 @@ use crate::serializable_traits::{Data, SerFunc};
 use crate::shuffle::ShuffleMapTask;
 use crate::stage::Stage;
 use crate::task::{TaskBase, TaskContext, TaskOption, TaskResult};
-use crate::{env, Error, Result};
+use crate::{env, Result};
 use dashmap::DashMap;
 use parking_lot::Mutex;
 
@@ -94,6 +94,7 @@ impl LocalScheduler {
     where
         F: SerFunc((TaskContext, Box<dyn Iterator<Item = T>>)) -> U,
         E: ApproximateEvaluator<U, R>,
+        R: Clone + Send + Sync + 'static,
     {
         let _lock = self.scheduler_lock.lock();
 

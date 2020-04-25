@@ -89,6 +89,7 @@ impl Schedulers {
     where
         F: SerFunc((TaskContext, Box<dyn Iterator<Item = T>>)) -> U,
         E: ApproximateEvaluator<U, R>,
+        R: Clone + Send + Sync + 'static,
     {
         let start = Instant::now();
         log::info!("starting job");
@@ -505,6 +506,7 @@ impl Context {
     where
         F: SerFunc((TaskContext, Box<dyn Iterator<Item = T>>)) -> U,
         E: ApproximateEvaluator<U, R>,
+        R: Clone + Send + Sync + 'static,
     {
         self.scheduler
             .run_approximate_job(Arc::new(func), rdd, evaluator, timeout)

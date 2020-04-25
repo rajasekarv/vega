@@ -15,6 +15,7 @@ use crate::{Error, Result};
 pub(crate) struct ApproximateActionListener<U, R, E>
 where
     E: ApproximateEvaluator<U, R>,
+    R: Clone + Send + Sync + 'static,
 {
     evaluator: E,
     start_time: Instant,
@@ -31,6 +32,7 @@ where
 impl<E, U: std::fmt::Debug, R> ApproximateActionListener<U, R, E>
 where
     E: ApproximateEvaluator<U, R>,
+    R: Clone + Send + Sync + 'static,
 {
     pub fn new(evaluator: E, timeout: Duration) -> Self {
         ApproximateActionListener {
@@ -69,7 +71,7 @@ where
 impl<E, U: Send, R> JobListener<R> for ApproximateActionListener<U, R, E>
 where
     E: ApproximateEvaluator<U, R> + Send + Sync,
-    R: Into<U> + Send,
+    R: Into<U> + Clone + Send + Sync + 'static,
 {
     async fn task_succeeded(&mut self, index: usize, result: R) -> Result<()> {
         self.evaluator.merge(index, result.into());
@@ -77,9 +79,7 @@ where
         if self.finished_tasks == self.total_tasks {
             // If we had already returned a PartialResult, set its final value
             if let Some(ref mut value) = self.result_object {
-                value
-                    .set_final_value(self.evaluator.current_result())
-                    .await?;
+                value.set_final_value(self.evaluator.current_result())?;
             }
         }
         Ok(())
