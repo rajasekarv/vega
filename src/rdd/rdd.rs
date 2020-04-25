@@ -172,7 +172,7 @@ pub trait Rdd: RddBase + 'static {
         self.compute(split)
     }
 
-
+    /// Return a new RDD containing only the elements that satisfy a predicate.
     fn filter<F>(&self, predicate: F) -> SerArc<dyn Rdd<Item = Self::Item>>
     where
         F: SerFunc(&Self::Item) -> bool + Copy,
@@ -876,6 +876,7 @@ pub trait Rdd: RddBase + 'static {
         .group_by_key_using_partitioner(partitioner)
     }
 
+    /// Creates tuples of the elements in this RDD by applying `f`.
     fn key_by<T, F>(&self, func: F) -> SerArc<dyn Rdd<Item = (Self::Item, T)>>
     where
         Self: Sized,
@@ -888,6 +889,8 @@ pub trait Rdd: RddBase + 'static {
         }))
     }
     
+    /// Check if the RDD contains no elements at all. Note that an RDD may be empty even when it
+    /// has at least 1 partition.
     fn is_empty(&self) -> bool
     where
         Self: Sized,
@@ -895,7 +898,7 @@ pub trait Rdd: RddBase + 'static {
         self.number_of_splits() == 0 || self.take(1).unwrap().len() == 0
     }
 
-
+    /// Returns the max element of this RDD.
     fn max(&self) -> Result<Option<Self::Item>>
     where
         Self: Sized,
@@ -906,6 +909,7 @@ pub trait Rdd: RddBase + 'static {
         self.reduce(max_fn)
     }
 
+    /// Returns the min element of this RDD.
     fn min(&self) -> Result<Option<Self::Item>>
     where
         Self: Sized,
