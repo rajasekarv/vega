@@ -13,7 +13,7 @@ use crate::partitioner::{HashPartitioner, Partitioner};
 use crate::serializable_traits::{AnyData, Data, Func, SerFunc};
 use crate::split::Split;
 use crate::task::TaskContext;
-use crate::utils::random::{BernoulliSampler, PoissonSampler, RandomSampler};
+use crate::utils::random::{BernoulliCellSampler, BernoulliSampler, PoissonSampler, RandomSampler};
 use crate::{utils, Fn, SerArc, SerBox};
 use fasthash::MetroHasher;
 use rand::{Rng, SeedableRng};
@@ -177,10 +177,10 @@ pub trait Rdd: RddBase + 'static {
     where
         F: SerFunc(&Self::Item) -> bool + Copy,
         Self: Sized,
-    {    
+    {
         let filter_fn = Fn!(
-            move |_index: usize, items: Box<dyn Iterator<Item = Self::Item>>| 
-            -> Box<dyn Iterator<Item = _>> { 
+            move |_index: usize, items: Box<dyn Iterator<Item = Self::Item>>|
+            -> Box<dyn Iterator<Item = _>> {
                 Box::new(items.filter(predicate))
             }
         );
@@ -570,7 +570,7 @@ pub trait Rdd: RddBase + 'static {
 
     /// Randomly splits this RDD with the provided weights.
     /// # Notes
-    /// The `_seed` argument is not being used in the function body because it seems unneccessary, 
+    /// The `_seed` argument is not being used in the function body because it seems unneccessary,
     /// we keep it here to remain compatibility with the original Spark API signature.
     fn random_split(
         &self,
@@ -591,11 +591,22 @@ pub trait Rdd: RddBase + 'static {
         );
 
         weights
-            .into_iter()
-            .map(|w| -> SerArc<dyn Rdd<Item = Self::Item>> {
-                let fraction = w / sum;
-                let sampler = Arc::new(BernoulliSampler::new(fraction)) as Arc<dyn RandomSampler<Self::Item>>;
-                SerArc::new(PartitionwiseSampledRdd::new(self.get_rdd(), sampler, true))
+            .iter()
+            .map(|weight| -> f64 { weight / sum })
+            .windows(2)
+            .map(|bound: Vec<f64>| -> SerArc<dyn Rdd<Item = Self::Item>> {
+                let (lb, ub) = (bound[0], bound[1]);
+                let func = Fn!(
+                    |index: usize, partition: Box<dyn Iterator<Item = Self::Item>>| -> Box<dyn Iterator<Item = _>> {
+                        let sampler = Arc::new(
+                            BernoulliCellSampler::new(lb, ub, false)
+                        ) as Arc<dyn RandomSampler<Self::Item>>;
+
+                        sampler.sample(partition)
+                    }
+                );
+
+                self.map_partitions_with_index(func)
             })
             .collect()
     }
@@ -898,7 +909,7 @@ pub trait Rdd: RddBase + 'static {
             (k, t)
         }))
     }
-    
+
     /// Check if the RDD contains no elements at all. Note that an RDD may be empty even when it
     /// has at least 1 partition.
     fn is_empty(&self) -> bool
