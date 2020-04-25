@@ -570,9 +570,16 @@ fn test_key_by() {
 fn test_random_split() {
     let sc = CONTEXT.clone();
 
-    let rdd = sc.parallelize(vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10], 2);
+    let rdd = sc.range(1, 600, 1, 3);
 
-    let rdds = rdd.random_split(vec![0.6, 0.4], None).collect();
+    let rdds = rdd.random_split(vec![1.0, 2.0, 3.0], None);
 
-    assert_eq!(rdds.len(), 2);
+    assert_eq!(rdds.len(), 3);
+
+    let rdd_lengths: Vec<usize> = rdds.iter().map(|rdd| rdd.collect().unwrap().len()).collect();
+    dbg!(rdd_lengths.clone());
+
+    assert!((rdd_lengths[0] as i64 - 100).abs() < 50);
+    assert!((rdd_lengths[1] as i64 - 200).abs() < 50);
+    assert!((rdd_lengths[2] as i64 - 300).abs() < 50);
 }
