@@ -568,26 +568,33 @@ pub trait Rdd: RddBase + 'static {
         Ok(buf)
     }
 
-  /**
-   * Returns the first k (smallest) elements from this RDD as defined by the specified
-   * implicit Ordering[T] and maintains the ordering. This does the opposite of top().
-   *
-   * @note This method should only be used if the resulting array is expected to be small, as
-   * all the data is loaded into the driver's memory.
-   *
-   * @param num k, the number of elements to return
-   * @return an array of top elements
-   */
-    fn take_ordered(&self, num: usize) -> Result<Vec<Self::Item>>
+    /// Randomly splits this RDD with the provided weights.
+    fn random_split(
+        &self,
+        weights: Vec<f64>,
+        _seed: Option<u64>, // TODO: _seed is not being used even if being passed in. Need to figure out.
+    ) -> Vec<SerArc<dyn Rdd<Item = Self::Item>>>
     where
         Self: Sized,
-        Self::Item: Data + Ord,
     {
-        if num == 0 {
-            return Ok(vec![]);
-        }
+        let sum: f64 = weights.iter().sum();
+        assert!(
+            weights.iter().all(|&x| x >= 0.0),
+            format!("Weights must be nonnegative, but got {:?}", weights)
+        );
+        assert!(
+            sum > 0.0,
+            format!("Sum of weights must be positive, but got {:?}", weights)
+        );
 
-        return Ok(vec![]);
+        weights
+            .into_iter()
+            .map(|w| -> SerArc<dyn Rdd<Item = Self::Item>> {
+                let fraction = w / sum;
+                let sampler = Arc::new(BernoulliSampler::new(fraction)) as Arc<dyn RandomSampler<Self::Item>>;
+                SerArc::new(PartitionwiseSampledRdd::new(self.get_rdd(), sampler, true))
+            })
+            .collect()
     }
 
     /// Return a sampled subset of this RDD.

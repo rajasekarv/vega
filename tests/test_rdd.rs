@@ -565,3 +565,14 @@ fn test_key_by() {
 
     assert_eq!(res, vec![(3, 30), (4, 40), (5, 50)]);
 }
+
+#[test]
+fn test_random_split() {
+    let sc = CONTEXT.clone();
+
+    let rdd = sc.parallelize(vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10], 2);
+
+    let rdds = rdd.random_split(vec![0.6, 0.4], None).collect();
+
+    assert_eq!(rdds.len(), 2);
+}
