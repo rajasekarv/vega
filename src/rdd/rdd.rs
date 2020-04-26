@@ -569,9 +569,6 @@ pub trait Rdd: RddBase + 'static {
     }
 
     /// Randomly splits this RDD with the provided weights.
-    /// # Notes
-    /// The `_seed` argument is not being used in the function body because it seems unneccessary,
-    /// we keep it here to remain compatibility with the original Spark API signature.
     fn random_split(
         &self,
         weights: Vec<f64>,
