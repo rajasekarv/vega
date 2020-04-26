@@ -590,25 +590,44 @@ pub trait Rdd: RddBase + 'static {
             format!("Sum of weights must be positive, but got {:?}", weights)
         );
 
-        weights
-            .iter()
-            .map(|weight| -> f64 { weight / sum })
-            .windows(2)
-            .map(|bound: Vec<f64>| -> SerArc<dyn Rdd<Item = Self::Item>> {
-                let (lb, ub) = (bound[0], bound[1]);
-                let func = Fn!(
-                    |index: usize, partition: Box<dyn Iterator<Item = Self::Item>>| -> Box<dyn Iterator<Item = _>> {
-                        let sampler = Arc::new(
-                            BernoulliCellSampler::new(lb, ub, false)
-                        ) as Arc<dyn RandomSampler<Self::Item>>;
+        let bounds: Vec<f64> =
+            weights
+                .into_iter()
+                .map(|weight| weight / sum)
+                .collect::<Vec<f64>>()
+                .iter()
+                .scan(0.0f64, |state, &x| {
+                    *state = *state + x;
+                    Some(*state)
+                })
+                .collect();
 
-                        sampler.sample(partition)
-                    }
-                );
+        let mut complete_bounds = vec![0.0f64];
+        complete_bounds.extend(bounds);
 
-                self.map_partitions_with_index(func)
-            })
-            .collect()
+        let mut splitted_rdds;
+
+        for bound in bounds.windows(2) {
+            let (lb, ub) = (bound[0], bound[1]);
+            let func = Fn!(
+                |
+                    index: usize,
+                    partition: Box<dyn Iterator<Item = Self::Item>>
+                | -> Box<dyn Iterator<Item = _>>
+                {
+                    let sampler = Arc::new(
+                        BernoulliCellSampler::new(lb, ub, false)
+                    ) as Arc<dyn RandomSampler<Self::Item>>;
+
+                    sampler.sample(partition)
+                }
+            );
+
+            let rdd = self.map_partitions_with_index(func);
+            splitted_rdds.append(&mut rdd);
+        }
+
+        splitted_rdds
     }
 
     /// Return a sampled subset of this RDD.
