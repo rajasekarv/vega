@@ -6,10 +6,10 @@ use crate::{Error, Result};
 /// job fails (and no further taskSucceeded events will happen).
 #[async_trait::async_trait]
 pub(crate) trait JobListener: Send + Sync {
-    async fn task_succeeded(&mut self, _index: usize, _result: &dyn AnyData) -> Result<()> {
+    async fn task_succeeded(&self, _index: usize, _result: &dyn AnyData) -> Result<()> {
         Ok(())
     }
-    async fn job_failed(&mut self, err: Error) {
+    async fn job_failed(&self, err: Error) {
         log::debug!("job failed with error: {}", err);
     }
 }

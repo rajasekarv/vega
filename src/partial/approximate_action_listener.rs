@@ -1,5 +1,6 @@
 use std::fmt::Debug;
 use std::marker::PhantomData;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
 
 use crate::partial::*;
@@ -20,12 +21,12 @@ where
     E: ApproximateEvaluator<U, R>,
     R: Clone + Debug + Send + Sync + 'static,
 {
-    pub evaluator: E,
+    pub evaluator: Mutex<E>,
     start_time: Instant,
     timeout: Duration,
     failure: Mutex<Option<Error>>,
     total_tasks: usize,
-    finished_tasks: usize,
+    finished_tasks: AtomicUsize,
     /// Set if we've already returned a PartialResult
     result_object: Mutex<Option<PartialResult<R>>>,
     _marker_r: PhantomData<R>,
@@ -39,13 +40,13 @@ where
 {
     pub fn new(evaluator: E, timeout: Duration) -> Self {
         ApproximateActionListener {
-            evaluator: evaluator,
+            evaluator: Mutex::new(evaluator),
             start_time: Instant::now(),
             timeout,
             /// Set if the job has failed (permanently)
             failure: Mutex::new(None),
             total_tasks: 0,
-            finished_tasks: 0,
+            finished_tasks: AtomicUsize::new(0),
             result_object: Mutex::new(None),
             _marker_r: PhantomData,
             _marker_u: PhantomData,
@@ -61,13 +62,16 @@ where
             let mut failure = self.failure.lock().await;
             if failure.is_some() {
                 return Err(failure.take().unwrap());
-            } else if self.finished_tasks >= self.total_tasks {
-                return Ok(PartialResult::new(self.evaluator.current_result(), true));
+            } else if self.finished_tasks.load(Ordering::SeqCst) >= self.total_tasks {
+                return Ok(PartialResult::new(
+                    self.evaluator.lock().await.current_result(),
+                    true,
+                ));
             }
             tokio::time::delay_for(partial_wait).await;
         }
         // Ran out of time before full completion, return partial job
-        let result = PartialResult::new(self.evaluator.current_result(), false);
+        let result = PartialResult::new(self.evaluator.lock().await.current_result(), false);
         let mut current_result = self.result_object.lock().await;
         *current_result = Some(result.clone());
         Ok(result)
@@ -81,24 +85,24 @@ where
     R: Clone + Debug + Send + Sync + 'static,
     U: Send + Sync + 'static,
 {
-    async fn task_succeeded(&mut self, index: usize, result: &dyn AnyData) -> Result<()> {
+    async fn task_succeeded(&self, index: usize, result: &dyn AnyData) -> Result<()> {
         let result = result.as_any().downcast_ref::<U>().ok_or_else(|| {
             Error::DowncastFailure(
                 "failed converting to generic type param @ ApproximateActionListener",
             )
         })?;
-        self.evaluator.merge(index, result);
-        self.finished_tasks += 1;
-        if self.finished_tasks == self.total_tasks {
+        self.evaluator.lock().await.merge(index, result);
+        let current_finished = self.finished_tasks.fetch_add(1, Ordering::SeqCst) + 1;
+        if current_finished == self.total_tasks {
             // If we had already returned a PartialResult, set its final value
             if let Some(ref mut value) = *self.result_object.lock().await {
-                value.set_final_value(self.evaluator.current_result())?;
+                value.set_final_value(self.evaluator.lock().await.current_result())?;
             }
         }
         Ok(())
     }
 
-    async fn job_failed(&mut self, err: Error) {
+    async fn job_failed(&self, err: Error) {
         let mut failure = self.failure.lock().await;
         *failure = Some(err);
     }

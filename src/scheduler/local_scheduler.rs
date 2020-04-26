@@ -124,13 +124,12 @@ impl LocalScheduler {
                         job_result: true,
                     }));
                     return Ok(PartialResult::new(
-                        jt.listener.evaluator.current_result(),
+                        jt.listener.evaluator.lock().await.current_result(),
                         true,
                     ));
                 }
-                let listener = jt.listener.clone();
-                tokio::spawn(self.event_process_loop(false, jt));
-                listener.get_result().await
+                tokio::spawn(self.event_process_loop(false, jt.clone()));
+                jt.listener.get_result().await
             })
         })
     }
@@ -164,7 +163,7 @@ impl LocalScheduler {
     async fn event_process_loop<T: Data, U: Data, F, L>(
         self: Arc<Self>,
         allow_local: bool,
-        jt: JobTracker<F, U, T, L>,
+        jt: Arc<JobTracker<F, U, T, L>>,
     ) -> Result<Vec<U>>
     where
         F: SerFunc((TaskContext, Box<dyn Iterator<Item = T>>)) -> U,

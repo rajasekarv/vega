@@ -22,7 +22,9 @@ pub(crate) type EventQueue = Arc<DashMap<usize, VecDeque<CompletionEvent>>>;
 #[async_trait::async_trait]
 pub(crate) trait NativeScheduler: Send + Sync {
     /// Fast path for execution. Runs the DD in the driver main thread if possible.
-    fn local_execution<T: Data, U: Data, F, L>(jt: JobTracker<F, U, T, L>) -> Result<Option<Vec<U>>>
+    fn local_execution<T: Data, U: Data, F, L>(
+        jt: Arc<JobTracker<F, U, T, L>>,
+    ) -> Result<Option<Vec<U>>>
     where
         F: SerFunc((TaskContext, Box<dyn Iterator<Item = T>>)) -> U,
         L: JobListener,
@@ -169,7 +171,7 @@ pub(crate) trait NativeScheduler: Send + Sync {
 
     async fn on_event_failure<T: Data, U: Data, F, L>(
         &self,
-        jt: JobTracker<F, U, T, L>,
+        jt: Arc<JobTracker<F, U, T, L>>,
         failed_vals: FetchFailedVals,
         stage_id: usize,
     ) where
@@ -202,7 +204,7 @@ pub(crate) trait NativeScheduler: Send + Sync {
         mut completed_event: CompletionEvent,
         results: &mut Vec<Option<U>>,
         num_finished: &mut usize,
-        jt: JobTracker<F, U, T, L>,
+        jt: Arc<JobTracker<F, U, T, L>>,
     ) -> Result<()>
     where
         F: SerFunc((TaskContext, Box<dyn Iterator<Item = T>>)) -> U,
@@ -341,7 +343,7 @@ pub(crate) trait NativeScheduler: Send + Sync {
     async fn submit_stage<T: Data, U: Data, F, L>(
         &self,
         stage: Stage,
-        jt: JobTracker<F, U, T, L>,
+        jt: Arc<JobTracker<F, U, T, L>>,
     ) -> Result<()>
     where
         F: SerFunc((TaskContext, Box<dyn Iterator<Item = T>>)) -> U,
@@ -371,7 +373,7 @@ pub(crate) trait NativeScheduler: Send + Sync {
     async fn submit_missing_tasks<T: Data, U: Data, F, L>(
         &self,
         stage: Stage,
-        jt: JobTracker<F, U, T, L>,
+        jt: Arc<JobTracker<F, U, T, L>>,
     ) -> Result<()>
     where
         F: SerFunc((TaskContext, Box<dyn Iterator<Item = T>>)) -> U,

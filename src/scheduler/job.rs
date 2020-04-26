@@ -57,12 +57,12 @@ where
     pub func: Arc<F>,
     pub final_rdd: Arc<dyn Rdd<Item = T>>,
     pub run_id: usize,
-    pub waiting: Arc<Mutex<BTreeSet<Stage>>>,
-    pub running: Arc<Mutex<BTreeSet<Stage>>>,
-    pub failed: Arc<Mutex<BTreeSet<Stage>>>,
-    pub finished: Arc<Mutex<Vec<bool>>>,
-    pub pending_tasks: Arc<Mutex<PendingTasks>>,
-    pub listener: Arc<L>,
+    pub waiting: Mutex<BTreeSet<Stage>>,
+    pub running: Mutex<BTreeSet<Stage>>,
+    pub failed: Mutex<BTreeSet<Stage>>,
+    pub finished: Mutex<Vec<bool>>,
+    pub pending_tasks: Mutex<PendingTasks>,
+    pub listener: L,
     _marker_t: PhantomData<T>,
     _marker_u: PhantomData<U>,
 }
@@ -78,7 +78,7 @@ where
         final_rdd: Arc<dyn Rdd<Item = T>>,
         output_parts: Vec<usize>,
         listener: L,
-    ) -> Result<JobTracker<F, U, T, L>>
+    ) -> Result<Arc<JobTracker<F, U, T, L>>>
     where
         S: NativeScheduler,
     {
@@ -103,50 +103,25 @@ where
         final_rdd: Arc<dyn Rdd<Item = T>>,
         output_parts: Vec<usize>,
         listener: L,
-    ) -> JobTracker<F, U, T, L> {
+    ) -> Arc<JobTracker<F, U, T, L>> {
         let finished: Vec<bool> = (0..output_parts.len()).map(|_| false).collect();
         let pending_tasks: BTreeMap<Stage, BTreeSet<Box<dyn TaskBase>>> = BTreeMap::new();
-        JobTracker {
+        Arc::new(JobTracker {
             num_output_parts: output_parts.len(),
             output_parts,
             final_stage,
             func,
             final_rdd,
             run_id,
-            waiting: Arc::new(Mutex::new(BTreeSet::new())),
-            running: Arc::new(Mutex::new(BTreeSet::new())),
-            failed: Arc::new(Mutex::new(BTreeSet::new())),
-            finished: Arc::new(Mutex::new(finished)),
-            pending_tasks: Arc::new(Mutex::new(pending_tasks)),
-            listener: Arc::new(listener),
+            waiting: Mutex::new(BTreeSet::new()),
+            running: Mutex::new(BTreeSet::new()),
+            failed: Mutex::new(BTreeSet::new()),
+            finished: Mutex::new(finished),
+            pending_tasks: Mutex::new(pending_tasks),
+            listener: listener,
             _marker_t: PhantomData,
             _marker_u: PhantomData,
-        }
-    }
-}
-
-impl<F, U: Data, T: Data, L> Clone for JobTracker<F, U, T, L>
-where
-    F: SerFunc((TaskContext, Box<dyn Iterator<Item = T>>)) -> U,
-    L: JobListener,
-{
-    fn clone(&self) -> Self {
-        JobTracker {
-            output_parts: self.output_parts.clone(),
-            num_output_parts: self.num_output_parts,
-            final_stage: self.final_stage.clone(),
-            func: self.func.clone(),
-            final_rdd: self.final_rdd.clone(),
-            run_id: self.run_id,
-            waiting: self.waiting.clone(),
-            running: self.running.clone(),
-            failed: self.running.clone(),
-            finished: self.finished.clone(),
-            pending_tasks: self.pending_tasks.clone(),
-            listener: self.listener.clone(),
-            _marker_t: PhantomData,
-            _marker_u: PhantomData,
-        }
+        })
     }
 }
 
