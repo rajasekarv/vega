@@ -14,7 +14,7 @@ use std::time::{Duration, Instant};
 use crate::error::{Error, Result};
 use crate::executor::{Executor, Signal};
 use crate::io::ReaderConfiguration;
-use crate::partial::ApproximateEvaluator;
+use crate::partial::{ApproximateEvaluator, PartialResult};
 use crate::rdd::{ParallelCollection, Rdd, RddBase, UnionRdd};
 use crate::scheduler::{DistributedScheduler, LocalScheduler, NativeScheduler, TaskContext};
 use crate::serializable_traits::{Data, SerFunc};
@@ -91,10 +91,10 @@ impl Schedulers {
         final_rdd: Arc<dyn Rdd<Item = T>>,
         evaluator: E,
         timeout: Duration,
-    ) -> Result<Vec<U>>
+    ) -> Result<PartialResult<R>>
     where
         F: SerFunc((TaskContext, Box<dyn Iterator<Item = T>>)) -> U,
-        E: ApproximateEvaluator<U, R>,
+        E: ApproximateEvaluator<U, R> + Send + Sync + 'static,
         R: Clone + Debug + Send + Sync + 'static,
     {
         let op_name = final_rdd.get_op_name();
@@ -520,11 +520,12 @@ impl Context {
     ) -> Result<Vec<U>>
     where
         F: SerFunc((TaskContext, Box<dyn Iterator<Item = T>>)) -> U,
-        E: ApproximateEvaluator<U, R>,
+        E: ApproximateEvaluator<U, R> + Send + Sync + 'static,
         R: Clone + Debug + Send + Sync + 'static,
     {
         self.scheduler
-            .run_approximate_job(Arc::new(func), rdd, evaluator, timeout)
+            .run_approximate_job(Arc::new(func), rdd, evaluator, timeout);
+        todo!()
     }
 
     pub(crate) fn get_preferred_locs(

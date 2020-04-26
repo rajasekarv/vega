@@ -14,8 +14,8 @@ use crate::error::{Error, NetworkError, Result};
 use crate::map_output_tracker::MapOutputTracker;
 use crate::rdd::{Rdd, RddBase};
 use crate::scheduler::{
-    CompletionEvent, EventQueue, Job, JobTracker, LocalScheduler, NativeScheduler, ResultTask,
-    Stage, TaskBase, TaskContext, TaskOption, TaskResult, TastEndReason,
+    CompletionEvent, EventQueue, Job, JobTracker, LocalScheduler, NativeScheduler, NoOpListener,
+    ResultTask, Stage, TaskBase, TaskContext, TaskOption, TaskResult, TastEndReason,
 };
 use crate::serializable_traits::{Data, SerFunc};
 use crate::serialized_data_capnp::serialized_data;
@@ -147,8 +147,14 @@ impl DistributedScheduler {
         let selfc = Arc::clone(&self);
         env::Env::run_in_async_rt(|| -> Result<Vec<U>> {
             futures::executor::block_on(async move {
-                let jt = JobTracker::from_scheduler(&*selfc, func, final_rdd.clone(), partitions)
-                    .await?;
+                let jt = JobTracker::from_scheduler(
+                    &*selfc,
+                    func,
+                    final_rdd.clone(),
+                    partitions,
+                    NoOpListener,
+                )
+                .await?;
 
                 // TODO: update cache
 
@@ -170,6 +176,7 @@ impl DistributedScheduler {
                     "pending stages and tasks: {:?}",
                     jt.pending_tasks
                         .lock()
+                        .await
                         .iter()
                         .map(|(k, v)| (k.id, v.iter().map(|x| x.get_task_id()).collect::<Vec<_>>()))
                         .collect::<Vec<_>>()
@@ -195,6 +202,7 @@ impl DistributedScheduler {
                         );
                         jt.pending_tasks
                             .lock()
+                            .await
                             .get_mut(&stage)
                             .unwrap()
                             .remove(&evt.task);
@@ -226,14 +234,14 @@ impl DistributedScheduler {
                         }
                     }
 
-                    if !jt.failed.lock().is_empty()
+                    if !jt.failed.lock().await.is_empty()
                         && fetch_failure_duration.as_millis() > self_borrow.resubmit_timeout
                     {
                         self_borrow.update_cache_locs().await?;
-                        for stage in jt.failed.lock().iter() {
+                        for stage in jt.failed.lock().await.iter() {
                             self_borrow.submit_stage(stage.clone(), jt.clone()).await?;
                         }
-                        jt.failed.lock().clear();
+                        jt.failed.lock().await.clear();
                     }
                 }
 

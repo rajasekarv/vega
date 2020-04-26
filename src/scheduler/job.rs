@@ -5,10 +5,10 @@ use std::marker::PhantomData;
 use std::option::Option;
 use std::sync::Arc;
 
-use crate::scheduler::{NativeScheduler, Stage, TaskBase, TaskContext};
+use crate::scheduler::{JobListener, NativeScheduler, Stage, TaskBase, TaskContext};
 use crate::serializable_traits::{Data, SerFunc};
 use crate::{Rdd, Result};
-use parking_lot::Mutex;
+use tokio::sync::Mutex;
 
 #[derive(Clone, Debug)]
 pub(crate) struct Job {
@@ -46,9 +46,10 @@ impl Ord for Job {
 type PendingTasks = BTreeMap<Stage, BTreeSet<Box<dyn TaskBase>>>;
 
 /// Contains all the necessary types to run and track a job progress
-pub(crate) struct JobTracker<F, U: Data, T: Data>
+pub(crate) struct JobTracker<F, U: Data, T: Data, L>
 where
     F: SerFunc((TaskContext, Box<dyn Iterator<Item = T>>)) -> U,
+    L: JobListener,
 {
     pub output_parts: Vec<usize>,
     pub num_output_parts: usize,
@@ -61,20 +62,23 @@ where
     pub failed: Arc<Mutex<BTreeSet<Stage>>>,
     pub finished: Arc<Mutex<Vec<bool>>>,
     pub pending_tasks: Arc<Mutex<PendingTasks>>,
+    pub listener: Arc<L>,
     _marker_t: PhantomData<T>,
     _marker_u: PhantomData<U>,
 }
 
-impl<F, U: Data, T: Data> JobTracker<F, U, T>
+impl<F, U: Data, T: Data, L> JobTracker<F, U, T, L>
 where
     F: SerFunc((TaskContext, Box<dyn Iterator<Item = T>>)) -> U,
+    L: JobListener,
 {
     pub async fn from_scheduler<S>(
         scheduler: &S,
         func: Arc<F>,
         final_rdd: Arc<dyn Rdd<Item = T>>,
         output_parts: Vec<usize>,
-    ) -> Result<JobTracker<F, U, T>>
+        listener: L,
+    ) -> Result<JobTracker<F, U, T, L>>
     where
         S: NativeScheduler,
     {
@@ -88,6 +92,7 @@ where
             func,
             final_rdd,
             output_parts,
+            listener,
         ))
     }
 
@@ -97,7 +102,8 @@ where
         func: Arc<F>,
         final_rdd: Arc<dyn Rdd<Item = T>>,
         output_parts: Vec<usize>,
-    ) -> JobTracker<F, U, T> {
+        listener: L,
+    ) -> JobTracker<F, U, T, L> {
         let finished: Vec<bool> = (0..output_parts.len()).map(|_| false).collect();
         let pending_tasks: BTreeMap<Stage, BTreeSet<Box<dyn TaskBase>>> = BTreeMap::new();
         JobTracker {
@@ -112,15 +118,17 @@ where
             failed: Arc::new(Mutex::new(BTreeSet::new())),
             finished: Arc::new(Mutex::new(finished)),
             pending_tasks: Arc::new(Mutex::new(pending_tasks)),
+            listener: Arc::new(listener),
             _marker_t: PhantomData,
             _marker_u: PhantomData,
         }
     }
 }
 
-impl<F, U: Data, T: Data> Clone for JobTracker<F, U, T>
+impl<F, U: Data, T: Data, L> Clone for JobTracker<F, U, T, L>
 where
     F: SerFunc((TaskContext, Box<dyn Iterator<Item = T>>)) -> U,
+    L: JobListener,
 {
     fn clone(&self) -> Self {
         JobTracker {
@@ -135,6 +143,7 @@ where
             failed: self.running.clone(),
             finished: self.finished.clone(),
             pending_tasks: self.pending_tasks.clone(),
+            listener: self.listener.clone(),
             _marker_t: PhantomData,
             _marker_u: PhantomData,
         }

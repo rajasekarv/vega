@@ -20,7 +20,7 @@ impl CountEvaluator {
 }
 
 impl ApproximateEvaluator<usize, BoundedDouble> for CountEvaluator {
-    fn merge(&mut self, _output_id: usize, task_result: usize) {
+    fn merge(&mut self, _output_id: usize, task_result: &usize) {
         self.total_outputs += 1;
         self.sum += task_result;
     }

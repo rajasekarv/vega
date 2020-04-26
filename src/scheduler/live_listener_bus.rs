@@ -4,25 +4,36 @@ use std::sync::{
 };
 
 use crate::scheduler::listener::ListenerEvent;
+use crate::{Error, Result};
 use parking_lot::{Mutex, RwLock};
 
 trait AsyncEventQueue: Send + Sync {
     fn post(&mut self, event: Arc<dyn ListenerEvent>);
+    fn start(&mut self);
+    fn stop(&mut self);
 }
 
-type QueueBuffer = Option<Arc<Mutex<Vec<Box<dyn ListenerEvent>>>>>;
+type QueueBuffer = Option<Arc<Mutex<Vec<Arc<dyn ListenerEvent>>>>>;
 
 /// Asynchronously passes SparkListenerEvents to registered SparkListeners.
 ///
 /// Until `start()` is called, all posted events are only buffered. Only after this listener bus
 /// has started will events be actually propagated to all attached listeners. This listener bus
 /// is stopped when `stop()` is called, and it will drop further events after stopping.
-#[derive(Clone, Default)]
+#[derive(Clone)]
 pub(in crate::scheduler) struct LiveListenerBus {
+    /// Indicate if `start()` is called
     started: Arc<AtomicBool>,
+    /// Indicate if `stop()` is called
     stopped: Arc<AtomicBool>,
     queued_events: QueueBuffer,
     queues: Arc<RwLock<Vec<Box<dyn AsyncEventQueue>>>>,
+}
+
+impl Default for LiveListenerBus {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl LiveListenerBus {
@@ -54,7 +65,7 @@ impl LiveListenerBus {
                 // Otherwise, need to synchronize to check whether the bus is started, to make sure the thread
                 // calling start() picks up the new event.
                 if !self.started.load(Ordering::SeqCst) {
-                    queue.lock().push(event);
+                    queue.lock().push(Arc::from(event));
                 } else {
                     // If the bus was already started when the check above was made, just post directly to the queues.
                     self.post_to_queues(event);
@@ -69,6 +80,54 @@ impl LiveListenerBus {
             queue.post(event.clone());
         }
     }
+
+    /// Start sending events to attached listeners.
+    ///
+    /// This first sends out all buffered events posted before this listener bus has started, then
+    /// listens for any additional events asynchronously while the listener bus is still running.
+    /// This should only be called once.
+    fn start(&mut self) -> Result<()> {
+        if !self.started.compare_and_swap(false, true, Ordering::SeqCst) {
+            return Err(Error::Other);
+        }
+
+        let mut queues = self.queues.write();
+        {
+            let queued_events = self
+                .queued_events
+                .as_ref()
+                .ok_or_else(|| /* Cannot be some if it was already started */ Error::Other)?
+                .lock();
+            for queue in queues.iter_mut() {
+                queue.start();
+                queued_events
+                    .iter()
+                    .for_each(|event| queue.post(event.clone()));
+            }
+        }
+        self.queued_events = None;
+        // TODO: metricsSystem.registerSource(metrics)
+        Ok(())
+    }
+
+    /// Stop the listener bus. It will wait until the queued events have been processed, but drop the
+    /// new events after stopping.
+    fn stop(&mut self) -> Result<()> {
+        if !self.started.load(Ordering::SeqCst) {
+            return Err(Error::Other);
+        }
+
+        if !self.stopped.compare_and_swap(false, true, Ordering::SeqCst) {
+            return Ok(());
+        }
+
+        let mut queues = self.queues.write();
+        for queue in queues.iter_mut() {
+            queue.stop();
+        }
+        queues.clear();
+        Ok(())
+    }
 }
 
 /*
@@ -80,21 +139,11 @@ private[spark] class LiveListenerBus(conf: SparkConf) {
 
   private[spark] val metrics = new LiveListenerBusMetrics(conf)
 
-  // Indicate if `start()` is called
-  private val started = new AtomicBoolean(false)
-  // Indicate if `stop()` is called
-  private val stopped = new AtomicBoolean(false)
-
   /** A counter for dropped events. It will be reset every time we log it. */
   private val droppedEventsCounter = new AtomicLong(0L)
 
   /** When `droppedEventsCounter` was logged last time in milliseconds. */
   @volatile private var lastReportTimestamp = 0L
-
-  private val queues = new CopyOnWriteArrayList[AsyncEventQueue]()
-
-  // Visible for testing.
-  @volatile private[scheduler] var queuedEvents = new mutable.ListBuffer[SparkListenerEvent]()
 
   /** Add a listener to queue shared by all non-internal listeners. */
   def addToSharedQueue(listener: SparkListenerInterface): Unit = {
@@ -157,41 +206,6 @@ private[spark] class LiveListenerBus(conf: SparkConf) {
       }
   }
 
-
-  /**
-   * Start sending events to attached listeners.
-   *
-   * This first sends out all buffered events posted before this listener bus has started, then
-   * listens for any additional events asynchronously while the listener bus is still running.
-   * This should only be called once.
-   *
-   * @param sc Used to stop the SparkContext in case the listener thread dies.
-   */
-  def start(sc: SparkContext, metricsSystem: MetricsSystem): Unit = synchronized {
-    if (!started.compareAndSet(false, true)) {
-      throw new IllegalStateException("LiveListenerBus already started.")
-    }
-
-    this.sparkContext = sc
-    queues.asScala.foreach { q =>
-      q.start(sc)
-      queuedEvents.foreach(q.post)
-    }
-    queuedEvents = null
-    metricsSystem.registerSource(metrics)
-  }
-
-  /**
-   * For testing only. Wait until there are no more events in the queue, or until the default
-   * wait time has elapsed. Throw `TimeoutException` if the specified time elapsed before the queue
-   * emptied.
-   * Exposed for testing.
-   */
-  @throws(classOf[TimeoutException])
-  private[spark] def waitUntilEmpty(): Unit = {
-    waitUntilEmpty(TimeUnit.SECONDS.toMillis(10))
-  }
-
   /**
    * For testing only. Wait until there are no more events in the queue, or until the specified
    * time has elapsed. Throw `TimeoutException` if the specified time elapsed before the queue
@@ -206,23 +220,6 @@ private[spark] class LiveListenerBus(conf: SparkConf) {
         throw new TimeoutException(s"The event queue is not empty after $timeoutMillis ms.")
       }
     }
-  }
-
-  /**
-   * Stop the listener bus. It will wait until the queued events have been processed, but drop the
-   * new events after stopping.
-   */
-  def stop(): Unit = {
-    if (!started.get()) {
-      throw new IllegalStateException(s"Attempted to stop bus that has not yet started!")
-    }
-
-    if (!stopped.compareAndSet(false, true)) {
-      return
-    }
-
-    queues.asScala.foreach(_.stop())
-    queues.clear()
   }
 
   // For testing only.
