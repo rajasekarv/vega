@@ -583,11 +583,11 @@ fn test_random_split() {
     // Total number of splited RDDs should be same as the length of weights.
     assert_eq!(rdds.len(), 3);
 
-    // Total count of of elements in each and every splited RDDs shall be equal to
-    // the sum of the original RDD.
+    // Total count of of elements of all splited RDDs shall be equal to
+    // the total count of the original RDD.
     assert_eq!(rdd_lengths.iter().sum::<i64>(), 600);
 
-    // The count of elements for each elements shall match its assigned weight.
+    // The count of elements in each splitted RDD shall match its assigned weight.
     assert!((rdd_lengths[0] as i64 - 100).abs() < 50);
     assert!((rdd_lengths[1] as i64 - 200).abs() < 50);
     assert!((rdd_lengths[2] as i64 - 300).abs() < 50);
