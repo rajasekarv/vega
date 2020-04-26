@@ -80,6 +80,12 @@ impl RddVals {
 pub trait RddBase: Send + Sync + Serialize + Deserialize {
     fn get_rdd_id(&self) -> usize;
     fn get_context(&self) -> Arc<Context>;
+    fn get_op_name(&self) -> String {
+        "unknown".to_owned()
+    }
+    fn register_op_name(&self, _name: &str) {
+        unimplemented!()
+    }
     fn get_dependencies(&self) -> Vec<Dependency>;
     fn preferred_locations(&self, _split: Box<dyn Split>) -> Vec<Ipv4Addr> {
         Vec::new()
@@ -224,7 +230,9 @@ pub trait Rdd: RddBase + 'static {
             ))
                 as Box<dyn Iterator<Item = Vec<Self::Item>>>
         );
-        SerArc::new(MapPartitionsRdd::new(self.get_rdd(), Box::new(func)))
+        let rdd = MapPartitionsRdd::new(self.get_rdd(), Box::new(func));
+        rdd.register_op_name("gloom");
+        SerArc::new(rdd)
     }
 
     fn save_as_text_file(&self, path: String) -> Result<Vec<()>>

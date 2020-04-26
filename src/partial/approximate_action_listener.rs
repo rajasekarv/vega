@@ -54,12 +54,14 @@ where
     /// PartialResult with the result so far. This may be complete if the whole job is done.
     pub async fn get_result(&mut self) -> Result<PartialResult<R>> {
         let finish_time = self.start_time + self.timeout;
+        let partial_wait = self.timeout / 20;
         while Instant::now() < finish_time {
             if self.failure.is_some() {
                 return Err(self.failure.take().unwrap());
             } else if self.finished_tasks >= self.total_tasks {
                 return Ok(PartialResult::new(self.evaluator.current_result(), true));
             }
+            tokio::time::delay_for(partial_wait).await;
         }
         // Ran out of time before full completion, return partial job
         let result = PartialResult::new(self.evaluator.current_result(), false);

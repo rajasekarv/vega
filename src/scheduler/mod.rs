@@ -7,6 +7,8 @@ mod dag_scheduler;
 mod distributed_scheduler;
 mod job;
 mod job_listener;
+pub(self) mod listener;
+mod live_listener_bus;
 mod local_scheduler;
 mod result_task;
 mod stage;
@@ -15,6 +17,7 @@ mod task;
 pub(self) use self::base_scheduler::EventQueue;
 pub(self) use self::dag_scheduler::{CompletionEvent, FetchFailedVals, TastEndReason};
 pub(self) use self::job::{Job, JobTracker};
+pub(self) use self::live_listener_bus::LiveListenerBus;
 pub(self) use self::stage::Stage;
 
 pub(crate) use self::base_scheduler::NativeScheduler;

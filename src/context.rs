@@ -56,22 +56,30 @@ impl Schedulers {
     where
         F: SerFunc((TaskContext, Box<dyn Iterator<Item = T>>)) -> U,
     {
-        log::info!("starting job");
+        let op_name = final_rdd.get_op_name();
+        log::info!("starting `{}` job", op_name);
         let start = Instant::now();
         match self {
             Distributed(distributed) => {
                 let res = distributed
                     .clone()
                     .run_job(func, final_rdd, partitions, allow_local);
-
-                log::info!("job finished, took {}ms", start.elapsed().as_millis());
+                log::info!(
+                    "`{}` job finished, took {}ms",
+                    op_name,
+                    start.elapsed().as_millis()
+                );
                 res
             }
             Local(local) => {
                 let res = local
                     .clone()
                     .run_job(func, final_rdd, partitions, allow_local);
-                log::info!("job finished, took {}ms", start.elapsed().as_millis());
+                log::info!(
+                    "`{}` job finished, took {}ms",
+                    op_name,
+                    start.elapsed().as_millis()
+                );
                 res
             }
         }
@@ -89,19 +97,28 @@ impl Schedulers {
         E: ApproximateEvaluator<U, R>,
         R: Clone + Debug + Send + Sync + 'static,
     {
+        let op_name = final_rdd.get_op_name();
+        log::info!("starting `{}` job", op_name);
         let start = Instant::now();
-        log::info!("starting job");
         match self {
             Distributed(distributed) => {
                 let res = distributed.clone();
-                log::info!("job finished, took {}ms", start.elapsed().as_millis());
+                log::info!(
+                    "`{}` job finished, took {}ms",
+                    op_name,
+                    start.elapsed().as_millis()
+                );
                 todo!()
             }
             Local(local) => {
                 let res = local
                     .clone()
                     .run_approximate_job(func, final_rdd, evaluator, timeout);
-                log::info!("job finished, took {}ms", start.elapsed().as_millis());
+                log::info!(
+                    "`{}` job finished, took {}ms",
+                    op_name,
+                    start.elapsed().as_millis()
+                );
                 res
             }
         }

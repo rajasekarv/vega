@@ -15,8 +15,9 @@ use crate::map_output_tracker::MapOutputTracker;
 use crate::partial::{ApproximateActionListener, ApproximateEvaluator};
 use crate::rdd::{Rdd, RddBase};
 use crate::scheduler::{
-    CompletionEvent, EventQueue, Job, JobTracker, NativeScheduler, ResultTask, Stage, TaskBase,
-    TaskContext, TaskOption, TaskResult, TastEndReason,
+    listener::{JobEndListener, JobStartListener},
+    CompletionEvent, EventQueue, Job, JobTracker, LiveListenerBus, NativeScheduler, ResultTask,
+    Stage, TaskBase, TaskContext, TaskOption, TaskResult, TastEndReason,
 };
 use crate::serializable_traits::{Data, SerFunc};
 use crate::shuffle::ShuffleMapTask;
@@ -50,6 +51,7 @@ pub(crate) struct LocalScheduler {
     map_output_tracker: MapOutputTracker,
     // TODO: fix proper locking mechanism
     scheduler_lock: Arc<Mutex<()>>,
+    live_listener_bus: LiveListenerBus,
 }
 
 impl LocalScheduler {
@@ -78,6 +80,7 @@ impl LocalScheduler {
             slaves_with_executors: HashSet::new(),
             map_output_tracker: env::Env::get().map_output_tracker.clone(),
             scheduler_lock: Arc::new(Mutex::new(())),
+            live_listener_bus: LiveListenerBus::new(),
         }
     }
 
@@ -100,14 +103,28 @@ impl LocalScheduler {
         let selfc = Arc::clone(&self);
         env::Env::run_in_async_rt(|| -> Result<Vec<U>> {
             futures::executor::block_on(async move {
+                let job_id = selfc.get_next_job_id();
                 if final_rdd.number_of_splits() == 0 {
                     // Return immediately if the job is running 0 tasks
+                    let time = Instant::now();
+                    selfc.live_listener_bus.post(Box::new(JobStartListener {
+                        job_id,
+                        time,
+                        stage_infos: vec![],
+                    }));
+                    selfc.live_listener_bus.post(Box::new(JobEndListener {
+                        job_id,
+                        time,
+                        job_result: true,
+                    }));
                     return Ok(vec![]);
                 }
+                let mut listener = ApproximateActionListener::new(evaluator, timeout);
+                let partitions: Vec<_> = (0..final_rdd.number_of_splits()).collect();
+                // val func2 = func.asInstanceOf[(TaskContext, Iterator[_]) => _]
                 //   eventProcessLoop.post(JobSubmitted(
                 //     jobId, rdd, func2, rdd.partitions.indices.toArray, callSite, listener,
                 //     Utils.cloneProperties(properties)))
-                let mut listener = ApproximateActionListener::new(evaluator, timeout);
                 listener.get_result().await;
                 todo!()
             })

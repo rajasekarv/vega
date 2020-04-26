@@ -7,7 +7,7 @@ use std::time::{Duration, Instant};
 use crate::dependency::{Dependency, ShuffleDependencyTrait};
 use crate::env;
 use crate::error::{Error, Result};
-use crate::rdd::{Rdd, RddBase};
+use crate::rdd::RddBase;
 use crate::scheduler::{
     CompletionEvent, FetchFailedVals, JobTracker, ResultTask, Stage, TaskBase, TaskContext,
     TaskOption,
