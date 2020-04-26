@@ -590,6 +590,13 @@ pub trait Rdd: RddBase + 'static {
             format!("Sum of weights must be positive, but got {:?}", weights)
         );
 
+        let seed: u64 = match _seed {
+            Some(x) => x,
+            None => rand::random::<u64>(),
+        };
+
+
+        let mut full_bounds = vec![0.0f64];
         let bounds: Vec<f64> =
             weights
                 .into_iter()
@@ -601,25 +608,21 @@ pub trait Rdd: RddBase + 'static {
                     Some(*state)
                 })
                 .collect();
-
-        let mut complete_bounds = vec![0.0f64];
-        complete_bounds.extend(bounds);
+        full_bounds.extend(bounds);
 
         let mut splitted_rdds;
 
         for bound in bounds.windows(2) {
-            let (lb, ub) = (bound[0], bound[1]);
+            let (lower_bound, upper_bound) = (bound[0], bound[1]);
             let func = Fn!(
-                |
-                    index: usize,
-                    partition: Box<dyn Iterator<Item = Self::Item>>
-                | -> Box<dyn Iterator<Item = _>>
+                |index: u64, partition: Box<dyn Iterator<Item = Self::Item>>|
+                -> Box<dyn Iterator<Item = Self::Item>>
                 {
-                    let sampler = Arc::new(
-                        BernoulliCellSampler::new(lb, ub, false)
-                    ) as Arc<dyn RandomSampler<Self::Item>>;
+                    let new_seed = seed + index;
+                    let sampler = BernoulliCellSampler::new(lower_bound, upper_bound, false, new_seed);
 
-                    sampler.sample(partition)
+                    let predicate = Fn!(|x: u64| x > 0);
+                    Box::new(partition.filter((predicate)(sampler.sample())))
                 }
             );
 

@@ -570,19 +570,20 @@ fn test_key_by() {
 fn test_random_split() {
     let sc = CONTEXT.clone();
 
-    let rdd = sc.range(1, 600, 1, 3);
+    let rdd = sc.range(1, 1000, 1, 3);
 
+    let weights: Vec<f64> = vec![1.0, 2.0, 3.0, 4.0];
     let rdds: Vec<Vec<u64>> = rdd
-        .random_split(vec![1.0, 2.0, 3.0], None)
+        .random_split(weights, None)
         .iter()
         .map(|rdd| rdd.collect().unwrap())
         .collect();
     let rdd_lengths: Vec<i64> = rdds.iter().map(|v| v.len() as i64).collect();
 
-    // Total number of splited RDDs should be 3
-    assert_eq!(rdds.len(), 3);
+    // Total number of splited RDDs should be same as the length of weights.
+    assert_eq!(rdds.len(), weights.iter().sum());
 
-    // Sum of of elements in each and every splited RDDs shall be equal to
+    // Total count of of elements in each and every splited RDDs shall be equal to
     // the sum of the original RDD.
     assert_eq!(rdd_lengths.iter().sum::<i64>(), 600);
 
