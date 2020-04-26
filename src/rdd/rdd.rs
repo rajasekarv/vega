@@ -611,6 +611,7 @@ pub trait Rdd: RddBase + 'static {
         full_bounds.extend(bounds);
 
         bounds
+            .windows(2)
             .collect::<Vec<f64>>()
             .iter()
             .map(|bound: Vec<64>| -> Box<dyn Iterator<Item: Self::Item>> {
