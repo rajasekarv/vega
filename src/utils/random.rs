@@ -157,13 +157,10 @@ pub(crate) struct BernoulliCellSampler {
     ub: f64,
     /// whether to use the complement of the range specified, default to false
     complement: bool,
-    /// seed.
-    /// Notes: not existing in original Spark
-    seed: u64,
 }
 
 impl BernoulliCellSampler {
-    pub fn new(lb: f64, ub: f64, complement: bool, seed: u64) -> BernoulliCellSampler {
+    pub fn new(lb: f64, ub: f64, complement: bool) -> BernoulliCellSampler {
 
         // epsilon slop to avoid failure from floating point jitter.
         assert!(
@@ -179,7 +176,7 @@ impl BernoulliCellSampler {
             format!("Upper bound {} must be <= 1.0", ub)
         );
 
-        BernoulliCellSampler { lb, ub, complement, seed }
+        BernoulliCellSampler { lb, ub, complement }
     }
 
     /// Whether to sample the next item or not.
@@ -189,7 +186,6 @@ impl BernoulliCellSampler {
             if self.complement { 1 } else { 0 }
         } else {
             let x = rng.gen::<f64>();
-            dbg!(x);
             let n;
             if x >= self.lb && x < self.ub {
                 n = 1;

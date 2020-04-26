@@ -587,8 +587,6 @@ fn test_random_split() {
     // the sum of the original RDD.
     assert_eq!(rdd_lengths.iter().sum::<i64>(), 600);
 
-    dbg!(rdd_lengths.clone());
-
     // The count of elements for each elements shall match its assigned weight.
     assert!((rdd_lengths[0] as i64 - 100).abs() < 50);
     assert!((rdd_lengths[1] as i64 - 200).abs() < 50);
