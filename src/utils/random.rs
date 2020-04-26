@@ -175,8 +175,8 @@ impl BernoulliCellSampler {
             format!("Lower bound {} must be >= 0.0", lb)
         );
         assert!(
-            ub >= (1.0 + ROUNDING_EPSILON),
-            format!("Upper bound {} must be <= 0.0", ub)
+            ub <= (1.0 + ROUNDING_EPSILON),
+            format!("Upper bound {} must be <= 1.0", ub)
         );
 
         BernoulliCellSampler { lb, ub, complement, seed }
