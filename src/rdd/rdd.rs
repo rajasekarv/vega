@@ -610,27 +610,24 @@ pub trait Rdd: RddBase + 'static {
                 .collect();
         full_bounds.extend(bounds);
 
-        let mut splitted_rdds;
+        bounds
+            .collect::<Vec<f64>>()
+            .iter()
+            .map(|bound: Vec<64>| -> Box<dyn Iterator<Item: Self::Item>> {
+                let (lower_bound, upper_bound) = (bound[0], bound[1]);
+                let func = Fn!(
+                    |index: u64, partition: Box<dyn Iterator<Item = Self::Item>>|
+                    -> Box<dyn Iterator<Item = Self::Item>>
+                    {
+                        let new_seed = seed + index;
+                        let bcs = BernoulliCellSampler::new(lower_bound, upper_bound, false, new_seed);
 
-        for bound in bounds.windows(2) {
-            let (lower_bound, upper_bound) = (bound[0], bound[1]);
-            let func = Fn!(
-                |index: u64, partition: Box<dyn Iterator<Item = Self::Item>>|
-                -> Box<dyn Iterator<Item = Self::Item>>
-                {
-                    let new_seed = seed + index;
-                    let sampler = BernoulliCellSampler::new(lower_bound, upper_bound, false, new_seed);
-
-                    let predicate = Fn!(|x: u64| x > 0);
-                    Box::new(partition.filter((predicate)(sampler.sample())))
-                }
-            );
-
-            let rdd = self.map_partitions_with_index(func);
-            splitted_rdds.append(&mut rdd);
-        }
-
-        splitted_rdds
+                        let predicate = Fn!(|x: u64| x > 0);
+                        Box::new(partition.filter((predicate)(bcs.sample())))
+                    }
+                );
+                self.map_partitions_with_index(func)
+            })
     }
 
     /// Return a sampled subset of this RDD.
