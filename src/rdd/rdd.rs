@@ -612,7 +612,7 @@ pub trait Rdd: RddBase + 'static {
 
         bounds
             .windows(2)
-            .collect::<Vec<f64>>()
+            .collect::<Vec<Vec<f64>>>()
             .iter()
             .map(|bound: Vec<64>| -> Box<dyn Iterator<Item: Self::Item>> {
                 let (lower_bound, upper_bound) = (bound[0], bound[1]);
