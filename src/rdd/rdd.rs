@@ -620,8 +620,9 @@ pub trait Rdd: RddBase + 'static {
                 {
                     let new_seed = seed + index as u64;
                     let bcs = BernoulliCellSampler::new(lower_bound, upper_bound, false, new_seed);
+                    let mut rng = utils::random::get_default_rng_from_seed(new_seed);
 
-                    Box::new(partition.filter(move |_x: &Self::Item| bcs.sample() > 0))
+                    Box::new(partition.filter(move |_x: &Self::Item| bcs.sample(&mut rng) > 0))
                 }
             );
             let rdd = SerArc::new(MapPartitionsRdd::new(self.get_rdd(), func));

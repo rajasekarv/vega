@@ -595,7 +595,7 @@ fn test_random_split() {
     assert!((rdd_lengths[2] as i64 - 300).abs() < 50);
 
     // The splitted RDDs shall be disjoint sets
+    assert!(rdds[0].iter().all(|i| !rdds[1].contains(i)));
+    assert!(rdds[0].iter().all(|i| !rdds[2].contains(i)));
     assert!(rdds[1].iter().all(|i| !rdds[2].contains(i)));
-    assert!(rdds[1].iter().all(|i| !rdds[3].contains(i)));
-    assert!(rdds[2].iter().all(|i| !rdds[3].contains(i)));
 }

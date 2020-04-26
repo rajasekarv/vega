@@ -184,12 +184,12 @@ impl BernoulliCellSampler {
 
     /// Whether to sample the next item or not.
     /// Return how many times the next item will be sampled. Return 0 if it is not sampled.
-    pub fn sample(&self) -> i32 {
+    pub fn sample(&self, rng: &mut Pcg64) -> i32 {
         if (self.ub - self.lb) <= 0.0 {
             if self.complement { 1 } else { 0 }
         } else {
-            let mut rng = get_default_rng_from_seed(self.seed);
             let x = rng.gen::<f64>();
+            dbg!(x);
             let n;
             if x >= self.lb && x < self.ub {
                 n = 1;
