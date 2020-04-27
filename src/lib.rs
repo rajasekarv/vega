@@ -40,10 +40,11 @@ mod utils;
 
 // Import global external types and macros:
 pub use serde_closure::Fn;
-use serde_traitobject::{Arc as SerArc, Box as SerBox};
+pub use serde_traitobject::{Arc as SerArc, Box as SerBox};
 
 // Re-exports:
 pub use context::Context;
 pub use error::*;
 pub use io::LocalFsReaderConfig;
+pub use partial::BoundedDouble;
 pub use rdd::{PairRdd, Rdd};

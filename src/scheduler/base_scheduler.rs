@@ -219,14 +219,17 @@ pub(crate) trait NativeScheduler: Send + Sync {
             .is_some();
         if result_type {
             if let Ok(rt) = completed_event.task.downcast::<ResultTask<T, U, F>>() {
-                let result = completed_event
-                    .result
-                    .take()
-                    .ok_or_else(|| Error::Other)?
+                let any_result = completed_event.result.take().ok_or_else(|| Error::Other)?;
+                jt.listener
+                    .task_succeeded(rt.output_id, &*any_result)
+                    .await?;
+                let result = any_result
+                    .as_any()
                     .downcast_ref::<U>()
-                    .ok_or_else(|| Error::DowncastFailure(""))?
+                    .ok_or_else(|| {
+                        Error::DowncastFailure("generic type U in scheduler on success")
+                    })?
                     .clone();
-
                 results[rt.output_id] = Some(result);
                 jt.finished.lock().await[rt.output_id] = true;
                 *num_finished += 1;
@@ -236,6 +239,7 @@ pub(crate) trait NativeScheduler: Send + Sync {
                 .result
                 .take()
                 .ok_or_else(|| Error::Other)?
+                .as_any()
                 .downcast_ref::<String>()
                 .ok_or_else(|| crate::Error::DowncastFailure("String"))?
                 .clone();

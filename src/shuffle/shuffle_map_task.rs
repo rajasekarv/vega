@@ -6,6 +6,7 @@ use crate::dependency::ShuffleDependencyTrait;
 use crate::env;
 use crate::rdd::RddBase;
 use crate::scheduler::{Task, TaskBase};
+use crate::serializable_traits::AnyData;
 use crate::shuffle::*;
 use serde_derive::{Deserialize, Serialize};
 
@@ -83,8 +84,8 @@ impl TaskBase for ShuffleMapTask {
 }
 
 impl Task for ShuffleMapTask {
-    fn run(&self, _id: usize) -> SerBox<dyn serde_traitobject::Any + Send + Sync> {
+    fn run(&self, _id: usize) -> SerBox<dyn AnyData> {
         SerBox::new(self.dep.do_shuffle_task(self.rdd.clone(), self.partition))
-            as SerBox<dyn serde_traitobject::Any + Send + Sync>
+            as SerBox<dyn AnyData>
     }
 }

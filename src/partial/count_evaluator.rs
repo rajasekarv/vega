@@ -21,15 +21,15 @@ impl CountEvaluator {
 
 impl ApproximateEvaluator<usize, BoundedDouble> for CountEvaluator {
     fn merge(&mut self, _output_id: usize, task_result: &usize) {
-        self.total_outputs += 1;
+        self.outputs_merged += 1;
         self.sum += task_result;
     }
 
     fn current_result(&self) -> BoundedDouble {
-        if self.outputs_merged == self.total_outputs {
-            BoundedDouble::from((self.sum as f64, 1.0_f64, self.sum as f64, self.sum as f64))
-        } else if self.outputs_merged == 0 || self.sum == 0 {
+        if self.outputs_merged == 0 || self.sum == 0 {
             BoundedDouble::from((0.0, 0.0, 0.0, f64::MAX))
+        } else if self.outputs_merged == self.total_outputs {
+            BoundedDouble::from((self.sum as f64, 1.0_f64, self.sum as f64, self.sum as f64))
         } else {
             let p = self.outputs_merged as f64 / self.total_outputs as f64;
             bound(self.confidence, self.sum as f64, p)
@@ -63,9 +63,7 @@ pub(super) fn bound(confidence: f64, sum: f64, p: f64) -> BoundedDouble {
         confidence,
         sum + low_interval,
         sum + high_interval,
-    ));
-
-    todo!()
+    ))
 }
 
 #[cfg(test)]

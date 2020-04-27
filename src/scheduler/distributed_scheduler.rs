@@ -1,4 +1,3 @@
-use std::any::Any;
 use std::collections::{btree_set::BTreeSet, vec_deque::VecDeque, HashMap, HashSet};
 use std::iter::FromIterator;
 use std::net::{Ipv4Addr, SocketAddrV4};
@@ -17,7 +16,7 @@ use crate::scheduler::{
     CompletionEvent, EventQueue, Job, JobTracker, LocalScheduler, NativeScheduler, NoOpListener,
     ResultTask, Stage, TaskBase, TaskContext, TaskOption, TaskResult, TastEndReason,
 };
-use crate::serializable_traits::{Data, SerFunc};
+use crate::serializable_traits::{AnyData, Data, SerFunc};
 use crate::serialized_data_capnp::serialized_data;
 use crate::shuffle::ShuffleMapTask;
 use capnp::message::ReaderOptions;
@@ -113,7 +112,7 @@ impl DistributedScheduler {
         event_queues: Arc<DashMap<usize, VecDeque<CompletionEvent>>>,
         task: Box<dyn TaskBase>,
         reason: TastEndReason,
-        result: Box<dyn Any + Send + Sync>,
+        result: Box<dyn AnyData>,
         // TODO: accumvalues needs to be done
     ) {
         let result = Some(result);
@@ -296,7 +295,7 @@ impl DistributedScheduler {
                         TastEndReason::Success,
                         // Can break in future. But actually not needed for distributed scheduler since task runs on different processes.
                         // Currently using this because local scheduler needs it. It can be solved by refactoring tasks differently for local and distributed scheduler
-                        result.into_any_send_sync(),
+                        result.into_box(),
                     );
                 }
             }
@@ -311,7 +310,7 @@ impl DistributedScheduler {
                         event_queues,
                         task_final,
                         TastEndReason::Success,
-                        result.into_any_send_sync(),
+                        result.into_box(),
                     );
                 }
             }

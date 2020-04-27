@@ -1,4 +1,3 @@
-use std::any::Any;
 use std::clone::Clone;
 use std::collections::{BTreeSet, HashMap, HashSet, VecDeque};
 use std::fmt::Debug;
@@ -19,11 +18,11 @@ use crate::scheduler::{
     CompletionEvent, EventQueue, Job, JobListener, JobTracker, LiveListenerBus, NativeScheduler,
     NoOpListener, ResultTask, Stage, TaskBase, TaskContext, TaskOption, TaskResult, TastEndReason,
 };
-use crate::serializable_traits::{Data, SerFunc};
+use crate::serializable_traits::{AnyData, Data, SerFunc};
 use crate::shuffle::ShuffleMapTask;
 use crate::{env, Result};
 use dashmap::DashMap;
-use tokio::sync::Mutex;
+use parking_lot::Mutex;
 
 #[derive(Clone, Default)]
 pub(crate) struct LocalScheduler {
@@ -56,6 +55,8 @@ pub(crate) struct LocalScheduler {
 
 impl LocalScheduler {
     pub fn new(max_failures: usize, master: bool) -> Self {
+        let mut live_listener_bus = LiveListenerBus::new();
+        live_listener_bus.start().unwrap();
         LocalScheduler {
             max_failures,
             attempt_id: Arc::new(AtomicUsize::new(0)),
@@ -79,8 +80,8 @@ impl LocalScheduler {
             job_tasks: HashMap::new(),
             slaves_with_executors: HashSet::new(),
             map_output_tracker: env::Env::get().map_output_tracker.clone(),
-            scheduler_lock: Arc::new(tokio::sync::Mutex::new(())),
-            live_listener_bus: LiveListenerBus::new(),
+            scheduler_lock: Arc::new(Mutex::new(())),
+            live_listener_bus,
         }
     }
 
@@ -98,10 +99,15 @@ impl LocalScheduler {
         E: ApproximateEvaluator<U, R> + Send + Sync + 'static,
         R: Clone + Debug + Send + Sync + 'static,
     {
+        // acquiring lock so that only one job can run at same time this lock is just
+        // a temporary patch for preventing multiple jobs to update cache locks which affects
+        // construction of dag task graph. dag task graph construction needs to be altered
+        let selfc = self.clone();
+        let _lock = selfc.scheduler_lock.lock();
         env::Env::run_in_async_rt(|| -> Result<PartialResult<R>> {
             futures::executor::block_on(async move {
                 let partitions: Vec<_> = (0..final_rdd.number_of_splits()).collect();
-                let listener = ApproximateActionListener::new(evaluator, timeout);
+                let listener = ApproximateActionListener::new(evaluator, timeout, partitions.len());
                 let jt = JobTracker::from_scheduler(
                     &*self,
                     func,
@@ -144,6 +150,11 @@ impl LocalScheduler {
     where
         F: SerFunc((TaskContext, Box<dyn Iterator<Item = T>>)) -> U,
     {
+        // acquiring lock so that only one job can run at same time this lock is just
+        // a temporary patch for preventing multiple jobs to update cache locks which affects
+        // construction of dag task graph. dag task graph construction needs to be altered
+        let selfc = self.clone();
+        let _lock = selfc.scheduler_lock.lock();
         env::Env::run_in_async_rt(|| -> Result<Vec<U>> {
             futures::executor::block_on(async move {
                 let jt = JobTracker::from_scheduler(
@@ -169,11 +180,6 @@ impl LocalScheduler {
         F: SerFunc((TaskContext, Box<dyn Iterator<Item = T>>)) -> U,
         L: JobListener,
     {
-        // acquiring lock so that only one job can run at same time this lock is just
-        // a temporary patch for preventing multiple jobs to update cache locks which affects
-        // construction of dag task graph. dag task graph construction needs to be altered
-        let _lock = self.scheduler_lock.lock();
-
         // TODO: update cache
 
         if allow_local {
@@ -281,7 +287,7 @@ impl LocalScheduler {
                         event_queues,
                         task_final,
                         TastEndReason::Success,
-                        result.into_any_send_sync(),
+                        result.into_box(),
                     );
                 }
             }
@@ -296,7 +302,7 @@ impl LocalScheduler {
                         event_queues,
                         task_final,
                         TastEndReason::Success,
-                        result.into_any_send_sync(),
+                        result.into_box(),
                     );
                 }
             }
@@ -307,7 +313,7 @@ impl LocalScheduler {
         event_queues: Arc<DashMap<usize, VecDeque<CompletionEvent>>>,
         task: Box<dyn TaskBase>,
         reason: TastEndReason,
-        result: Box<dyn Any + Send + Sync>,
+        result: Box<dyn AnyData>,
         // TODO: accumvalues needs to be done
     ) {
         let result = Some(result);
@@ -391,4 +397,10 @@ impl NativeScheduler for LocalScheduler {
     }
 
     impl_common_scheduler_funcs!();
+}
+
+impl Drop for LocalScheduler {
+    fn drop(&mut self) {
+        self.live_listener_bus.stop().unwrap();
+    }
 }

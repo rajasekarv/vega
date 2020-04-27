@@ -10,7 +10,7 @@ use std::time::Duration;
 use crate::context::Context;
 use crate::dependency::Dependency;
 use crate::error::{Error, Result};
-use crate::partial::CountEvaluator;
+use crate::partial::{BoundedDouble, CountEvaluator, PartialResult};
 use crate::partitioner::{HashPartitioner, Partitioner};
 use crate::scheduler::TaskContext;
 use crate::serializable_traits::{AnyData, Data, Func, SerFunc};
@@ -84,7 +84,7 @@ pub trait RddBase: Send + Sync + Serialize + Deserialize {
         "unknown".to_owned()
     }
     fn register_op_name(&self, _name: &str) {
-        unimplemented!()
+        log::debug!("couldn't register op name")
     }
     fn get_dependencies(&self) -> Vec<Dependency>;
     fn preferred_locations(&self, _split: Box<dyn Split>) -> Vec<Ipv4Addr> {
@@ -744,39 +744,36 @@ pub trait Rdd: RddBase + 'static {
                 |x: Self::Item| -> (Self::Item, Option<Self::Item>) { (x, None) }
             )))
             .clone();
-        self.map(
-            Box::new(Fn!(
-                    |x| -> (Self::Item, Option<Self::Item>){
-                        (x, None)
-                    }
-                )
+        let rdd = self
+            .map(Box::new(Fn!(|x| -> (Self::Item, Option<Self::Item>) {
+                (x, None)
+            })))
+            .cogroup(
+                other,
+                Box::new(HashPartitioner::<Self::Item>::new(num_splits)) as Box<dyn Partitioner>,
             )
-        ).cogroup(
-            other,
-            Box::new(HashPartitioner::<Self::Item>::new(num_splits)) as Box<dyn Partitioner>
-        ).map(
-            Box::new(
-                Fn!(
-                    |(x, (v1, v2)): (Self::Item, (Vec::<Option<Self::Item>>, Vec::<Option<Self::Item>>))| -> Option<Self::Item> {
-                        if v1.len() >= 1 && v2.len() >= 1 {
-                            Some(x)
-                        } else {
-                            None
-                        }
-                    }
-                )
-            )
-        ).map_partitions(
-            Box::new(
-                Fn!(
-                    |iter: Box<dyn Iterator<Item=Option<Self::Item>>>| -> Box<dyn Iterator<Item=Self::Item>> {
-                        Box::new(
-                            iter.filter(|x| x.is_some()).map(|x| x.unwrap())
-                        ) as Box<dyn Iterator<Item=Self::Item>>
-                    }
-                )
-            )
-        )
+            .map(Box::new(Fn!(|(x, (v1, v2)): (
+                Self::Item,
+                (Vec::<Option<Self::Item>>, Vec::<Option<Self::Item>>)
+            )|
+             -> Option<Self::Item> {
+                if v1.len() >= 1 && v2.len() >= 1 {
+                    Some(x)
+                } else {
+                    None
+                }
+            })))
+            .map_partitions(Box::new(Fn!(|iter: Box<
+                dyn Iterator<Item = Option<Self::Item>>,
+            >|
+             -> Box<
+                dyn Iterator<Item = Self::Item>,
+            > {
+                Box::new(iter.filter(|x| x.is_some()).map(|x| x.unwrap()))
+                    as Box<dyn Iterator<Item = Self::Item>>
+            })));
+        (&*rdd).register_op_name("intersection");
+        rdd
     }
 
     /// Return an RDD of grouped items. Each group consists of a key and a sequence of elements
@@ -861,7 +858,11 @@ pub trait Rdd: RddBase + 'static {
     /// # Arguments
     /// * `timeout` - maximum time to wait for the job, in milliseconds
     /// * `confidence` - the desired statistical confidence in the result
-    fn count_approx(&self, timeout: Duration, confidence: Option<f64>)
+    fn count_approx(
+        &self,
+        timeout: Duration,
+        confidence: Option<f64>,
+    ) -> Result<PartialResult<BoundedDouble>>
     where
         Self: Sized,
     {
@@ -877,8 +878,10 @@ pub trait Rdd: RddBase + 'static {
          -> usize { iter.count() });
 
         let evaluator = CountEvaluator::new(self.number_of_splits(), confidence);
+        let rdd = self.get_rdd();
+        rdd.register_op_name("count_approx");
         self.get_context()
-            .run_approximate_job(count_elements, self.get_rdd(), evaluator, timeout);
+            .run_approximate_job(count_elements, rdd, evaluator, timeout)
     }
 }
 

@@ -7,7 +7,6 @@ use native_spark::partitioner::HashPartitioner;
 use native_spark::rdd::CoGroupedRdd;
 use native_spark::*;
 use once_cell::sync::Lazy;
-use serde_traitobject::Arc as SerArc;
 
 static CONTEXT: Lazy<Arc<Context>> = Lazy::new(|| Context::new().unwrap());
 //static AGGREGATOR: Lazy<Arc<Aggregator<data,dat1,dat2>>> = Lazy::new(|| Aggregator::new().unwrap());
@@ -430,9 +429,8 @@ fn test_union_with_unique_partitioner() {
             (3, "C".to_string()),
             (4, "D".to_string()),
         ];
-        let rdd0 =
-            SerArc::new(sc.parallelize(rdd.clone(), 2)) as SerArc<dyn Rdd<Item = (i32, String)>>;
-        let rdd1 = SerArc::new(sc.parallelize(rdd, 2)) as SerArc<dyn Rdd<Item = (i32, String)>>;
+        let rdd0 = SerArc::new(sc.parallelize(rdd.clone(), 2));
+        let rdd1 = SerArc::new(sc.parallelize(rdd, 2));
         CoGroupedRdd::<i32>::new(
             vec![rdd0.get_rdd_base().into(), rdd1.get_rdd_base().into()],
             Box::new(partitioner.clone()),
@@ -517,4 +515,39 @@ fn test_range() {
 
     let expected: Vec<_> = (1..=12).collect();
     assert_eq!(res, expected);
+}
+
+#[test]
+fn count_aprox() -> Result<()> {
+    let time_out = std::time::Duration::from_secs(5);
+    let sc = CONTEXT.clone();
+    let count = sc.range(1, 10, 1, 10).count_approx(time_out, Some(0.9))?;
+    // this should complete just in time, so confidence should be 100%
+    assert_eq!(
+        count.get_final_value()?,
+        BoundedDouble::from((10.0, 1.0, 10.0, 10.0))
+    );
+
+    // no results
+    let count = sc
+        .make_rdd(Vec::<i32>::new(), 1)
+        .count_approx(time_out, Some(0.9))?;
+    assert_eq!(
+        count.get_final_value()?,
+        BoundedDouble::from((0.0, 0.0, 0.0, f64::MAX))
+    );
+
+    // real partial result
+    let time_out = std::time::Duration::from_secs(3);
+    let count = sc
+        .range(1, 100, 1, 10)
+        .map(Fn!(|i| if i == 1 {
+            // force a time out
+            std::thread::sleep(std::time::Duration::from_secs(4))
+        }))
+        .count_approx(time_out, Some(0.9))?;
+    let _count = count.get_final_value()?;
+    // TODO: assert_eq!(count, BoundedDouble::from((0.0, 0.0, 0.0, f64::MAX)));
+
+    Ok(())
 }

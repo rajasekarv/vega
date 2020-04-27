@@ -38,14 +38,14 @@ where
     E: ApproximateEvaluator<U, R>,
     R: Clone + Debug + Send + Sync + 'static,
 {
-    pub fn new(evaluator: E, timeout: Duration) -> Self {
+    pub fn new(evaluator: E, timeout: Duration, num_partitions: usize) -> Self {
         ApproximateActionListener {
             evaluator: Mutex::new(evaluator),
             start_time: Instant::now(),
             timeout,
             /// Set if the job has failed (permanently)
             failure: Mutex::new(None),
-            total_tasks: 0,
+            total_tasks: num_partitions,
             finished_tasks: AtomicUsize::new(0),
             result_object: Mutex::new(None),
             _marker_r: PhantomData,
@@ -59,10 +59,13 @@ where
         let finish_time = self.start_time + self.timeout;
         let partial_wait = self.timeout / 20;
         while Instant::now() < finish_time {
-            let mut failure = self.failure.lock().await;
-            if failure.is_some() {
-                return Err(failure.take().unwrap());
-            } else if self.finished_tasks.load(Ordering::SeqCst) >= self.total_tasks {
+            {
+                let mut failure = self.failure.lock().await;
+                if failure.is_some() {
+                    return Err(failure.take().unwrap());
+                }
+            }
+            if self.finished_tasks.load(Ordering::SeqCst) == self.total_tasks {
                 return Ok(PartialResult::new(
                     self.evaluator.lock().await.current_result(),
                     true,

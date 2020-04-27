@@ -15,7 +15,7 @@ type OnFail<R> = Arc<
 >;
 
 #[derive(Clone)]
-pub(crate) struct PartialResult<R>
+pub struct PartialResult<R>
 where
     R: Clone + Debug,
 {
@@ -24,16 +24,35 @@ where
     completion_handler: Arc<Mutex<Option<Box<dyn Fn(R) + Send + Sync>>>>,
     failure_handler: Arc<Mutex<Option<Box<dyn Fn(&Error) + Send + Sync>>>>,
     initial_value: R,
-    pub is_final: bool,
+    pub(crate) is_final: bool,
     // funcs:
     /// Blocking method to wait for and return the final value.
-    get_final_value: Arc<dyn Fn(Arc<PartialResult<R>>) -> Result<R> + Send + Sync>,
+    _get_final_value: Arc<dyn Fn(Arc<PartialResult<R>>) -> Result<R> + Send + Sync>,
     /// Set a handler to be called when this PartialResult completes. Only one completion handler
     /// is supported per PartialResult.
     on_complete: OnComplete<R>,
     /// Set a handler to be called if this PartialResult's job fails. Only one failure handler
     /// is supported per PartialResult
     on_fail: OnFail<R>,
+}
+
+#[inline(always)]
+fn _internal_get_final_value<R>(this: Arc<PartialResult<R>>) -> Result<R>
+where
+    R: Clone + Debug + Send + Sync + 'static,
+{
+    while this.final_value.lock().is_none() && this.failure.lock().is_none() {
+        // TODO: improve this with channels for notification
+        std::thread::sleep_ms(5);
+    }
+
+    let final_value = &mut *this.final_value.lock();
+    let failure = &mut *this.failure.lock();
+    if final_value.is_some() {
+        Ok(final_value.take().ok_or_else(|| PartialJobError::None)?)
+    } else {
+        Err(failure.take().ok_or_else(|| PartialJobError::None)?)
+    }
 }
 
 #[inline(always)]
@@ -58,23 +77,35 @@ where
     Ok(this)
 }
 
+#[inline(always)]
+fn _internal_on_fail<R>(
+    this: Arc<PartialResult<R>>,
+    handler: Box<dyn Fn(&Error) + Send + Sync>,
+) -> Result<()>
+where
+    R: Clone + Debug + Send + Sync + 'static,
+{
+    {
+        let mut failure_handler = this.failure_handler.lock();
+        if failure_handler.is_some() {
+            return Err(PartialJobError::SetOnFailTwice.into());
+        }
+        if let Some(ref failure) = *this.failure.lock() {
+            // We already have a failure, so let's call the handler
+            handler(failure);
+        }
+        failure_handler.replace(handler);
+    }
+    Ok(())
+}
+
 impl<R> PartialResult<R>
 where
     R: Clone + Debug + Send + Sync + 'static,
 {
-    pub fn new(initial_value: R, is_final: bool) -> PartialResult<R> {
-        let get_final_value = Arc::new(|this: Arc<PartialResult<R>>| -> Result<R> {
-            let final_value = &mut *this.final_value.lock();
-            let failure = &mut *this.failure.lock();
-
-            while final_value.is_none() && failure.is_none() {
-                // sleep
-            }
-            if final_value.is_some() {
-                Ok(final_value.take().ok_or_else(|| PartialJobError::None)?)
-            } else {
-                Err(failure.take().ok_or_else(|| PartialJobError::None)?)
-            }
+    pub(crate) fn new(initial_value: R, is_final: bool) -> PartialResult<R> {
+        let _get_final_value = Arc::new(|this: Arc<PartialResult<R>>| -> Result<R> {
+            _internal_get_final_value(this)
         });
 
         let on_complete = Arc::new(
@@ -86,36 +117,34 @@ where
         let on_fail = Arc::new(
             |this: Arc<PartialResult<R>>,
              handler: Box<dyn Fn(&Error) + Send + Sync>|
-             -> Result<()> {
-                {
-                    let mut failure_handler = this.failure_handler.lock();
-                    if failure_handler.is_some() {
-                        return Err(PartialJobError::SetOnFailTwice.into());
-                    }
-                    if let Some(ref failure) = *this.failure.lock() {
-                        // We already have a failure, so let's call the handler
-                        handler(failure);
-                    }
-                    failure_handler.replace(handler);
-                }
-                Ok(())
-            },
+             -> Result<()> { _internal_on_fail(this, handler) },
         );
 
+        let final_value = if is_final {
+            Arc::new(Mutex::new(Some(initial_value.clone())))
+        } else {
+            Arc::new(Mutex::new(None))
+        };
+
         PartialResult {
-            final_value: Arc::new(Mutex::new(None)),
+            final_value,
             failure: Arc::new(Mutex::new(None)),
             completion_handler: Arc::new(Mutex::new(None)),
             failure_handler: Arc::new(Mutex::new(None)),
             initial_value,
             is_final,
-            get_final_value,
+            _get_final_value,
             on_complete,
             on_fail,
         }
     }
 
-    pub fn set_final_value(&mut self, value: R) -> Result<()> {
+    pub fn get_final_value(self: Self) -> Result<R> {
+        let selfc = Arc::new(self);
+        (selfc._get_final_value)(selfc.clone())
+    }
+
+    pub(crate) fn set_final_value(&mut self, value: R) -> Result<()> {
         let final_value = &mut *self.final_value.lock();
         if final_value.is_some() {
             return Err(PartialJobError::SetFinalValTwice.into());
@@ -129,7 +158,7 @@ where
     }
 
     /// Transform this PartialResult into a PartialResult of type T.
-    pub fn map<T>(self: Arc<Self>) -> Result<PartialResult<T>>
+    pub(crate) fn map<T>(self: Arc<Self>) -> Result<PartialResult<T>>
     where
         T: From<R> + Debug + Send + Sync + Clone + 'static,
     {
@@ -139,9 +168,9 @@ where
 
         // override the current closures
         let sc = self.clone();
-        new_partial_res.get_final_value =
+        new_partial_res._get_final_value =
             Arc::new(move |_this: Arc<PartialResult<T>>| -> Result<T> {
-                let ori_val = (sc.get_final_value)(sc.clone())?;
+                let ori_val = (sc._get_final_value)(sc.clone())?;
                 let transformed = ori_val.into();
                 Ok(transformed)
             });
@@ -170,7 +199,7 @@ where
         Ok(new_partial_res)
     }
 
-    pub fn set_failure(&mut self, err: Error) -> Result<()> {
+    pub(crate) fn set_failure(&mut self, err: Error) -> Result<()> {
         let mut failure = self.failure.lock();
         if failure.is_some() {
             // We already have a failure, so let's call the handler

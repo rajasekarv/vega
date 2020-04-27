@@ -65,9 +65,9 @@ impl Schedulers {
                     .clone()
                     .run_job(func, final_rdd, partitions, allow_local);
                 log::info!(
-                    "`{}` job finished, took {}ms",
+                    "`{}` job finished, took {}s",
                     op_name,
-                    start.elapsed().as_millis()
+                    start.elapsed().as_secs()
                 );
                 res
             }
@@ -76,9 +76,9 @@ impl Schedulers {
                     .clone()
                     .run_job(func, final_rdd, partitions, allow_local);
                 log::info!(
-                    "`{}` job finished, took {}ms",
+                    "`{}` job finished, took {}s",
                     op_name,
-                    start.elapsed().as_millis()
+                    start.elapsed().as_secs()
                 );
                 res
             }
@@ -104,9 +104,9 @@ impl Schedulers {
             Distributed(distributed) => {
                 let res = distributed.clone();
                 log::info!(
-                    "`{}` job finished, took {}ms",
+                    "`{}` job finished, took {}s",
                     op_name,
-                    start.elapsed().as_millis()
+                    start.elapsed().as_secs()
                 );
                 todo!()
             }
@@ -115,9 +115,9 @@ impl Schedulers {
                     .clone()
                     .run_approximate_job(func, final_rdd, evaluator, timeout);
                 log::info!(
-                    "`{}` job finished, took {}ms",
+                    "`{}` job finished, took {}s",
                     op_name,
-                    start.elapsed().as_millis()
+                    start.elapsed().as_secs()
                 );
                 res
             }
@@ -419,7 +419,9 @@ impl Context {
     where
         I: IntoIterator<Item = T>,
     {
-        self.parallelize(seq, num_slices)
+        let rdd = self.parallelize(seq, num_slices);
+        rdd.register_op_name("make_rdd");
+        rdd
     }
 
     pub fn range(
@@ -431,7 +433,9 @@ impl Context {
     ) -> SerArc<dyn Rdd<Item = u64>> {
         // TODO: input validity check
         let seq = (start..=end).step_by(step);
-        self.parallelize(seq, num_slices)
+        let rdd = self.parallelize(seq, num_slices);
+        rdd.register_op_name("range");
+        rdd
     }
 
     pub fn parallelize<T: Data, I>(
@@ -517,15 +521,14 @@ impl Context {
         rdd: Arc<dyn Rdd<Item = T>>,
         evaluator: E,
         timeout: Duration,
-    ) -> Result<Vec<U>>
+    ) -> Result<PartialResult<R>>
     where
         F: SerFunc((TaskContext, Box<dyn Iterator<Item = T>>)) -> U,
         E: ApproximateEvaluator<U, R> + Send + Sync + 'static,
         R: Clone + Debug + Send + Sync + 'static,
     {
         self.scheduler
-            .run_approximate_job(Arc::new(func), rdd, evaluator, timeout);
-        todo!()
+            .run_approximate_job(Arc::new(func), rdd, evaluator, timeout)
     }
 
     pub(crate) fn get_preferred_locs(

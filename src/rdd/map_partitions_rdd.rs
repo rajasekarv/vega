@@ -55,7 +55,7 @@ where
             )));
         let vals = Arc::new(vals);
         MapPartitionsRdd {
-            name: Mutex::new("map partitions".to_owned()),
+            name: Mutex::new("map_partitions".to_owned()),
             prev,
             vals,
             f,
