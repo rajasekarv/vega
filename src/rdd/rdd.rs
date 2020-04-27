@@ -589,16 +589,13 @@ pub trait Rdd: RddBase + 'static {
         let seed_val: u64 = seed.unwrap_or(rand::random::<u64>());
 
         let mut full_bounds = vec![0.0f64];
-        let bounds: Vec<f64> = weights
+        let bounds = weights
             .into_iter()
             .map(|weight| weight / sum)
-            .collect::<Vec<f64>>()
-            .iter()
-            .scan(0.0f64, |state, &x| {
+            .scan(0.0f64, |state, x| {
                 *state = *state + x;
                 Some(*state)
-            })
-            .collect();
+            });
         full_bounds.extend(bounds);
 
         let mut splitted_rdds: Vec<SerArc<dyn Rdd<Item = Self::Item>>> = Vec::new();
