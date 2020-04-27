@@ -572,7 +572,7 @@ pub trait Rdd: RddBase + 'static {
     fn random_split(
         &self,
         weights: Vec<f64>,
-        _seed: Option<u64>,
+        seed: Option<u64>,
     ) -> Vec<SerArc<dyn Rdd<Item = Self::Item>>>
     where
         Self: Sized,
@@ -587,11 +587,7 @@ pub trait Rdd: RddBase + 'static {
             format!("Sum of weights must be positive, but got {:?}", weights)
         );
 
-        let seed: u64 = match _seed {
-            Some(x) => x,
-            None => rand::random::<u64>(),
-        };
-
+        let seed_val: u64 = seed.unwrap_or(rand::random::<u64>());
 
         let mut full_bounds = vec![0.0f64];
         let bounds: Vec<f64> =
@@ -616,7 +612,7 @@ pub trait Rdd: RddBase + 'static {
                 -> Box<dyn Iterator<Item = Self::Item>>
                 {
                     let bcs = BernoulliCellSampler::new(lower_bound, upper_bound, false);
-                    let new_seed = seed + index as u64;
+                    let new_seed = seed_val + index as u64;
                     let mut rng = utils::random::get_default_rng_from_seed(new_seed);
 
                     Box::new(partition.filter(move |_x: &Self::Item| bcs.sample(&mut rng) > 0))
