@@ -92,12 +92,10 @@ impl<T: Data> RandomSampler<T> for PoissonSampler {
                     };
                     let dist = Poisson::new(self.prob).unwrap();
 
-                    let mut rng;
-                    if let Some(seed) = seed {
-                        rng = get_default_rng_from_seed(seed)
-                    } else {
-                        rng = get_rng_with_random_seed();
-                    }
+                    let mut rng: Pcg64 = match seed {
+                        Some(s) => get_default_rng_from_seed(s),
+                        None => get_rng_with_random_seed(),
+                    };
 
                     Box::new(items.flat_map(move |item| {
                         let count = if use_gap_sampling {
@@ -149,12 +147,10 @@ impl<T: Data> RandomSampler<T> for BernoulliSampler {
                     None
                 };
 
-                let mut rng;
-                if let Some(seed) = seed {
-                    rng = get_default_rng_from_seed(seed)
-                } else {
-                    rng = get_rng_with_random_seed();
-                }
+                let mut rng: Pcg64 = match seed {
+                    Some(s) => get_default_rng_from_seed(s),
+                    None => get_rng_with_random_seed(),
+                };
 
                 let selfc = *self;
                 Box::new(items.filter(move |_| selfc.sample(gap_sampling.as_mut(), &mut rng) > 0))
@@ -225,12 +221,10 @@ impl<T: Data> RandomSampler<T> for BernoulliCellSampler {
     fn get_sampler(&self, seed: Option<u64>) -> RSamplerFunc<T> {
         Box::new(
             move |items: Box<dyn Iterator<Item = T>>| -> Box<dyn Iterator<Item = T>> {
-                let mut rng;
-                if let Some(seed) = seed {
-                    rng = get_default_rng_from_seed(seed)
-                } else {
-                    rng = get_rng_with_random_seed();
-                }
+                let mut rng: Pcg64 = match seed {
+                    Some(s) => get_default_rng_from_seed(s),
+                    None => get_rng_with_random_seed(),
+                };
 
                 let selfc = *self;
                 Box::new(items.filter(move |_| selfc.sample(&mut rng) > 0))

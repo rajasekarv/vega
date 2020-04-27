@@ -608,11 +608,12 @@ pub trait Rdd: RddBase + 'static {
             let func = Fn!(move |index: usize,
                                  partition: Box<dyn Iterator<Item = Self::Item>>|
                   -> Box<dyn Iterator<Item = Self::Item>> {
-                let bcs = BernoulliCellSampler::new(lower_bound, upper_bound, false);
-                let new_seed = seed_val + index as u64;
-                let mut rng = utils::random::get_default_rng_from_seed(new_seed);
+                let bcs = Arc::new(BernoulliCellSampler::new(lower_bound, upper_bound, false))
+                    as Arc<dyn RandomSampler<Self::Item>>;
 
-                Box::new(partition.filter(move |_x: &Self::Item| bcs.sample(&mut rng) > 0))
+                let sampler_func = bcs.get_sampler(Some(seed_val + index as u64));
+
+                Box::new(sampler_func(partition).into_iter())
             });
             let rdd = SerArc::new(MapPartitionsRdd::new(self.get_rdd(), func));
             splitted_rdds.push(rdd.clone());
