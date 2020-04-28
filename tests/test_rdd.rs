@@ -565,3 +565,35 @@ fn test_key_by() {
 
     assert_eq!(res, vec![(3, 30), (4, 40), (5, 50)]);
 }
+
+#[test]
+fn test_random_split() {
+    let sc = CONTEXT.clone();
+
+    let rdd = sc.range(1, 600, 1, 3);
+
+    let weights: Vec<f64> = vec![1.0, 2.0, 3.0];
+    let rdds: Vec<Vec<u64>> = rdd
+        .random_split(weights, None)
+        .iter()
+        .map(|rdd| rdd.collect().unwrap())
+        .collect();
+    let rdd_lengths: Vec<i64> = rdds.iter().map(|v| v.len() as i64).collect();
+
+    // Total number of splited RDDs should be same as the length of weights.
+    assert_eq!(rdds.len(), 3);
+
+    // Total count of of elements of all splited RDDs shall be equal to
+    // the total count of the original RDD.
+    assert_eq!(rdd_lengths.iter().sum::<i64>(), 600);
+
+    // The count of elements in each splitted RDD shall match its assigned weight.
+    assert!((rdd_lengths[0] as i64 - 100).abs() < 50);
+    assert!((rdd_lengths[1] as i64 - 200).abs() < 50);
+    assert!((rdd_lengths[2] as i64 - 300).abs() < 50);
+
+    // The splitted RDDs shall be disjoint sets
+    assert!(rdds[0].iter().all(|i| !rdds[1].contains(i)));
+    assert!(rdds[0].iter().all(|i| !rdds[2].contains(i)));
+    assert!(rdds[1].iter().all(|i| !rdds[2].contains(i)));
+}

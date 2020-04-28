@@ -30,12 +30,13 @@ const RNG_EPSILON: f64 = 5e-11;
 /// warnings for cases such as summing some numbers to get a sampling fraction of 1.000000001
 const ROUNDING_EPSILON: f64 = 1e-6;
 
-type RSamplerFunc<'a, T> = Box<dyn Fn(Box<dyn Iterator<Item = T>>) -> Vec<T> + 'a>;
+type RSamplerFunc<'a, T> =
+    Box<dyn Fn(Box<dyn Iterator<Item = T>>) -> Box<dyn Iterator<Item = T>> + 'a>;
 
 pub(crate) trait RandomSampler<T: Data>: Send + Sync + Serialize + Deserialize {
     /// Returns a function which returns random samples,
     /// the sampler is thread-safe as the RNG is seeded with random seeds per thread.
-    fn get_sampler(&self) -> RSamplerFunc<T>;
+    fn get_sampler(&self, seed: Option<u64>) -> RSamplerFunc<T>;
 }
 
 pub(crate) fn get_default_rng() -> Pcg64 {
@@ -54,7 +55,7 @@ fn get_rng_with_random_seed() -> Pcg64 {
     Pcg64::seed_from_u64(rand::random::<u64>())
 }
 
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Clone, Copy, Serialize, Deserialize)]
 pub(crate) struct PoissonSampler {
     fraction: f64,
     use_gap_sampling_if_possible: bool,
@@ -74,25 +75,29 @@ impl PoissonSampler {
 }
 
 impl<T: Data> RandomSampler<T> for PoissonSampler {
-    fn get_sampler(&self) -> RSamplerFunc<T> {
-        Box::new(move |items: Box<dyn Iterator<Item = T>>| -> Vec<T> {
-            if self.fraction <= 0.0 {
-                vec![]
-            } else {
-                let use_gap_sampling = self.use_gap_sampling_if_possible
-                    && self.fraction <= DEFAULT_MAX_GAP_SAMPLING_FRACTION;
-
-                let mut gap_sampling = if use_gap_sampling {
-                    // Initialize here and move to avoid constructing a new one each iteration
-                    Some(GapSamplingReplacement::new(self.fraction, RNG_EPSILON))
+    fn get_sampler(&self, seed: Option<u64>) -> RSamplerFunc<T> {
+        Box::new(
+            move |items: Box<dyn Iterator<Item = T>>| -> Box<dyn Iterator<Item = T>> {
+                if self.fraction <= 0.0 {
+                    Box::new(std::iter::empty())
                 } else {
-                    None
-                };
-                let dist = Poisson::new(self.prob).unwrap();
-                let mut rng = get_rng_with_random_seed();
+                    let use_gap_sampling = self.use_gap_sampling_if_possible
+                        && self.fraction <= DEFAULT_MAX_GAP_SAMPLING_FRACTION;
 
-                items
-                    .flat_map(move |item| {
+                    let mut gap_sampling = if use_gap_sampling {
+                        // Initialize here and move to avoid constructing a new one each iteration
+                        Some(GapSamplingReplacement::new(self.fraction, RNG_EPSILON))
+                    } else {
+                        None
+                    };
+                    let dist = Poisson::new(self.prob).unwrap();
+
+                    let mut rng: Pcg64 = match seed {
+                        Some(s) => get_default_rng_from_seed(s),
+                        None => get_rng_with_random_seed(),
+                    };
+
+                    Box::new(items.flat_map(move |item| {
                         let count = if use_gap_sampling {
                             gap_sampling.as_mut().unwrap().sample()
                         } else {
@@ -103,14 +108,14 @@ impl<T: Data> RandomSampler<T> for PoissonSampler {
                         } else {
                             vec![]
                         }
-                    })
-                    .collect()
-            }
-        })
+                    }))
+                }
+            },
+        )
     }
 }
 
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Clone, Copy, Serialize, Deserialize)]
 pub(crate) struct BernoulliSampler {
     fraction: f64,
 }
@@ -133,18 +138,98 @@ impl BernoulliSampler {
 }
 
 impl<T: Data> RandomSampler<T> for BernoulliSampler {
-    fn get_sampler(&self) -> RSamplerFunc<T> {
-        Box::new(move |items: Box<dyn Iterator<Item = T>>| -> Vec<T> {
-            let mut gap_sampling = if self.fraction > 0.0 && self.fraction < 1.0 {
-                Some(GapSamplingReplacement::new(self.fraction, RNG_EPSILON))
+    fn get_sampler(&self, seed: Option<u64>) -> RSamplerFunc<T> {
+        Box::new(
+            move |items: Box<dyn Iterator<Item = T>>| -> Box<dyn Iterator<Item = T>> {
+                let mut gap_sampling = if self.fraction > 0.0 && self.fraction < 1.0 {
+                    Some(GapSamplingReplacement::new(self.fraction, RNG_EPSILON))
+                } else {
+                    None
+                };
+
+                let mut rng: Pcg64 = match seed {
+                    Some(s) => get_default_rng_from_seed(s),
+                    None => get_rng_with_random_seed(),
+                };
+
+                let selfc = *self;
+                Box::new(items.filter(move |_| selfc.sample(gap_sampling.as_mut(), &mut rng) > 0))
+            },
+        )
+    }
+}
+
+/// A sampler based on Bernoulli trials for partitioning a data sequence.
+#[derive(Clone, Copy, Serialize, Deserialize)]
+pub(crate) struct BernoulliCellSampler {
+    /// lower bound of the acceptance range
+    lb: f64,
+    /// upper bound of the acceptance range
+    ub: f64,
+    /// whether to use the complement of the range specified, default to false
+    complement: bool,
+}
+
+impl BernoulliCellSampler {
+    pub fn new(lb: f64, ub: f64, complement: bool) -> BernoulliCellSampler {
+        // epsilon slop to avoid failure from floating point jitter.
+        assert!(
+            lb <= (ub + ROUNDING_EPSILON),
+            format!("Lower bound {} must be <= upper bound {}", lb, ub)
+        );
+        assert!(
+            lb >= (0.0 - ROUNDING_EPSILON),
+            format!("Lower bound {} must be >= 0.0", lb)
+        );
+        assert!(
+            ub <= (1.0 + ROUNDING_EPSILON),
+            format!("Upper bound {} must be <= 1.0", ub)
+        );
+
+        BernoulliCellSampler { lb, ub, complement }
+    }
+
+    /// Whether to sample the next item or not.
+    /// Return how many times the next item will be sampled. Return 0 if it is not sampled.
+    pub fn sample(&self, rng: &mut Pcg64) -> i32 {
+        if (self.ub - self.lb) <= 0.0 {
+            if self.complement {
+                1
             } else {
-                None
-            };
-            let mut rng = get_rng_with_random_seed();
-            items
-                .filter(move |_| self.sample(gap_sampling.as_mut(), &mut rng) > 0)
-                .collect()
-        })
+                0
+            }
+        } else {
+            let x = rng.gen::<f64>();
+            let n;
+            if x >= self.lb && x < self.ub {
+                n = 1;
+            } else {
+                n = 0;
+            }
+
+            if self.complement {
+                1 - n
+            } else {
+                n
+            }
+        }
+    }
+}
+
+impl<T: Data> RandomSampler<T> for BernoulliCellSampler {
+    /// Take a random sample
+    fn get_sampler(&self, seed: Option<u64>) -> RSamplerFunc<T> {
+        Box::new(
+            move |items: Box<dyn Iterator<Item = T>>| -> Box<dyn Iterator<Item = T>> {
+                let mut rng: Pcg64 = match seed {
+                    Some(s) => get_default_rng_from_seed(s),
+                    None => get_rng_with_random_seed(),
+                };
+
+                let selfc = *self;
+                Box::new(items.filter(move |_| selfc.sample(&mut rng) > 0))
+            },
+        )
     }
 }
 
