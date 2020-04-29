@@ -100,28 +100,20 @@ impl Schedulers {
         let op_name = final_rdd.get_op_name();
         log::info!("starting `{}` job", op_name);
         let start = Instant::now();
-        match self {
-            Distributed(distributed) => {
-                let res = distributed.clone();
-                log::info!(
-                    "`{}` job finished, took {}s",
-                    op_name,
-                    start.elapsed().as_secs()
-                );
-                todo!()
-            }
-            Local(local) => {
-                let res = local
-                    .clone()
-                    .run_approximate_job(func, final_rdd, evaluator, timeout);
-                log::info!(
-                    "`{}` job finished, took {}s",
-                    op_name,
-                    start.elapsed().as_secs()
-                );
-                res
-            }
-        }
+        let res = match self {
+            Distributed(distributed) => distributed
+                .clone()
+                .run_approximate_job(func, final_rdd, evaluator, timeout),
+            Local(local) => local
+                .clone()
+                .run_approximate_job(func, final_rdd, evaluator, timeout),
+        };
+        log::info!(
+            "`{}` job finished, took {}s",
+            op_name,
+            start.elapsed().as_secs()
+        );
+        res
     }
 }
 

@@ -1,3 +1,5 @@
+use statrs::{distribution::Poisson, statistics::Mean};
+
 use crate::partial::{approximate_evaluator::ApproximateEvaluator, bounded_double::BoundedDouble};
 
 /// An ApproximateEvaluator for counts.
@@ -37,11 +39,6 @@ impl ApproximateEvaluator<usize, BoundedDouble> for CountEvaluator {
     }
 }
 
-use statrs::{
-    distribution::{Poisson, Univariate},
-    statistics::Mean,
-};
-
 pub(super) fn bound(confidence: f64, sum: f64, p: f64) -> BoundedDouble {
     // "sum" elements have been observed having scanned a fraction
     // p of the data. This suggests data is counted at a rate of sum / p across the whole data
@@ -50,12 +47,12 @@ pub(super) fn bound(confidence: f64, sum: f64, p: f64) -> BoundedDouble {
     let dist = Poisson::new(sum * (1.0f64 - p) / p).unwrap();
 
     // Not quite symmetric; calculate interval straight from discrete distribution
-    // FIXME: (should be) val low = dist.inverseCumulativeProbability((1 - confidence) / 2)
-    let lower_range = (1.0 - confidence) / 2.0;
-    let low_interval = dist.cdf(lower_range);
+    // FIXME: (should be) val low_interval = dist.inverseCumulativeProbability((1 - confidence) / 2)
+    // let lower_range = (1.0 - confidence) / 2.0;
+    let low_interval = 0.0;
     // FIXME: (should be) val high = dist.inverseCumulativeProbability((1 + confidence) / 2)
-    let higher_range = (1.0 + confidence) / 2.0;
-    let high_interval = dist.cdf(higher_range);
+    // let higher_range = (1.0 + confidence) / 2.0;
+    let high_interval = 0.0;
 
     // Add 'sum' to each because distribution is just of remaining count, not observed
     BoundedDouble::from((
@@ -64,15 +61,4 @@ pub(super) fn bound(confidence: f64, sum: f64, p: f64) -> BoundedDouble {
         sum + low_interval,
         sum + high_interval,
     ))
-}
-
-#[cfg(test)]
-mod test {
-    use super::*;
-
-    #[test]
-    #[ignore]
-    fn compute_bound() {
-        bound(0.95, 10.0, 0.3);
-    }
 }

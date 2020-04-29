@@ -519,13 +519,16 @@ fn test_range() {
 
 #[test]
 fn count_aprox() -> Result<()> {
-    let time_out = std::time::Duration::from_secs(5);
     let sc = CONTEXT.clone();
-    let count = sc.range(1, 10, 1, 10).count_approx(time_out, Some(0.9))?;
-    // this should complete just in time, so confidence should be 100%
+
+    // this should complete  and return the final value, so confidence should be 100%
+    let time_out = std::time::Duration::from_nanos(100);
+    let count = sc
+        .range(1, 10_000, 1, 100)
+        .count_approx(time_out, Some(0.9))?;
     assert_eq!(
         count.get_final_value()?,
-        BoundedDouble::from((10.0, 1.0, 10.0, 10.0))
+        BoundedDouble::from((10_000.0, 1.0, 10_000.0, 10_000.0))
     );
 
     // no results
@@ -537,17 +540,15 @@ fn count_aprox() -> Result<()> {
         BoundedDouble::from((0.0, 0.0, 0.0, f64::MAX))
     );
 
-    // real partial result
-    let time_out = std::time::Duration::from_secs(3);
+    // only check the partial result
+    let time_out = std::time::Duration::from_secs(2);
     let count = sc
-        .range(1, 100, 1, 10)
-        .map(Fn!(|i| if i == 1 {
-            // force a time out
-            std::thread::sleep(std::time::Duration::from_secs(4))
-        }))
+        .make_rdd(vec![0i32; 10_000], 10)
         .count_approx(time_out, Some(0.9))?;
-    let _count = count.get_final_value()?;
-    // TODO: assert_eq!(count, BoundedDouble::from((0.0, 0.0, 0.0, f64::MAX)));
+    let confidence = count.initial_value.confidence;
+    let count = count.initial_value.mean;
+    eprintln!("count: {}, confidence: {}", count, confidence);
+    // assert!(confidence != 1.0 && confidence != 0.0);
 
     Ok(())
 }

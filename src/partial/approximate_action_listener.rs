@@ -13,9 +13,9 @@ use tokio::sync::Mutex;
 /// This listener waits up to timeout milliseconds and will return a partial answer even if the
 /// complete answer is not available by then.
 ///
-/// This type assumes that the action is performed on an entire RDD[T] via a function that computes
+/// This type assumes that the action is performed on an entire `Rdd<Item=T>` via a function that computes
 /// a result of type U for each partition, and that the action returns a partial or complete result
-/// of type R. Note that the type R must *include///any error bars on it (e.g. see BoundedInt).
+/// of type R. Note that the type R must include any error bars on it (e.g. see BoundedInt).
 pub(crate) struct ApproximateActionListener<U, R, E>
 where
     E: ApproximateEvaluator<U, R>,
@@ -57,7 +57,6 @@ where
     /// PartialResult with the result so far. This may be complete if the whole job is done.
     pub async fn get_result(&self) -> Result<PartialResult<R>> {
         let finish_time = self.start_time + self.timeout;
-        let partial_wait = self.timeout / 20;
         while Instant::now() < finish_time {
             {
                 let mut failure = self.failure.lock().await;
@@ -71,7 +70,7 @@ where
                     true,
                 ));
             }
-            tokio::time::delay_for(partial_wait).await;
+            tokio::time::delay_for(self.timeout / 20).await;
         }
         // Ran out of time before full completion, return partial job
         let result = PartialResult::new(self.evaluator.lock().await.current_result(), false);

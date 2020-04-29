@@ -23,10 +23,11 @@ where
     failure: Arc<Mutex<Option<Error>>>,
     completion_handler: Arc<Mutex<Option<Box<dyn Fn(R) + Send + Sync>>>>,
     failure_handler: Arc<Mutex<Option<Box<dyn Fn(&Error) + Send + Sync>>>>,
-    initial_value: R,
-    pub(crate) is_final: bool,
+    /// The partial result initial value, which may be or not the final value.
+    pub initial_value: R,
+    /// Whether this is the final value or not.
+    pub is_final: bool,
     // funcs:
-    /// Blocking method to wait for and return the final value.
     _get_final_value: Arc<dyn Fn(Arc<PartialResult<R>>) -> Result<R> + Send + Sync>,
     /// Set a handler to be called when this PartialResult completes. Only one completion handler
     /// is supported per PartialResult.
@@ -139,6 +140,7 @@ where
         }
     }
 
+    /// Blocking method to wait for and return the final value.
     pub fn get_final_value(self: Self) -> Result<R> {
         let selfc = Arc::new(self);
         (selfc._get_final_value)(selfc.clone())
