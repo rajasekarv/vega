@@ -15,7 +15,6 @@ use crate::partitioner::{HashPartitioner, Partitioner};
 use crate::scheduler::TaskContext;
 use crate::serializable_traits::{AnyData, Data, Func, SerFunc};
 use crate::split::Split;
-use crate::task::TaskContext;
 use crate::utils::random::{BernoulliCellSampler, BernoulliSampler, PoissonSampler, RandomSampler};
 use crate::{utils, Fn, SerArc, SerBox};
 use fasthash::MetroHasher;

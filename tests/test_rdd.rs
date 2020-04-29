@@ -565,6 +565,7 @@ fn count_aprox() -> Result<()> {
     Ok(())
 }
 
+#[test]
 fn test_is_empty() {
     let sc = CONTEXT.clone();
     let v: Vec<usize> = Vec::new();
