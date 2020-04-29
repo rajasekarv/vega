@@ -98,6 +98,9 @@ pub enum Error {
     #[error("operation not supported: {0}")]
     UnsupportedOperation(&'static str),
 
+    #[error("no files for the given path")]
+    NoFilesFound,
+
     #[error("unrecognized error (todo!)")]
     Other,
 }

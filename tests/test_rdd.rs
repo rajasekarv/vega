@@ -83,6 +83,18 @@ fn test_basic_operations() -> Result<()> {
 }
 
 #[test]
+fn test_filter() {
+    let sc = CONTEXT.clone();
+    let col1 = vec![13, 28, 3, 4, 51, 103, 12, 113, 19];
+
+    let rdd = sc.parallelize(col1, 2);
+
+    let predicate = Fn!(|&i: &usize| i > 100);
+
+    assert_eq!(rdd.filter(predicate).collect().unwrap(), vec![103, 113]);
+}
+
+#[test]
 fn test_map_partitions() -> Result<()> {
     let sc = CONTEXT.clone();
     let rdd = sc.make_rdd(vec![1, 2, 3, 4], 2);
@@ -551,4 +563,68 @@ fn count_aprox() -> Result<()> {
     // assert!(confidence != 1.0 && confidence != 0.0);
 
     Ok(())
+}
+
+fn test_is_empty() {
+    let sc = CONTEXT.clone();
+    let v: Vec<usize> = Vec::new();
+    let rdd = sc.parallelize(v, 1);
+
+    assert_eq!(rdd.is_empty(), true);
+}
+
+#[test]
+fn test_max_min() {
+    let sc = CONTEXT.clone();
+
+    let col1 = vec![13, 28, 3, 4, 51, 103, 12, 113, 19];
+
+    let rdd = sc.parallelize(col1, 2);
+
+    assert_eq!(rdd.max().unwrap().unwrap(), 113);
+    assert_eq!(rdd.min().unwrap().unwrap(), 3);
+}
+
+#[test]
+fn test_key_by() {
+    let sc = CONTEXT.clone();
+
+    let col1 = vec![3, 4, 5];
+    let rdd = sc.parallelize(col1, 2);
+
+    let res = rdd.key_by(Fn!(|&i: &usize| i * 10)).collect().unwrap();
+
+    assert_eq!(res, vec![(3, 30), (4, 40), (5, 50)]);
+}
+
+#[test]
+fn test_random_split() {
+    let sc = CONTEXT.clone();
+
+    let rdd = sc.range(1, 600, 1, 3);
+
+    let weights: Vec<f64> = vec![1.0, 2.0, 3.0];
+    let rdds: Vec<Vec<u64>> = rdd
+        .random_split(weights, None)
+        .iter()
+        .map(|rdd| rdd.collect().unwrap())
+        .collect();
+    let rdd_lengths: Vec<i64> = rdds.iter().map(|v| v.len() as i64).collect();
+
+    // Total number of splited RDDs should be same as the length of weights.
+    assert_eq!(rdds.len(), 3);
+
+    // Total count of of elements of all splited RDDs shall be equal to
+    // the total count of the original RDD.
+    assert_eq!(rdd_lengths.iter().sum::<i64>(), 600);
+
+    // The count of elements in each splitted RDD shall match its assigned weight.
+    assert!((rdd_lengths[0] as i64 - 100).abs() < 50);
+    assert!((rdd_lengths[1] as i64 - 200).abs() < 50);
+    assert!((rdd_lengths[2] as i64 - 300).abs() < 50);
+
+    // The splitted RDDs shall be disjoint sets
+    assert!(rdds[0].iter().all(|i| !rdds[1].contains(i)));
+    assert!(rdds[0].iter().all(|i| !rdds[2].contains(i)));
+    assert!(rdds[1].iter().all(|i| !rdds[2].contains(i)));
 }

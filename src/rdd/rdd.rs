@@ -15,7 +15,8 @@ use crate::partitioner::{HashPartitioner, Partitioner};
 use crate::scheduler::TaskContext;
 use crate::serializable_traits::{AnyData, Data, Func, SerFunc};
 use crate::split::Split;
-use crate::utils::random::{BernoulliSampler, PoissonSampler, RandomSampler};
+use crate::task::TaskContext;
+use crate::utils::random::{BernoulliCellSampler, BernoulliSampler, PoissonSampler, RandomSampler};
 use crate::{utils, Fn, SerArc, SerBox};
 use fasthash::MetroHasher;
 use rand::{Rng, SeedableRng};
@@ -178,6 +179,20 @@ pub trait Rdd: RddBase + 'static {
 
     fn iterator(&self, split: Box<dyn Split>) -> Result<Box<dyn Iterator<Item = Self::Item>>> {
         self.compute(split)
+    }
+
+    /// Return a new RDD containing only the elements that satisfy a predicate.
+    fn filter<F>(&self, predicate: F) -> SerArc<dyn Rdd<Item = Self::Item>>
+    where
+        F: SerFunc(&Self::Item) -> bool + Copy,
+        Self: Sized,
+    {
+        let filter_fn = Fn!(move |_index: usize,
+                                  items: Box<dyn Iterator<Item = Self::Item>>|
+              -> Box<dyn Iterator<Item = _>> {
+            Box::new(items.filter(predicate))
+        });
+        SerArc::new(MapPartitionsRdd::new(self.get_rdd(), filter_fn))
     }
 
     fn map<U: Data, F>(&self, f: F) -> SerArc<dyn Rdd<Item = U>>
@@ -563,6 +578,58 @@ pub trait Rdd: RddBase + 'static {
         Ok(buf)
     }
 
+    /// Randomly splits this RDD with the provided weights.
+    fn random_split(
+        &self,
+        weights: Vec<f64>,
+        seed: Option<u64>,
+    ) -> Vec<SerArc<dyn Rdd<Item = Self::Item>>>
+    where
+        Self: Sized,
+    {
+        let sum: f64 = weights.iter().sum();
+        assert!(
+            weights.iter().all(|&x| x >= 0.0),
+            format!("Weights must be nonnegative, but got {:?}", weights)
+        );
+        assert!(
+            sum > 0.0,
+            format!("Sum of weights must be positive, but got {:?}", weights)
+        );
+
+        let seed_val: u64 = seed.unwrap_or(rand::random::<u64>());
+
+        let mut full_bounds = vec![0.0f64];
+        let bounds = weights
+            .into_iter()
+            .map(|weight| weight / sum)
+            .scan(0.0f64, |state, x| {
+                *state = *state + x;
+                Some(*state)
+            });
+        full_bounds.extend(bounds);
+
+        let mut splitted_rdds: Vec<SerArc<dyn Rdd<Item = Self::Item>>> = Vec::new();
+
+        for bound in full_bounds.windows(2) {
+            let (lower_bound, upper_bound) = (bound[0], bound[1]);
+            let func = Fn!(move |index: usize,
+                                 partition: Box<dyn Iterator<Item = Self::Item>>|
+                  -> Box<dyn Iterator<Item = Self::Item>> {
+                let bcs = Arc::new(BernoulliCellSampler::new(lower_bound, upper_bound, false))
+                    as Arc<dyn RandomSampler<Self::Item>>;
+
+                let sampler_func = bcs.get_sampler(Some(seed_val + index as u64));
+
+                Box::new(sampler_func(partition).into_iter())
+            });
+            let rdd = SerArc::new(MapPartitionsRdd::new(self.get_rdd(), func));
+            splitted_rdds.push(rdd.clone());
+        }
+
+        splitted_rdds
+    }
+
     /// Return a sampled subset of this RDD.
     ///
     /// # Arguments
@@ -882,6 +949,49 @@ pub trait Rdd: RddBase + 'static {
         rdd.register_op_name("count_approx");
         self.get_context()
             .run_approximate_job(count_elements, rdd, evaluator, timeout)
+    }
+
+    /// Creates tuples of the elements in this RDD by applying `f`.
+    fn key_by<T, F>(&self, func: F) -> SerArc<dyn Rdd<Item = (Self::Item, T)>>
+    where
+        Self: Sized,
+        T: Data,
+        F: SerFunc(&Self::Item) -> T,
+    {
+        self.map(Fn!(move |k: Self::Item| -> (Self::Item, T) {
+            let t = (func)(&k);
+            (k, t)
+        }))
+    }
+
+    /// Check if the RDD contains no elements at all. Note that an RDD may be empty even when it
+    /// has at least 1 partition.
+    fn is_empty(&self) -> bool
+    where
+        Self: Sized,
+    {
+        self.number_of_splits() == 0 || self.take(1).unwrap().len() == 0
+    }
+
+    /// Returns the max element of this RDD.
+    fn max(&self) -> Result<Option<Self::Item>>
+    where
+        Self: Sized,
+        Self::Item: Data + Ord,
+    {
+        let max_fn = Fn!(|x: Self::Item, y: Self::Item| x.max(y));
+
+        self.reduce(max_fn)
+    }
+
+    /// Returns the min element of this RDD.
+    fn min(&self) -> Result<Option<Self::Item>>
+    where
+        Self: Sized,
+        Self::Item: Data + Ord,
+    {
+        let min_fn = Fn!(|x: Self::Item, y: Self::Item| x.min(y));
+        self.reduce(min_fn)
     }
 }
 

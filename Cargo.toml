@@ -15,7 +15,7 @@ aws_connectors = ["rusoto_core", "rusoto_s3"]
 [dependencies]
 async-trait = "0.1.30"
 crossbeam = "0.7.3"
-dashmap = "^3.5.1"
+dashmap = "3.11.1"
 envy = "^0.4.1"
 fasthash = "0.4.0"
 futures = { version = "0.3.4" }

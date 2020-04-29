@@ -3,7 +3,6 @@ dist: xenial
 language: rust
 rust:
 - nightly
-cache: cargo
 env:
   global:
     - export PATH="$PATH:$HOME/bin"

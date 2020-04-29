@@ -127,7 +127,7 @@ impl<T: Data> Rdd for PartitionwiseSampledRdd<T> {
     }
 
     fn compute(&self, split: Box<dyn Split>) -> Result<Box<dyn Iterator<Item = Self::Item>>> {
-        let sampler_func = self.sampler.get_sampler();
+        let sampler_func = self.sampler.get_sampler(None);
         let iter = self.prev.iterator(split)?;
         Ok(Box::new(sampler_func(iter).into_iter()) as Box<dyn Iterator<Item = T>>)
     }
