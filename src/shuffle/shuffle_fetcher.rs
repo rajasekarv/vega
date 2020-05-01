@@ -100,20 +100,21 @@ impl ShuffleFetcher {
         }
         log::debug!("total_results {}", total_results);
         let task_results = future::join_all(tasks.into_iter()).await;
-        let results = task_results
-            .into_iter()
-            .fold(Ok(Vec::<(K, V)>::new()), |curr, res| {
+        let results = task_results.into_iter().fold(
+            Ok(Vec::<(K, V)>::with_capacity(total_results)),
+            |curr, res| {
                 if let Ok(mut curr) = curr {
                     if let Ok(Ok(res)) = res {
                         curr.extend(res);
                         Ok(curr)
                     } else {
-                        Err(ShuffleError::Other)
+                        Err(ShuffleError::FailedFetchOp)
                     }
                 } else {
-                    Err(ShuffleError::Other)
+                    Err(ShuffleError::FailedFetchOp)
                 }
-            })?;
+            },
+        )?;
         Ok(results.into_iter())
     }
 
@@ -139,7 +140,7 @@ impl ShuffleFetcher {
 mod tests {
     use super::*;
 
-    // #[tokio::test]
+    #[tokio::test(core_threads = 4)]
     async fn fetch_ok() -> StdResult<(), Box<dyn std::error::Error + 'static>> {
         {
             let addr = format!(
@@ -147,21 +148,24 @@ mod tests {
                 env::Env::get().shuffle_manager.server_port
             );
             let servers = &env::Env::get().map_output_tracker.server_uris;
-            servers.insert(0, vec![Some(addr)]);
+            servers.insert(11000, vec![Some(addr)]);
 
             let data = vec![(0i32, "example data".to_string())];
             let serialized_data = bincode::serialize(&data).unwrap();
-            env::SHUFFLE_CACHE.insert((0, 0, 0), serialized_data);
+            env::SHUFFLE_CACHE.insert((11000, 0, 11001), serialized_data);
         }
 
-        let result: Vec<(i32, String)> = ShuffleFetcher::fetch(0, 0).await?.into_iter().collect();
+        let result: Vec<(i32, String)> = ShuffleFetcher::fetch(11000, 11001)
+            .await?
+            .into_iter()
+            .collect();
         assert_eq!(result[0].0, 0);
         assert_eq!(result[0].1, "example data");
 
         Ok(())
     }
 
-    // #[tokio::test]
+    #[tokio::test(core_threads = 4)]
     async fn fetch_failure() -> StdResult<(), Box<dyn std::error::Error + 'static>> {
         {
             let addr = format!(
@@ -169,14 +173,14 @@ mod tests {
                 env::Env::get().shuffle_manager.server_port
             );
             let servers = &env::Env::get().map_output_tracker.server_uris;
-            servers.insert(1, vec![Some(addr)]);
+            servers.insert(10000, vec![Some(addr)]);
 
             let data = "corrupted data";
             let serialized_data = bincode::serialize(&data).unwrap();
-            env::SHUFFLE_CACHE.insert((1, 0, 0), serialized_data);
+            env::SHUFFLE_CACHE.insert((10000, 0, 10001), serialized_data);
         }
 
-        let err = ShuffleFetcher::fetch::<i32, String>(1, 0).await;
+        let err = ShuffleFetcher::fetch::<i32, String>(10000, 10001).await;
         assert!(err.is_err());
 
         Ok(())

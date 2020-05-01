@@ -15,6 +15,7 @@ use once_cell::sync::{Lazy, OnceCell};
 use serde::{Deserialize, Serialize};
 use tokio::runtime::{Handle, Runtime};
 
+/// The key is: {shuffle_id}/{input_id}/{reduce_id}
 type ShuffleCache = Arc<DashMap<(usize, usize, usize), Vec<u8>>>;
 
 const ENV_VAR_PREFIX: &str = "NS_";

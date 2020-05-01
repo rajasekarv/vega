@@ -26,6 +26,7 @@ pub(crate) enum MapOutputTrackerMessage {
     StopMapOutputTracker,
 }
 
+/// The key is the shuffle_id
 pub type ServerUris = Arc<DashMap<usize, Vec<Option<String>>>>;
 
 // Starts the server in master node and client in slave nodes. Similar to cache tracker.
