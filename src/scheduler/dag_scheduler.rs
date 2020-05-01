@@ -1,8 +1,9 @@
-use crate::scheduler::Scheduler;
-use crate::task::TaskBase;
 use std::any::Any;
 use std::collections::HashMap;
 use std::error::Error;
+
+use crate::scheduler::{Scheduler, TaskBase};
+use crate::serializable_traits::AnyData;
 
 #[derive(Debug, Clone)]
 pub struct FetchFailedVals {
@@ -18,7 +19,7 @@ pub struct FetchFailedVals {
 pub struct CompletionEvent {
     pub task: Box<dyn TaskBase>,
     pub reason: TastEndReason,
-    pub result: Option<Box<dyn Any + Send + Sync>>,
+    pub result: Option<Box<dyn AnyData>>,
     pub accum_updates: HashMap<i64, Box<dyn Any + Send + Sync>>,
 }
 

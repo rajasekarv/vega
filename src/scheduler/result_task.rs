@@ -5,8 +5,8 @@ use std::sync::Arc;
 
 use crate::env;
 use crate::rdd::Rdd;
-use crate::serializable_traits::Data;
-use crate::task::{Task, TaskBase, TaskContext};
+use crate::scheduler::{Task, TaskBase, TaskContext};
+use crate::serializable_traits::{AnyData, Data};
 use crate::SerBox;
 use serde_derive::{Deserialize, Serialize};
 use serde_traitobject::{Deserialize, Serialize};
@@ -156,10 +156,10 @@ where
         + Deserialize
         + Clone,
 {
-    fn run(&self, id: usize) -> SerBox<dyn serde_traitobject::Any + Send + Sync> {
+    fn run(&self, id: usize) -> SerBox<dyn AnyData> {
         let split = self.rdd.splits()[self.partition].clone();
         let context = TaskContext::new(self.stage_id, self.partition, id);
         SerBox::new((self.func)((context, self.rdd.iterator(split).unwrap())))
-            as SerBox<dyn serde_traitobject::Any + Send + Sync>
+            as SerBox<dyn AnyData>
     }
 }

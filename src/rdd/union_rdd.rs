@@ -197,6 +197,10 @@ impl<T: Data> RddBase for UnionRdd<T> {
         }
     }
 
+    fn get_op_name(&self) -> String {
+        "union".to_owned()
+    }
+
     fn get_context(&self) -> Arc<Context> {
         match &self.0 {
             NonUniquePartitioner { vals, .. } => vals.context.upgrade().unwrap(),

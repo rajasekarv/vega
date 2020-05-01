@@ -1,3 +1,4 @@
+use std::fmt::Debug;
 use std::fs;
 use std::io::Write;
 use std::net::{Ipv4Addr, SocketAddrV4, TcpStream};
@@ -8,22 +9,22 @@ use std::sync::{
     atomic::{AtomicUsize, Ordering},
     Arc,
 };
+use std::time::{Duration, Instant};
 
-use crate::distributed_scheduler::DistributedScheduler;
 use crate::error::{Error, Result};
 use crate::executor::{Executor, Signal};
 use crate::io::ReaderConfiguration;
-use crate::local_scheduler::LocalScheduler;
+use crate::partial::{ApproximateEvaluator, PartialResult};
 use crate::rdd::{ParallelCollection, Rdd, RddBase, UnionRdd};
-use crate::scheduler::NativeScheduler;
+use crate::scheduler::{DistributedScheduler, LocalScheduler, NativeScheduler, TaskContext};
 use crate::serializable_traits::{Data, SerFunc};
 use crate::serialized_data_capnp::serialized_data;
-use crate::task::TaskContext;
 use crate::{env, hosts, utils, Fn, SerArc};
 use log::error;
 use once_cell::sync::OnceCell;
 use simplelog::*;
 use uuid::Uuid;
+use Schedulers::*;
 
 // There is a problem with this approach since T needs to satisfy PartialEq, Eq for Range
 // No such restrictions are needed for Vec
@@ -45,7 +46,7 @@ impl Default for Schedulers {
 }
 
 impl Schedulers {
-    pub fn run_job<T: Data, U: Data, F>(
+    fn run_job<T: Data, U: Data, F>(
         &self,
         func: Arc<F>,
         final_rdd: Arc<dyn Rdd<Item = T>>,
@@ -55,17 +56,64 @@ impl Schedulers {
     where
         F: SerFunc((TaskContext, Box<dyn Iterator<Item = T>>)) -> U,
     {
-        use Schedulers::*;
+        let op_name = final_rdd.get_op_name();
+        log::info!("starting `{}` job", op_name);
+        let start = Instant::now();
         match self {
             Distributed(distributed) => {
-                distributed
+                let res = distributed
                     .clone()
-                    .run_job(func, final_rdd, partitions, allow_local)
+                    .run_job(func, final_rdd, partitions, allow_local);
+                log::info!(
+                    "`{}` job finished, took {}s",
+                    op_name,
+                    start.elapsed().as_secs()
+                );
+                res
             }
+            Local(local) => {
+                let res = local
+                    .clone()
+                    .run_job(func, final_rdd, partitions, allow_local);
+                log::info!(
+                    "`{}` job finished, took {}s",
+                    op_name,
+                    start.elapsed().as_secs()
+                );
+                res
+            }
+        }
+    }
+
+    fn run_approximate_job<T: Data, U: Data, R, F, E>(
+        &self,
+        func: Arc<F>,
+        final_rdd: Arc<dyn Rdd<Item = T>>,
+        evaluator: E,
+        timeout: Duration,
+    ) -> Result<PartialResult<R>>
+    where
+        F: SerFunc((TaskContext, Box<dyn Iterator<Item = T>>)) -> U,
+        E: ApproximateEvaluator<U, R> + Send + Sync + 'static,
+        R: Clone + Debug + Send + Sync + 'static,
+    {
+        let op_name = final_rdd.get_op_name();
+        log::info!("starting `{}` job", op_name);
+        let start = Instant::now();
+        let res = match self {
+            Distributed(distributed) => distributed
+                .clone()
+                .run_approximate_job(func, final_rdd, evaluator, timeout),
             Local(local) => local
                 .clone()
-                .run_job(func, final_rdd, partitions, allow_local),
-        }
+                .run_approximate_job(func, final_rdd, evaluator, timeout),
+        };
+        log::info!(
+            "`{}` job finished, took {}s",
+            op_name,
+            start.elapsed().as_secs()
+        );
+        res
     }
 }
 
@@ -82,7 +130,6 @@ pub struct Context {
 
 impl Drop for Context {
     fn drop(&mut self) {
-        // TODO: clean up temp files
         #[cfg(debug_assertions)]
         {
             let deployment_mode = env::Configuration::get().deployment_mode;
@@ -364,7 +411,9 @@ impl Context {
     where
         I: IntoIterator<Item = T>,
     {
-        self.parallelize(seq, num_slices)
+        let rdd = self.parallelize(seq, num_slices);
+        rdd.register_op_name("make_rdd");
+        rdd
     }
 
     pub fn range(
@@ -376,7 +425,9 @@ impl Context {
     ) -> SerArc<dyn Rdd<Item = u64>> {
         // TODO: input validity check
         let seq = (start..=end).step_by(step);
-        self.parallelize(seq, num_slices)
+        let rdd = self.parallelize(seq, num_slices);
+        rdd.register_op_name("range");
+        rdd
     }
 
     pub fn parallelize<T: Data, I>(
@@ -452,6 +503,24 @@ impl Context {
             (0..rdd.number_of_splits()).collect(),
             false,
         )
+    }
+
+    /// Run a job that can return approximate results. Returns a partial result
+    /// (how partial depends on whether the job was finished before or after timeout).
+    pub(crate) fn run_approximate_job<T: Data, U: Data, R, F, E>(
+        self: &Arc<Self>,
+        func: F,
+        rdd: Arc<dyn Rdd<Item = T>>,
+        evaluator: E,
+        timeout: Duration,
+    ) -> Result<PartialResult<R>>
+    where
+        F: SerFunc((TaskContext, Box<dyn Iterator<Item = T>>)) -> U,
+        E: ApproximateEvaluator<U, R> + Send + Sync + 'static,
+        R: Clone + Debug + Send + Sync + 'static,
+    {
+        self.scheduler
+            .run_approximate_job(Arc::new(func), rdd, evaluator, timeout)
     }
 
     pub(crate) fn get_preferred_locs(

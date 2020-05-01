@@ -1,8 +1,8 @@
 use std::cmp::Ordering;
 use std::net::Ipv4Addr;
 
-use crate::result_task::ResultTask;
-use crate::serializable_traits::{Data, SerFunc};
+use crate::scheduler::ResultTask;
+use crate::serializable_traits::{AnyData, Data, SerFunc};
 use crate::shuffle::ShuffleMapTask;
 use crate::SerBox;
 use downcast_rs::{impl_downcast, Downcast};
@@ -62,7 +62,7 @@ impl Ord for dyn TaskBase {
 }
 
 pub(crate) trait Task: TaskBase + Send + Sync + Downcast {
-    fn run(&self, id: usize) -> SerBox<dyn serde_traitobject::Any + Send + Sync>;
+    fn run(&self, id: usize) -> SerBox<dyn AnyData>;
 }
 
 impl_downcast!(Task);
@@ -98,8 +98,8 @@ impl From<ShuffleMapTask> for TaskOption {
 
 #[derive(Serialize, Deserialize)]
 pub(crate) enum TaskResult {
-    ResultTask(SerBox<dyn serde_traitobject::Any + Send + Sync>),
-    ShuffleTask(SerBox<dyn serde_traitobject::Any + Send + Sync>),
+    ResultTask(SerBox<dyn AnyData>),
+    ShuffleTask(SerBox<dyn AnyData>),
 }
 
 impl TaskOption {

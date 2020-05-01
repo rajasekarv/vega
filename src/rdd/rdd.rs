@@ -5,14 +5,16 @@ use std::io::{BufWriter, Write};
 use std::net::Ipv4Addr;
 use std::path::Path;
 use std::sync::{Arc, Weak};
+use std::time::Duration;
 
 use crate::context::Context;
 use crate::dependency::Dependency;
 use crate::error::{Error, Result};
+use crate::partial::{BoundedDouble, CountEvaluator, PartialResult};
 use crate::partitioner::{HashPartitioner, Partitioner};
+use crate::scheduler::TaskContext;
 use crate::serializable_traits::{AnyData, Data, Func, SerFunc};
 use crate::split::Split;
-use crate::task::TaskContext;
 use crate::utils::random::{BernoulliCellSampler, BernoulliSampler, PoissonSampler, RandomSampler};
 use crate::{utils, Fn, SerArc, SerBox};
 use fasthash::MetroHasher;
@@ -78,6 +80,12 @@ impl RddVals {
 pub trait RddBase: Send + Sync + Serialize + Deserialize {
     fn get_rdd_id(&self) -> usize;
     fn get_context(&self) -> Arc<Context>;
+    fn get_op_name(&self) -> String {
+        "unknown".to_owned()
+    }
+    fn register_op_name(&self, _name: &str) {
+        log::debug!("couldn't register op name")
+    }
     fn get_dependencies(&self) -> Vec<Dependency>;
     fn preferred_locations(&self, _split: Box<dyn Split>) -> Vec<Ipv4Addr> {
         Vec::new()
@@ -236,7 +244,9 @@ pub trait Rdd: RddBase + 'static {
             ))
                 as Box<dyn Iterator<Item = Vec<Self::Item>>>
         );
-        SerArc::new(MapPartitionsRdd::new(self.get_rdd(), Box::new(func)))
+        let rdd = MapPartitionsRdd::new(self.get_rdd(), Box::new(func));
+        rdd.register_op_name("gloom");
+        SerArc::new(rdd)
     }
 
     fn save_as_text_file(&self, path: String) -> Result<Vec<()>>
@@ -363,7 +373,7 @@ pub trait Rdd: RddBase + 'static {
     /// current upstream partitions will be executed in parallel (per whatever
     /// the current partitioning is).
     ///
-    /// ## Notes
+    /// # Notes
     ///
     /// With shuffle = true, you can actually coalesce to a larger number
     /// of partitions. This is useful if you have a small number of partitions,
@@ -800,46 +810,43 @@ pub trait Rdd: RddBase + 'static {
                 |x: Self::Item| -> (Self::Item, Option<Self::Item>) { (x, None) }
             )))
             .clone();
-        self.map(
-            Box::new(Fn!(
-                    |x| -> (Self::Item, Option<Self::Item>){
-                        (x, None)
-                    }
-                )
+        let rdd = self
+            .map(Box::new(Fn!(|x| -> (Self::Item, Option<Self::Item>) {
+                (x, None)
+            })))
+            .cogroup(
+                other,
+                Box::new(HashPartitioner::<Self::Item>::new(num_splits)) as Box<dyn Partitioner>,
             )
-        ).cogroup(
-            other,
-            Box::new(HashPartitioner::<Self::Item>::new(num_splits)) as Box<dyn Partitioner>
-        ).map(
-            Box::new(
-                Fn!(
-                    |(x, (v1, v2)): (Self::Item, (Vec::<Option<Self::Item>>, Vec::<Option<Self::Item>>))| -> Option<Self::Item> {
-                        if v1.len() >= 1 && v2.len() >= 1 {
-                            Some(x)
-                        } else {
-                            None
-                        }
-                    }
-                )
-            )
-        ).map_partitions(
-            Box::new(
-                Fn!(
-                    |iter: Box<dyn Iterator<Item=Option<Self::Item>>>| -> Box<dyn Iterator<Item=Self::Item>> {
-                        Box::new(
-                            iter.filter(|x| x.is_some()).map(|x| x.unwrap())
-                        ) as Box<dyn Iterator<Item=Self::Item>>
-                    }
-                )
-            )
-        )
+            .map(Box::new(Fn!(|(x, (v1, v2)): (
+                Self::Item,
+                (Vec::<Option<Self::Item>>, Vec::<Option<Self::Item>>)
+            )|
+             -> Option<Self::Item> {
+                if v1.len() >= 1 && v2.len() >= 1 {
+                    Some(x)
+                } else {
+                    None
+                }
+            })))
+            .map_partitions(Box::new(Fn!(|iter: Box<
+                dyn Iterator<Item = Option<Self::Item>>,
+            >|
+             -> Box<
+                dyn Iterator<Item = Self::Item>,
+            > {
+                Box::new(iter.filter(|x| x.is_some()).map(|x| x.unwrap()))
+                    as Box<dyn Iterator<Item = Self::Item>>
+            })));
+        (&*rdd).register_op_name("intersection");
+        rdd
     }
 
     /// Return an RDD of grouped items. Each group consists of a key and a sequence of elements
     /// mapping to that key. The ordering of elements within each group is not guaranteed, and
     /// may even differ each time the resulting RDD is evaluated.
     ///
-    /// ## Notes
+    /// # Notes
     ///
     /// This operation may be very expensive. If you are grouping in order to perform an
     /// aggregation (such as a sum or average) over each key, using `aggregate_by_key`
@@ -857,7 +864,7 @@ pub trait Rdd: RddBase + 'static {
     /// mapping to that key. The ordering of elements within each group is not guaranteed, and
     /// may even differ each time the resulting RDD is evaluated.
     ///
-    /// ## Notes
+    /// # Notes
     ///
     /// This operation may be very expensive. If you are grouping in order to perform an
     /// aggregation (such as a sum or average) over each key, using `aggregate_by_key`
@@ -883,7 +890,7 @@ pub trait Rdd: RddBase + 'static {
     /// mapping to that key. The ordering of elements within each group is not guaranteed, and
     /// may even differ each time the resulting RDD is evaluated.
     ///
-    /// ## Notes
+    /// # Notes
     ///
     /// This operation may be very expensive. If you are grouping in order to perform an
     /// aggregation (such as a sum or average) over each key, using `aggregate_by_key`
@@ -903,6 +910,44 @@ pub trait Rdd: RddBase + 'static {
             (key, val)
         })))
         .group_by_key_using_partitioner(partitioner)
+    }
+
+    /// Approximate version of count() that returns a potentially incomplete result
+    /// within a timeout, even if not all tasks have finished.
+    ///
+    /// The confidence is the probability that the error bounds of the result will
+    /// contain the true value. That is, if count_approx were called repeatedly
+    /// with confidence 0.9, we would expect 90% of the results to contain the
+    /// true count. The confidence must be in the range [0,1] or an exception will
+    /// be thrown.
+    ///
+    /// # Arguments
+    /// * `timeout` - maximum time to wait for the job, in milliseconds
+    /// * `confidence` - the desired statistical confidence in the result
+    fn count_approx(
+        &self,
+        timeout: Duration,
+        confidence: Option<f64>,
+    ) -> Result<PartialResult<BoundedDouble>>
+    where
+        Self: Sized,
+    {
+        let confidence = if let Some(confidence) = confidence {
+            confidence
+        } else {
+            0.95
+        };
+        let count_elements = Fn!(|(_ctx, iter): (
+            TaskContext,
+            Box<dyn Iterator<Item = Self::Item>>
+        )|
+         -> usize { iter.count() });
+
+        let evaluator = CountEvaluator::new(self.number_of_splits(), confidence);
+        let rdd = self.get_rdd();
+        rdd.register_op_name("count_approx");
+        self.get_context()
+            .run_approximate_job(count_elements, rdd, evaluator, timeout)
     }
 
     /// Creates tuples of the elements in this RDD by applying `f`.

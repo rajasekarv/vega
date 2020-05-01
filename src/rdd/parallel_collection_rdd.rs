@@ -7,6 +7,7 @@ use crate::error::Result;
 use crate::rdd::{Rdd, RddBase, RddVals};
 use crate::serializable_traits::{AnyData, Data};
 use crate::split::Split;
+use parking_lot::Mutex;
 use serde_derive::{Deserialize, Serialize};
 
 /// A collection of objects which can be sliced into partitions with a partitioning function.
@@ -65,12 +66,15 @@ pub struct ParallelCollectionVals<T> {
 
 #[derive(Serialize, Deserialize)]
 pub struct ParallelCollection<T> {
+    #[serde(skip_serializing, skip_deserializing)]
+    name: Mutex<String>,
     rdd_vals: Arc<ParallelCollectionVals<T>>,
 }
 
 impl<T: Data> Clone for ParallelCollection<T> {
     fn clone(&self) -> Self {
         ParallelCollection {
+            name: Mutex::new(self.name.lock().clone()),
             rdd_vals: self.rdd_vals.clone(),
         }
     }
@@ -82,6 +86,7 @@ impl<T: Data> ParallelCollection<T> {
         I: IntoIterator<Item = T>,
     {
         ParallelCollection {
+            name: Mutex::new("parallel_collection".to_owned()),
             rdd_vals: Arc::new(ParallelCollectionVals {
                 context: Arc::downgrade(&context),
                 vals: Arc::new(RddVals::new(context.clone())),
@@ -103,6 +108,7 @@ impl<T: Data> ParallelCollection<T> {
             splits_,
         };
         ParallelCollection {
+            name: Mutex::new("parallel_collection".to_owned()),
             rdd_vals: Arc::new(rdd_vals),
         }
     }
@@ -155,12 +161,24 @@ impl<T: Data> RddBase for ParallelCollection<T> {
     fn get_rdd_id(&self) -> usize {
         self.rdd_vals.vals.id
     }
+
     fn get_context(&self) -> Arc<Context> {
         self.rdd_vals.vals.context.upgrade().unwrap()
     }
+
+    fn get_op_name(&self) -> String {
+        self.name.lock().to_owned()
+    }
+
+    fn register_op_name(&self, name: &str) {
+        let own_name = &mut *self.name.lock();
+        *own_name = name.to_owned();
+    }
+
     fn get_dependencies(&self) -> Vec<Dependency> {
         self.rdd_vals.vals.dependencies.clone()
     }
+
     fn splits(&self) -> Vec<Box<dyn Split>> {
         (0..self.rdd_vals.splits_.len())
             .map(|i| {
@@ -172,6 +190,7 @@ impl<T: Data> RddBase for ParallelCollection<T> {
             })
             .collect::<Vec<Box<dyn Split>>>()
     }
+
     fn number_of_splits(&self) -> usize {
         self.rdd_vals.splits_.len()
     }
@@ -199,6 +218,7 @@ impl<T: Data> Rdd for ParallelCollection<T> {
     type Item = T;
     fn get_rdd(&self) -> Arc<dyn Rdd<Item = Self::Item>> {
         Arc::new(ParallelCollection {
+            name: Mutex::new(self.name.lock().clone()),
             rdd_vals: self.rdd_vals.clone(),
         })
     }

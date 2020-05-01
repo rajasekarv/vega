@@ -4,35 +4,17 @@ use std::sync::Arc;
 use std::thread;
 use std::time::{Duration, Instant};
 
-use crate::dag_scheduler::{CompletionEvent, FetchFailedVals};
 use crate::dependency::{Dependency, ShuffleDependencyTrait};
 use crate::env;
 use crate::error::{Error, Result};
-use crate::job::JobTracker;
-use crate::rdd::{Rdd, RddBase};
-use crate::result_task::ResultTask;
+use crate::rdd::RddBase;
+use crate::scheduler::{
+    CompletionEvent, FetchFailedVals, JobListener, JobTracker, ResultTask, Stage, TaskBase,
+    TaskContext, TaskOption,
+};
 use crate::serializable_traits::{Data, SerFunc};
 use crate::shuffle::ShuffleMapTask;
-use crate::stage::Stage;
-use crate::task::{TaskBase, TaskContext, TaskOption};
 use dashmap::DashMap;
-
-pub trait Scheduler {
-    fn start(&self);
-    fn wait_for_register(&self);
-    fn run_job<T: Data, U: Data, F>(
-        &self,
-        rdd: &dyn Rdd<Item = T>,
-        func: F,
-        partitions: Vec<i64>,
-        allow_local: bool,
-    ) -> Vec<U>
-    where
-        Self: Sized,
-        F: Fn(Box<dyn Iterator<Item = T>>) -> U;
-    fn stop(&self);
-    fn default_parallelism(&self) -> i64;
-}
 
 pub(crate) type EventQueue = Arc<DashMap<usize, VecDeque<CompletionEvent>>>;
 
@@ -40,9 +22,12 @@ pub(crate) type EventQueue = Arc<DashMap<usize, VecDeque<CompletionEvent>>>;
 #[async_trait::async_trait]
 pub(crate) trait NativeScheduler: Send + Sync {
     /// Fast path for execution. Runs the DD in the driver main thread if possible.
-    fn local_execution<T: Data, U: Data, F>(jt: JobTracker<F, U, T>) -> Result<Option<Vec<U>>>
+    fn local_execution<T: Data, U: Data, F, L>(
+        jt: Arc<JobTracker<F, U, T, L>>,
+    ) -> Result<Option<Vec<U>>>
     where
         F: SerFunc((TaskContext, Box<dyn Iterator<Item = T>>)) -> U,
+        L: JobListener,
     {
         if jt.final_stage.parents.is_empty() && (jt.num_output_parts == 1) {
             let split = (jt.final_rdd.splits()[jt.output_parts[0]]).clone();
@@ -184,13 +169,14 @@ pub(crate) trait NativeScheduler: Send + Sync {
         Ok(parents.into_iter().collect())
     }
 
-    async fn on_event_failure<T: Data, U: Data, F>(
+    async fn on_event_failure<T: Data, U: Data, F, L>(
         &self,
-        jt: JobTracker<F, U, T>,
+        jt: Arc<JobTracker<F, U, T, L>>,
         failed_vals: FetchFailedVals,
         stage_id: usize,
     ) where
         F: SerFunc((TaskContext, Box<dyn Iterator<Item = T>>)) -> U,
+        L: JobListener,
     {
         let FetchFailedVals {
             server_uri,
@@ -202,25 +188,27 @@ pub(crate) trait NativeScheduler: Send + Sync {
         // TODO: mapoutput tracker needs to be finished for this
         // let failed_stage = self.id_to_stage.lock().get(&stage_id).?.clone();
         let failed_stage = self.fetch_from_stage_cache(stage_id);
-        jt.running.lock().remove(&failed_stage);
-        jt.failed.lock().insert(failed_stage);
+        jt.running.lock().await.remove(&failed_stage);
+        jt.failed.lock().await.insert(failed_stage);
         // TODO: logging
         self.remove_output_loc_from_stage(shuffle_id, map_id, &server_uri);
         self.unregister_map_output(shuffle_id, map_id, server_uri);
         jt.failed
             .lock()
+            .await
             .insert(self.fetch_from_shuffle_to_cache(shuffle_id));
     }
 
-    async fn on_event_success<T: Data, U: Data, F>(
+    async fn on_event_success<T: Data, U: Data, F, L>(
         &self,
         mut completed_event: CompletionEvent,
         results: &mut Vec<Option<U>>,
         num_finished: &mut usize,
-        jt: JobTracker<F, U, T>,
+        jt: Arc<JobTracker<F, U, T, L>>,
     ) -> Result<()>
     where
         F: SerFunc((TaskContext, Box<dyn Iterator<Item = T>>)) -> U,
+        L: JobListener,
     {
         // TODO: logging
         // TODO: add to Accumulator
@@ -231,16 +219,19 @@ pub(crate) trait NativeScheduler: Send + Sync {
             .is_some();
         if result_type {
             if let Ok(rt) = completed_event.task.downcast::<ResultTask<T, U, F>>() {
-                let result = completed_event
-                    .result
-                    .take()
-                    .ok_or_else(|| Error::Other)?
+                let any_result = completed_event.result.take().ok_or_else(|| Error::Other)?;
+                jt.listener
+                    .task_succeeded(rt.output_id, &*any_result)
+                    .await?;
+                let result = any_result
+                    .as_any()
                     .downcast_ref::<U>()
-                    .ok_or_else(|| Error::DowncastFailure(""))?
+                    .ok_or_else(|| {
+                        Error::DowncastFailure("generic type U in scheduler on success")
+                    })?
                     .clone();
-
                 results[rt.output_id] = Some(result);
-                jt.finished.lock()[rt.output_id] = true;
+                jt.finished.lock().await[rt.output_id] = true;
                 *num_finished += 1;
             }
         } else if let Ok(smt) = completed_event.task.downcast::<ShuffleMapTask>() {
@@ -248,6 +239,7 @@ pub(crate) trait NativeScheduler: Send + Sync {
                 .result
                 .take()
                 .ok_or_else(|| Error::Other)?
+                .as_any()
                 .downcast_ref::<String>()
                 .ok_or_else(|| crate::Error::DowncastFailure("String"))?
                 .clone();
@@ -262,6 +254,7 @@ pub(crate) trait NativeScheduler: Send + Sync {
                 "pending stages: {:?}",
                 jt.pending_tasks
                     .lock()
+                    .await
                     .iter()
                     .map(|(x, y)| (x.id, y.iter().map(|k| k.get_task_id()).collect::<Vec<_>>()))
                     .collect::<Vec<_>>()
@@ -270,6 +263,7 @@ pub(crate) trait NativeScheduler: Send + Sync {
                 "pending tasks: {:?}",
                 jt.pending_tasks
                     .lock()
+                    .await
                     .get(&stage)
                     .ok_or_else(|| Error::Other)?
                     .iter()
@@ -278,24 +272,35 @@ pub(crate) trait NativeScheduler: Send + Sync {
             );
             log::debug!(
                 "running stages: {:?}",
-                jt.running.lock().iter().map(|x| x.id).collect::<Vec<_>>()
+                jt.running
+                    .lock()
+                    .await
+                    .iter()
+                    .map(|x| x.id)
+                    .collect::<Vec<_>>()
             );
             log::debug!(
                 "waiting stages: {:?}",
-                jt.waiting.lock().iter().map(|x| x.id).collect::<Vec<_>>()
+                jt.waiting
+                    .lock()
+                    .await
+                    .iter()
+                    .map(|x| x.id)
+                    .collect::<Vec<_>>()
             );
 
-            if jt.running.lock().contains(&stage)
+            if jt.running.lock().await.contains(&stage)
                 && jt
                     .pending_tasks
                     .lock()
+                    .await
                     .get(&stage)
                     .ok_or_else(|| Error::Other)?
                     .is_empty()
             {
                 log::debug!("started registering map outputs");
                 // TODO: logging
-                jt.running.lock().remove(&stage);
+                jt.running.lock().await.remove(&stage);
                 if let Some(dep) = stage.shuffle_dependency {
                     log::debug!(
                         "stage output locs before register mapoutput tracker: {:?}",
@@ -313,7 +318,7 @@ pub(crate) trait NativeScheduler: Send + Sync {
                 // TODO: Cache
                 self.update_cache_locs().await?;
                 let mut newly_runnable = Vec::new();
-                let waiting_stages: Vec<_> = jt.waiting.lock().iter().cloned().collect();
+                let waiting_stages: Vec<_> = jt.waiting.lock().await.iter().cloned().collect();
                 for stage in waiting_stages {
                     let missing_stages = self.get_missing_parent_stages(stage.clone()).await?;
                     log::debug!(
@@ -326,29 +331,30 @@ pub(crate) trait NativeScheduler: Send + Sync {
                     }
                 }
                 for stage in &newly_runnable {
-                    jt.waiting.lock().remove(stage);
+                    jt.waiting.lock().await.remove(stage);
                 }
                 for stage in &newly_runnable {
-                    jt.running.lock().insert(stage.clone());
+                    jt.running.lock().await.insert(stage.clone());
                 }
                 for stage in newly_runnable {
-                    self.submit_missing_tasks(stage, jt.clone())?;
+                    self.submit_missing_tasks(stage, jt.clone()).await?;
                 }
             }
         }
         Ok(())
     }
 
-    async fn submit_stage<T: Data, U: Data, F>(
+    async fn submit_stage<T: Data, U: Data, F, L>(
         &self,
         stage: Stage,
-        jt: JobTracker<F, U, T>,
+        jt: Arc<JobTracker<F, U, T, L>>,
     ) -> Result<()>
     where
         F: SerFunc((TaskContext, Box<dyn Iterator<Item = T>>)) -> U,
+        L: JobListener,
     {
         log::debug!("submitting stage #{}", stage.id);
-        if !jt.waiting.lock().contains(&stage) && !jt.running.lock().contains(&stage) {
+        if !jt.waiting.lock().await.contains(&stage) && !jt.running.lock().await.contains(&stage) {
             let missing = self.get_missing_parent_stages(stage.clone()).await?;
             log::debug!(
                 "while submitting stage #{}, missing stages: {:?}",
@@ -356,27 +362,28 @@ pub(crate) trait NativeScheduler: Send + Sync {
                 missing.iter().map(|x| x.id).collect::<Vec<_>>()
             );
             if missing.is_empty() {
-                self.submit_missing_tasks(stage.clone(), jt.clone())?;
-                jt.running.lock().insert(stage);
+                self.submit_missing_tasks(stage.clone(), jt.clone()).await?;
+                jt.running.lock().await.insert(stage);
             } else {
                 for parent in missing {
                     self.submit_stage(parent, jt.clone()).await?;
                 }
-                jt.waiting.lock().insert(stage);
+                jt.waiting.lock().await.insert(stage);
             }
         }
         Ok(())
     }
 
-    fn submit_missing_tasks<T: Data, U: Data, F>(
+    async fn submit_missing_tasks<T: Data, U: Data, F, L>(
         &self,
         stage: Stage,
-        jt: JobTracker<F, U, T>,
+        jt: Arc<JobTracker<F, U, T, L>>,
     ) -> Result<()>
     where
         F: SerFunc((TaskContext, Box<dyn Iterator<Item = T>>)) -> U,
+        L: JobListener,
     {
-        let mut pending_tasks = jt.pending_tasks.lock();
+        let mut pending_tasks = jt.pending_tasks.lock().await;
         let my_pending = pending_tasks
             .entry(stage.clone())
             .or_insert_with(BTreeSet::new);
@@ -525,6 +532,7 @@ pub(crate) trait NativeScheduler: Send + Sync {
 
 macro_rules! impl_common_scheduler_funcs {
     () => {
+        #[inline]
         fn add_output_loc_to_stage(&self, stage_id: usize, partition: usize, host: String) {
             self.stage_cache
                 .get_mut(&stage_id)
@@ -547,21 +555,25 @@ macro_rules! impl_common_scheduler_funcs {
             self.shuffle_to_map_stage.get(&id).unwrap().clone()
         }
 
+        #[inline]
         fn unregister_map_output(&self, shuffle_id: usize, map_id: usize, server_uri: String) {
             self.map_output_tracker
                 .unregister_map_output(shuffle_id, map_id, server_uri)
         }
 
+        #[inline]
         fn register_shuffle(&self, shuffle_id: usize, num_maps: usize) {
             self.map_output_tracker
                 .register_shuffle(shuffle_id, num_maps)
         }
 
+        #[inline]
         fn register_map_outputs(&self, shuffle_id: usize, locs: Vec<Option<String>>) {
             self.map_output_tracker
                 .register_map_outputs(shuffle_id, locs)
         }
 
+        #[inline]
         fn remove_output_loc_from_stage(&self, shuffle_id: usize, map_id: usize, server_uri: &str) {
             self.shuffle_to_map_stage
                 .get_mut(&shuffle_id)
