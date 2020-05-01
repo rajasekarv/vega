@@ -1,13 +1,15 @@
+use std::marker::PhantomData;
+use std::net::Ipv4Addr;
+use std::sync::{atomic::AtomicBool, atomic::Ordering::SeqCst, Arc};
+
 use crate::context::Context;
 use crate::dependency::{Dependency, OneToOneDependency};
 use crate::error::Result;
 use crate::rdd::{Rdd, RddBase, RddVals};
 use crate::serializable_traits::{AnyData, Data, Func, SerFunc};
 use crate::split::Split;
+use parking_lot::Mutex;
 use serde_derive::{Deserialize, Serialize};
-use std::marker::PhantomData;
-use std::net::Ipv4Addr;
-use std::sync::{atomic::AtomicBool, atomic::Ordering::SeqCst, Arc};
 
 /// An RDD that applies the provided function to every partition of the parent RDD.
 #[derive(Serialize, Deserialize)]
@@ -15,6 +17,8 @@ pub struct MapPartitionsRdd<T: Data, U: Data, F>
 where
     F: Func(usize, Box<dyn Iterator<Item = T>>) -> Box<dyn Iterator<Item = U>> + Clone,
 {
+    #[serde(skip_serializing, skip_deserializing)]
+    name: Mutex<String>,
     #[serde(with = "serde_traitobject")]
     prev: Arc<dyn Rdd<Item = T>>,
     vals: Arc<RddVals>,
@@ -29,6 +33,7 @@ where
 {
     fn clone(&self) -> Self {
         MapPartitionsRdd {
+            name: Mutex::new(self.name.lock().clone()),
             prev: self.prev.clone(),
             vals: self.vals.clone(),
             f: self.f.clone(),
@@ -50,6 +55,7 @@ where
             )));
         let vals = Arc::new(vals);
         MapPartitionsRdd {
+            name: Mutex::new("map_partitions".to_owned()),
             prev,
             vals,
             f,
@@ -74,6 +80,15 @@ where
 
     fn get_context(&self) -> Arc<Context> {
         self.vals.context.upgrade().unwrap()
+    }
+
+    fn get_op_name(&self) -> String {
+        self.name.lock().to_owned()
+    }
+
+    fn register_op_name(&self, name: &str) {
+        let own_name = &mut *self.name.lock();
+        *own_name = name.to_owned();
     }
 
     fn get_dependencies(&self) -> Vec<Dependency> {

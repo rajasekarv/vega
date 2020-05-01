@@ -15,44 +15,36 @@ mod serialized_data_capnp {
     include!(concat!(env!("OUT_DIR"), "/capnp/serialized_data_capnp.rs"));
 }
 
-mod context;
-pub use context::Context;
-mod executor;
-pub mod partitioner;
-mod shuffle;
-pub use partitioner::*;
-#[path = "rdd/rdd.rs"]
-pub mod rdd;
-pub use rdd::*;
-pub mod io;
-pub use io::*;
-mod dependency;
-pub use dependency::*;
-mod split;
-pub use split::*;
+mod aggregator;
 mod cache;
 mod cache_tracker;
-#[macro_use]
-mod scheduler;
-mod aggregator;
-mod dag_scheduler;
-mod distributed_scheduler;
-mod local_scheduler;
-mod stage;
-mod task;
-pub use aggregator::*;
+mod context;
+mod dependency;
 mod env;
-mod job;
+mod executor;
+pub mod io;
 mod map_output_tracker;
-mod result_task;
+mod partial;
+pub mod partitioner;
+#[path = "rdd/rdd.rs"]
+pub mod rdd;
+mod scheduler;
 mod serializable_traits;
+mod shuffle;
+mod split;
 pub use env::DeploymentMode;
 mod error;
-pub use error::*;
 pub mod fs;
 mod hosts;
 mod utils;
 
 // Import global external types and macros:
 pub use serde_closure::Fn;
-use serde_traitobject::{Arc as SerArc, Box as SerBox};
+pub use serde_traitobject::{Arc as SerArc, Box as SerBox};
+
+// Re-exports:
+pub use context::Context;
+pub use error::*;
+pub use io::LocalFsReaderConfig;
+pub use partial::BoundedDouble;
+pub use rdd::{PairRdd, Rdd};

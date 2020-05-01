@@ -62,6 +62,9 @@ pub enum Error {
     #[error("network error")]
     NetworkError(#[from] NetworkError),
 
+    #[error("unwrapped a non-unique shared reference")]
+    NotUniqueSharedRef,
+
     #[error("failed to determine the home directory")]
     NoHome,
 
@@ -76,6 +79,9 @@ pub enum Error {
         source: toml::de::Error,
         path: PathBuf,
     },
+
+    #[error(transparent)]
+    PartialJobError(#[from] crate::partial::PartialJobError),
 
     #[error("failed to convert {} to a String", .0.display())]
     PathToString(PathBuf),

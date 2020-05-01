@@ -1,8 +1,7 @@
 use std::sync::Arc;
 
-use crate::result_task::ResultTask;
+use crate::scheduler::{ResultTask, TaskContext};
 use crate::serializable_traits::SerFunc;
-use crate::task::TaskContext;
 use crate::*;
 
 pub(crate) fn create_test_task<F>(func: F) -> ResultTask<u8, u8, F>

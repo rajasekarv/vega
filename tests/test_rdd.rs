@@ -7,7 +7,6 @@ use native_spark::partitioner::HashPartitioner;
 use native_spark::rdd::CoGroupedRdd;
 use native_spark::*;
 use once_cell::sync::Lazy;
-use serde_traitobject::Arc as SerArc;
 
 static CONTEXT: Lazy<Arc<Context>> = Lazy::new(|| Context::new().unwrap());
 //static AGGREGATOR: Lazy<Arc<Aggregator<data,dat1,dat2>>> = Lazy::new(|| Aggregator::new().unwrap());
@@ -82,7 +81,6 @@ fn test_basic_operations() -> Result<()> {
 
     Ok(())
 }
-
 
 #[test]
 fn test_filter() {
@@ -443,9 +441,8 @@ fn test_union_with_unique_partitioner() {
             (3, "C".to_string()),
             (4, "D".to_string()),
         ];
-        let rdd0 =
-            SerArc::new(sc.parallelize(rdd.clone(), 2)) as SerArc<dyn Rdd<Item = (i32, String)>>;
-        let rdd1 = SerArc::new(sc.parallelize(rdd, 2)) as SerArc<dyn Rdd<Item = (i32, String)>>;
+        let rdd0 = SerArc::new(sc.parallelize(rdd.clone(), 2));
+        let rdd1 = SerArc::new(sc.parallelize(rdd, 2));
         CoGroupedRdd::<i32>::new(
             vec![rdd0.get_rdd_base().into(), rdd1.get_rdd_base().into()],
             Box::new(partitioner.clone()),
@@ -533,8 +530,43 @@ fn test_range() {
 }
 
 #[test]
-fn test_is_empty() {
+fn count_aprox() -> Result<()> {
+    let sc = CONTEXT.clone();
 
+    // this should complete  and return the final value, so confidence should be 100%
+    let time_out = std::time::Duration::from_nanos(100);
+    let count = sc
+        .range(1, 10_000, 1, 100)
+        .count_approx(time_out, Some(0.9))?;
+    assert_eq!(
+        count.get_final_value()?,
+        BoundedDouble::from((10_000.0, 1.0, 10_000.0, 10_000.0))
+    );
+
+    // no results
+    let count = sc
+        .make_rdd(Vec::<i32>::new(), 1)
+        .count_approx(time_out, Some(0.9))?;
+    assert_eq!(
+        count.get_final_value()?,
+        BoundedDouble::from((0.0, 0.0, 0.0, f64::MAX))
+    );
+
+    // only check the partial result
+    let time_out = std::time::Duration::from_secs(2);
+    let count = sc
+        .make_rdd(vec![0i32; 10_000], 10)
+        .count_approx(time_out, Some(0.9))?;
+    let confidence = count.initial_value.confidence;
+    let count = count.initial_value.mean;
+    eprintln!("count: {}, confidence: {}", count, confidence);
+    // assert!(confidence != 1.0 && confidence != 0.0);
+
+    Ok(())
+}
+
+#[test]
+fn test_is_empty() {
     let sc = CONTEXT.clone();
     let v: Vec<usize> = Vec::new();
     let rdd = sc.parallelize(v, 1);
