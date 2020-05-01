@@ -110,7 +110,7 @@ fn test_count_by_value() -> Result<()> {
 }
 
 #[test]
-fn group_by() -> Result<()> {
+fn test_group_by() -> Result<()> {
     let sc = CONTEXT.clone();
     let vec = vec![-3i32, -2, -1, 0, 1, 2, 3];
     let r = sc.make_rdd(vec, 2);

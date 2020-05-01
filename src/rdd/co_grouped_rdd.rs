@@ -1,4 +1,5 @@
 use std::any::Any;
+use std::collections::HashMap;
 use std::hash::Hash;
 use std::hash::Hasher;
 use std::marker::PhantomData;
@@ -16,7 +17,6 @@ use crate::rdd::*;
 use crate::serializable_traits::{AnyData, Data};
 use crate::shuffle::ShuffleFetcher;
 use crate::split::Split;
-use dashmap::DashMap;
 use serde_derive::{Deserialize, Serialize};
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -205,7 +205,7 @@ impl<K: Data + Eq + Hash> Rdd for CoGroupedRdd<K> {
     #[allow(clippy::type_complexity)]
     fn compute(&self, split: Box<dyn Split>) -> Result<Box<dyn Iterator<Item = Self::Item>>> {
         if let Ok(split) = split.downcast::<CoGroupSplit>() {
-            let agg: Arc<DashMap<K, Vec<Vec<Box<dyn AnyData>>>>> = Arc::new(DashMap::new());
+            let mut agg: HashMap<K, Vec<Vec<Box<dyn AnyData>>>> = HashMap::new();
             for (dep_num, dep) in split.clone().deps.into_iter().enumerate() {
                 match dep {
                     CoGroupSplitDep::NarrowCoGroupSplitDep { rdd, split } => {
@@ -229,24 +229,20 @@ impl<K: Data + Eq + Hash> Rdd for CoGroupedRdd<K> {
                     CoGroupSplitDep::ShuffleCoGroupSplitDep { shuffle_id } => {
                         log::debug!("inside iterator CoGroupedRdd shuffle dep, agg: {:?}", agg);
                         let num_rdds = self.rdds.len();
-                        let agg_clone = agg.clone();
-                        let merge_pair = move |(k, c): (K, Vec<Box<dyn AnyData>>)| {
-                            let mut temp = agg_clone
-                                .entry(k)
-                                .or_insert_with(|| vec![Vec::new(); num_rdds]);
+                        let fut = ShuffleFetcher::fetch::<K, Vec<Box<dyn AnyData>>>(
+                            shuffle_id,
+                            split.get_index(),
+                        );
+                        for (k, c) in futures::executor::block_on(fut)?.into_iter() {
+                            let temp = agg.entry(k).or_insert_with(|| vec![Vec::new(); num_rdds]);
                             for v in c {
                                 temp[dep_num].push(v);
                             }
-                        };
-
-                        let split_idx = split.get_index();
-                        let fut = ShuffleFetcher::fetch(shuffle_id, split_idx, merge_pair);
-                        futures::executor::block_on(fut)?;
+                        }
                     }
                 }
             }
-            let agg = Arc::try_unwrap(agg).unwrap();
-            Ok(Box::new(agg.into_iter().map(|(k, v)| (k, v))))
+            Ok(Box::new(agg.into_iter()))
         } else {
             panic!("Got split object from different concrete type other than CoGroupSplit")
         }

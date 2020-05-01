@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::hash::Hash;
 use std::sync::Arc;
 use std::time::Instant;
@@ -11,7 +12,6 @@ use crate::rdd::{Rdd, RddBase, RddVals};
 use crate::serializable_traits::{AnyData, Data};
 use crate::shuffle::ShuffleFetcher;
 use crate::split::Split;
-use dashmap::DashMap;
 use serde_derive::{Deserialize, Serialize};
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -148,30 +148,22 @@ impl<K: Data + Eq + Hash, V: Data, C: Data> Rdd for ShuffledRdd<K, V, C> {
 
     fn compute(&self, split: Box<dyn Split>) -> Result<Box<dyn Iterator<Item = Self::Item>>> {
         log::debug!("compute inside shuffled rdd");
-        let combiners: Arc<DashMap<K, Option<C>>> = Arc::new(DashMap::new());
-        let comb_clone = combiners.clone();
-        let agg = self.aggregator.clone();
-        let merge_pair = move |(k, c): (K, C)| {
-            if let Some(mut old_c) = comb_clone.get_mut(&k) {
-                let old = old_c.take().unwrap();
-                let input = ((old, c),);
-                let output = agg.merge_combiners.call(input);
-                *old_c = Some(output);
-            } else {
-                comb_clone.insert(k, Some(c));
-            }
-        };
-
         let start = Instant::now();
 
-        let shuffle_id = self.shuffle_id;
-        let split_idx = split.get_index();
-        let fut = ShuffleFetcher::fetch(shuffle_id, split_idx, merge_pair);
-        futures::executor::block_on(fut)?;
+        let fut = ShuffleFetcher::fetch::<K, C>(self.shuffle_id, split.get_index());
+        let mut combiners: HashMap<K, Option<C>> = HashMap::new();
+        for (k, c) in futures::executor::block_on(fut)?.into_iter() {
+            if let Some(old_c) = combiners.get_mut(&k) {
+                let old = old_c.take().unwrap();
+                let input = ((old, c),);
+                let output = self.aggregator.merge_combiners.call(input);
+                *old_c = Some(output);
+            } else {
+                combiners.insert(k, Some(c));
+            }
+        }
 
         log::debug!("time taken for fetching {}", start.elapsed().as_millis());
-
-        let combiners = Arc::try_unwrap(combiners).unwrap();
         Ok(Box::new(
             combiners.into_iter().map(|(k, v)| (k, v.unwrap())),
         ))
