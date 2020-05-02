@@ -629,3 +629,24 @@ fn test_random_split() {
     assert!(rdds[0].iter().all(|i| !rdds[2].contains(i)));
     assert!(rdds[1].iter().all(|i| !rdds[2].contains(i)));
 }
+
+#[test]
+fn test_top() {
+    let sc = CONTEXT.clone();
+
+    let col1 = vec![13, 28, 3, 4, 51, 108, 12, 113, 19];
+    let rdd = sc.parallelize(col1, 4);
+    let res: Vec<usize> = rdd.top(3).unwrap();
+    assert_eq!(res, vec![113, 108, 51]);
+}
+
+#[test]
+fn test_take_ordered() {
+    let sc = CONTEXT.clone();
+
+    let col1 = vec![13, 28, 3, 4, 51, 108, 12, 113, 19];
+    let rdd = sc.parallelize(col1, 4);
+
+    let res: Vec<usize> = rdd.take_ordered(3).unwrap();
+    assert_eq!(res, vec![3, 4, 12]);
+}
