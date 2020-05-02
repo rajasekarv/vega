@@ -17,10 +17,6 @@ impl<T: Data + Ord> BoundedMinPriorityQueue<T> {
         }
     }
 
-    pub fn get_size(&self) -> usize {
-        self.underlying.len()
-    }
-
     pub fn into_vec_sorted(&self) -> Vec<T> {
         let mut res = self
             .underlying
@@ -73,10 +69,6 @@ impl<T: Data + Ord> BoundedMaxPriorityQueue<T> {
             max_size: max_size,
             underlying: BinaryHeap::with_capacity(max_size),
         }
-    }
-
-    pub fn get_size(&self) -> usize {
-        self.underlying.len()
     }
 
     pub fn into_vec_sorted(&self) -> Vec<T> {
