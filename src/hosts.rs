@@ -1,6 +1,7 @@
 use std::net::SocketAddr;
 use std::path::Path;
 
+use crate::env;
 use crate::error::{Error, Result};
 use once_cell::sync::OnceCell;
 use serde_derive::Deserialize;
@@ -21,8 +22,18 @@ impl Hosts {
     }
 
     fn load() -> Result<Self> {
-        let home = std::env::home_dir().ok_or(Error::NoHome)?;
-        Hosts::load_from(home.join("hosts.conf"))
+        if !env::Configuration::get().is_driver {
+            // is a slave, get the config from the job work dir
+            let binary_path = std::env::current_exe().map_err(|_| Error::CurrentBinaryPath)?;
+            let dir = binary_path
+                .parent()
+                .ok_or_else(|| Error::CurrentBinaryPath)?;
+            let conf_file = dir.join("hosts.conf");
+            Hosts::load_from(conf_file)
+        } else {
+            let home = std::env::home_dir().ok_or(Error::NoHome)?;
+            Hosts::load_from(home.join("hosts.conf"))
+        }
     }
 
     fn load_from<P: AsRef<Path>>(path: P) -> Result<Self> {

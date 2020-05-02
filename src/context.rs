@@ -230,8 +230,17 @@ impl Context {
             .map_err(Error::OsStringToString)?;
 
         fs::create_dir_all(&job_work_dir).unwrap();
-        let conf_path = job_work_dir.join("config.toml");
-        let conf_path = conf_path.to_str().unwrap();
+        let conf_path = job_work_dir
+            .join("config.toml")
+            .to_str()
+            .unwrap()
+            .to_owned();
+        let hosts_conf = std::env::home_dir()
+            .ok_or(Error::NoHome)?
+            .join("hosts.conf")
+            .to_str()
+            .unwrap()
+            .to_owned();
         initialize_loggers(job_work_dir.join("ns-driver.log"));
 
         for address in &hosts::Hosts::get()?.slaves {
@@ -254,14 +263,25 @@ impl Context {
                 })?;
 
             // Copy conf file to remote:
-            Context::create_workers_config_file(address_ip, port, conf_path)?;
+            Context::create_workers_config_file(address_ip, port, &conf_path)?;
             let remote_path = format!("{}:{}/config.toml", address, job_work_dir_str);
             Command::new("scp")
-                .args(&[conf_path, &remote_path])
+                .args(&[&conf_path, &remote_path])
                 .output()
                 .map_err(|e| Error::CommandOutput {
                     source: e,
                     command: "scp config".into(),
+                })?;
+
+            // Copy hosts file to remote:
+            Context::create_workers_config_file(address_ip, port, &conf_path)?;
+            let remote_path = format!("{}:{}/hosts.conf", address, job_work_dir_str);
+            Command::new("scp")
+                .args(&[&hosts_conf, &remote_path])
+                .output()
+                .map_err(|e| Error::CommandOutput {
+                    source: e,
+                    command: "scp hosts".into(),
                 })?;
 
             // Copy binary:
@@ -303,7 +323,7 @@ impl Context {
     }
 
     fn init_distributed_worker() -> Result<!> {
-        let mut work_dir = PathBuf::from("");
+        let mut work_dir = env::Configuration::get().local_dir.clone();
         match std::env::current_exe().map_err(|_| Error::CurrentBinaryPath) {
             Ok(binary_path) => {
                 match binary_path.parent().ok_or_else(|| Error::CurrentBinaryPath) {

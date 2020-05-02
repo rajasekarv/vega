@@ -27,15 +27,10 @@ In order to execute application code some preliminary setup is required. (So far
 
 * Install [Cap'n Proto](https://capnproto.org/install.html). Required for serialization/deserialziation and IPC between executors.
 * If you want to execute examples, tests or contribute to development, clone the repository `git clone https://github.com/rajasekarv/native_spark/`, if you want to use the library in your own application you can just add the depency as indicated in the installation paragraph.
-* You need to have [hosts.conf](https://github.com/rajasekarv/native_spark/blob/master/config_files/hosts.conf) in the format present inside config folder in the home directory of the user deploying executors in any of the machines.
-    * In `local` mode this means in your current user home, e.g.:
+* You need to have [hosts.conf](https://github.com/rajasekarv/native_spark/blob/master/config_files/hosts.conf) in the format present inside config folder in the home directory of the user executing the application as a master.
+    * In `local` mode this tipically means in your current user home, e.g.:
     > $ cp native_spark/config_files/hosts.conf $HOME
-    * In `distributed` mode the same file is required in each host that may be deploying executors (the ones indicated in the `hosts.conf` file) and the master. E.g.:
-    ```doc
-    $ ssh remote_user@172.0.0.10 # this machine IP is in hosts.conf
-    # create the same hosts.conf file in every machine:
-    $ cd ~ && vim hosts.conf ...
-    ```
+    * In `distributed` mode the same file is required in the cluster master host, at the home of the user executing the application.
 * The environment variable `NS_LOCAL_IP` must be set for the user executing application code.
     * In `local` it suffices to set up for the current user:
     > $ export NS_LOCAL_IP=0.0.0.0

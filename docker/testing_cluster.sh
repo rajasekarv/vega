@@ -26,7 +26,7 @@ for WORKER in $(docker-compose ps | grep -oE "docker_ns_worker_[0-9]+")
 do
     echo "Setting $WORKER";
     docker exec -e CONF_FILE="$CONF_FILE" -e NS_LOCAL_IP="${WORKER_IPS[count]}" -w /home/ns_user/ $WORKER \
-    bash -c 'echo "$CONF_FILE" >> hosts.conf && \
+    bash -c '\
     echo "NS_LOCAL_IP=$NS_LOCAL_IP" >> .ssh/environment && \
     echo "PermitUserEnvironment yes" >> /etc/ssh/sshd_config && \
     echo "AcceptEnv RUST_BACKTRACE" >> /etc/ssh/sshd_config && \
