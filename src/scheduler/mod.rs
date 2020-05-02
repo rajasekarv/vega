@@ -17,13 +17,13 @@ mod task;
 pub(self) use self::base_scheduler::EventQueue;
 pub(self) use self::dag_scheduler::{CompletionEvent, FetchFailedVals, TastEndReason};
 pub(self) use self::job::{Job, JobTracker};
+pub(self) use self::job_listener::NoOpListener;
 pub(self) use self::live_listener_bus::LiveListenerBus;
 pub(self) use self::stage::Stage;
-pub(self) use self::job_listener::NoOpListener;
 
 pub(crate) use self::base_scheduler::NativeScheduler;
 pub(crate) use self::distributed_scheduler::DistributedScheduler;
-pub(crate) use self::job_listener::{JobListener};
+pub(crate) use self::job_listener::JobListener;
 pub(crate) use self::local_scheduler::LocalScheduler;
 pub(crate) use self::result_task::ResultTask;
 pub(crate) use self::task::TaskContext;
