@@ -1035,7 +1035,7 @@ pub trait Rdd: RddBase + 'static {
                 ))?
                 .unwrap() as BoundedPriorityQueue<Self::Item>;
 
-            Ok(queue.into_vec_sorted())
+            Ok(queue.into())
         }
     }
 }

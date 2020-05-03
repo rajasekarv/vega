@@ -8,22 +8,23 @@ pub(crate) struct BoundedPriorityQueue<T: Ord> {
     underlying: BinaryHeap<T>,
 }
 
+impl<T: Data + Ord> Into<Vec<T>> for BoundedPriorityQueue<T> {
+    fn into(self) -> Vec<T> {
+        let mut col: Vec<_> = self
+            .underlying
+            .into_iter_sorted()
+            .collect();
+        col.reverse();
+        col
+    }
+}
+
 impl<T: Data + Ord> BoundedPriorityQueue<T> {
     pub fn new(max_size: usize) -> BoundedPriorityQueue<T> {
         BoundedPriorityQueue {
             max_size: max_size,
             underlying: BinaryHeap::with_capacity(max_size),
         }
-    }
-
-    pub fn into_vec_sorted(&self) -> Vec<T> {
-        let mut res = self
-            .underlying
-            .clone()
-            .into_iter_sorted()
-            .collect::<Vec<_>>();
-        res.reverse();
-        res
     }
 
     pub fn merge(&mut self, other: BoundedPriorityQueue<T>) -> &Self {
