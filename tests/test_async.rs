@@ -1,8 +1,8 @@
 //! Test whether the library can be used with different running async executors.
 use std::sync::Arc;
 
-use vega::*;
 use once_cell::sync::Lazy;
+use vega::*;
 
 static CONTEXT: Lazy<Arc<Context>> = Lazy::new(|| Context::new().unwrap());
 

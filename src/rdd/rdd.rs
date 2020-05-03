@@ -1038,6 +1038,11 @@ pub trait Rdd: RddBase + 'static {
         self.reduce(min_fn)
     }
 
+    /// Returns the first k (largest) elements from this RDD as defined by the specified
+    /// Ord<T> and maintains ordering. This does the opposite of [take_ordered](#take_ordered).
+    /// # Notes
+    /// This method should only be used if the resulting array is expected to be small, as
+    /// all the data is loaded into the driver's memory.
     fn top(&self, num: usize) -> Result<Vec<Self::Item>>
     where
         Self: Sized,
@@ -1051,6 +1056,11 @@ pub trait Rdd: RddBase + 'static {
             .collect())
     }
 
+    /// Returns the first k (smallest) elements from this RDD as defined by the specified
+    /// Ord<T> and maintains ordering. This does the opposite of [top()](#top).
+    /// # Notes
+    /// This method should only be used if the resulting array is expected to be small, as
+    /// all the data is loaded into the driver's memory.
     fn take_ordered(&self, num: usize) -> Result<Vec<Self::Item>>
     where
         Self: Sized,

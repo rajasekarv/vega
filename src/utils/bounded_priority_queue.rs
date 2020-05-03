@@ -1,7 +1,9 @@
 use crate::serializable_traits::Data;
 use serde_derive::{Deserialize, Serialize};
 use std::collections::BinaryHeap;
-
+/// Bounded priority queue. This class wraps the original BinaryHeap
+/// struct and wraps it such that only the top K elements are retained.
+/// The top K elements are defined by `T: Ord`
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub(crate) struct BoundedPriorityQueue<T: Ord> {
     max_size: usize,
@@ -10,10 +12,7 @@ pub(crate) struct BoundedPriorityQueue<T: Ord> {
 
 impl<T: Data + Ord> Into<Vec<T>> for BoundedPriorityQueue<T> {
     fn into(self) -> Vec<T> {
-        let mut col: Vec<_> = self
-            .underlying
-            .into_iter_sorted()
-            .collect();
+        let mut col: Vec<_> = self.underlying.into_iter_sorted().collect();
         col.reverse();
         col
     }
@@ -27,6 +26,7 @@ impl<T: Data + Ord> BoundedPriorityQueue<T> {
         }
     }
 
+    /// The equivalent of `++=` method in Scala Spark.
     pub fn merge(mut self, other: BoundedPriorityQueue<T>) -> Self {
         other
             .underlying
@@ -35,6 +35,7 @@ impl<T: Data + Ord> BoundedPriorityQueue<T> {
         self
     }
 
+    /// The equivalent of `+=` method in Scala Spark.
     pub fn append(&mut self, elem: T) {
         if self.underlying.len() < self.max_size {
             self.underlying.push(elem);
