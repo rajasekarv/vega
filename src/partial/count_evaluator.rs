@@ -1,6 +1,5 @@
-use statrs::{distribution::Poisson, statistics::Mean};
-
 use crate::partial::{approximate_evaluator::ApproximateEvaluator, bounded_double::BoundedDouble};
+use statrs::{distribution::Poisson, statistics::Mean};
 
 /// An ApproximateEvaluator for counts.
 pub(crate) struct CountEvaluator {
