@@ -1,10 +1,10 @@
 #![allow(where_clauses_object_safety, clippy::single_component_path_imports)]
 use chrono::prelude::*;
 use itertools::izip;
-use vega::*;
 use parquet::column::reader::get_typed_column_reader;
 use parquet::data_type::{ByteArrayType, Int32Type, Int64Type};
 use parquet::file::reader::{FileReader, SerializedFileReader};
+use vega::*;
 
 use std::fs::File;
 use std::path::PathBuf;
