@@ -1023,16 +1023,11 @@ pub trait Rdd: RddBase + 'static {
                     Box::new(std::iter::once(queue))
             });
 
-            let queue = self
-                .map_partitions(first_k_func)
-                .reduce(Fn!(
-                    move |queue1: BoundedPriorityQueue<Self::Item>,
-                          queue2: BoundedPriorityQueue<Self::Item>|
-                          -> BoundedPriorityQueue<Self::Item> {
-                        queue1.merge(queue2)
-                    }
-                ))?
-                .unwrap() as BoundedPriorityQueue<Self::Item>;
+            let queue = self.map_partitions(first_k_func).reduce(Fn!(
+                move |queue1: BoundedPriorityQueue<Self::Item>,
+                      queue2: BoundedPriorityQueue<Self::Item>|
+                      -> BoundedPriorityQueue<Self::Item> { queue1.merge(queue2) }
+            ))?.ok_or_else(|| Error::Other)? as BoundedPriorityQueue<Self::Item>;
 
             Ok(queue.into())
         }
