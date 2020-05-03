@@ -1,8 +1,8 @@
 use crate::serializable_traits::Data;
 use serde_derive::{Deserialize, Serialize};
 use std::collections::BinaryHeap;
-/// Bounded priority queue. This class wraps the original BinaryHeap
-/// struct and wraps it such that only the top K elements are retained.
+/// Bounded priority queue. This struct wraps the original BinaryHeap
+/// struct and modifies it such that only the top K elements are retained.
 /// The top K elements are defined by `T: Ord`
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub(crate) struct BoundedPriorityQueue<T: Ord> {
