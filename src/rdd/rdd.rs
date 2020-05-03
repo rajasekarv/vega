@@ -1026,7 +1026,7 @@ pub trait Rdd: RddBase + 'static {
             let queue = self
                 .map_partitions(first_k_func)
                 .reduce(Fn!(
-                    move |mut queue1: BoundedPriorityQueue<Self::Item>,
+                    move |queue1: BoundedPriorityQueue<Self::Item>,
                           queue2: BoundedPriorityQueue<Self::Item>|
                           -> BoundedPriorityQueue<Self::Item> {
                         queue1.merge(queue2)
