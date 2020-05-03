@@ -1,5 +1,6 @@
 use std::cmp::Ordering;
 use std::cmp::Reverse;
+use std::collections::HashMap;
 use std::fs;
 use std::hash::Hash;
 use std::io::{BufWriter, Write};
@@ -11,7 +12,7 @@ use std::time::Duration;
 use crate::context::Context;
 use crate::dependency::Dependency;
 use crate::error::{Error, Result};
-use crate::partial::{BoundedDouble, CountEvaluator, PartialResult};
+use crate::partial::{BoundedDouble, CountEvaluator, GroupedCountEvaluator, PartialResult};
 use crate::partitioner::{HashPartitioner, Partitioner};
 use crate::scheduler::TaskContext;
 use crate::serializable_traits::{AnyData, Data, Func, SerFunc};
@@ -456,6 +457,46 @@ pub trait Rdd: RddBase + 'static {
             Box::new(Fn!(|(x, y)| x + y)) as Box<dyn Func((u64, u64)) -> u64>,
             self.number_of_splits(),
         )
+    }
+
+    /// Approximate version of `count_by_value`.
+    ///
+    /// # Arguments
+    /// * `timeout` - maximum time to wait for the job, in milliseconds
+    /// * `confidence` - the desired statistical confidence in the result
+    fn count_by_value_aprox(
+        &self,
+        timeout: Duration,
+        confidence: Option<f64>,
+    ) -> Result<PartialResult<HashMap<Self::Item, BoundedDouble>>>
+    where
+        Self: Sized,
+        Self::Item: Data + Eq + Hash,
+    {
+        let confidence = if let Some(confidence) = confidence {
+            confidence
+        } else {
+            0.95
+        };
+        assert!(0.0 <= confidence && confidence <= 1.0);
+
+        let count_partition = Fn!(|(_ctx, iter): (
+            TaskContext,
+            Box<dyn Iterator<Item = Self::Item>>,
+        )|
+         -> HashMap<Self::Item, usize> {
+            let mut map = HashMap::new();
+            iter.for_each(|e| {
+                *map.entry(e).or_insert(0) += 1;
+            });
+            map
+        });
+
+        let evaluator = GroupedCountEvaluator::new(self.number_of_splits(), confidence);
+        let rdd = self.get_rdd();
+        rdd.register_op_name("count_by_value_approx");
+        self.get_context()
+            .run_approximate_job(count_partition, rdd, evaluator, timeout)
     }
 
     /// Return a new RDD containing the distinct elements in this RDD.
@@ -939,6 +980,8 @@ pub trait Rdd: RddBase + 'static {
         } else {
             0.95
         };
+        assert!(0.0 <= confidence && confidence <= 1.0);
+
         let count_elements = Fn!(|(_ctx, iter): (
             TaskContext,
             Box<dyn Iterator<Item = Self::Item>>
@@ -1023,11 +1066,17 @@ pub trait Rdd: RddBase + 'static {
                     Box::new(std::iter::once(queue))
             });
 
-            let queue = self.map_partitions(first_k_func).reduce(Fn!(
-                move |queue1: BoundedPriorityQueue<Self::Item>,
-                      queue2: BoundedPriorityQueue<Self::Item>|
-                      -> BoundedPriorityQueue<Self::Item> { queue1.merge(queue2) }
-            ))?.ok_or_else(|| Error::Other)? as BoundedPriorityQueue<Self::Item>;
+            let queue = self
+                .map_partitions(first_k_func)
+                .reduce(Fn!(
+                    move |queue1: BoundedPriorityQueue<Self::Item>,
+                          queue2: BoundedPriorityQueue<Self::Item>|
+                          -> BoundedPriorityQueue<Self::Item> {
+                        queue1.merge(queue2)
+                    }
+                ))?
+                .ok_or_else(|| Error::Other)?
+                as BoundedPriorityQueue<Self::Item>;
 
             Ok(queue.into())
         }

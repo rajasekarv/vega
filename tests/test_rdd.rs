@@ -566,6 +566,26 @@ fn count_aprox() -> Result<()> {
 }
 
 #[test]
+fn count_by_value_aprox() -> Result<()> {
+    let sc = CONTEXT.clone();
+
+    // this should complete  and return the final value, so confidence should be 100%
+    let time_out = std::time::Duration::from_nanos(100);
+    let mut res: Vec<_> = sc
+        .make_rdd(vec![1i32, 2, 2, 3, 3, 3], 6)
+        .count_by_value_aprox(time_out, Some(0.9))?
+        .get_final_value()?
+        .into_iter()
+        .map(|(k, v)| (k, v.mean))
+        .collect();
+    res.sort_by(|e1, e2| e1.0.cmp(&e2.0));
+
+    let expected = vec![(1i32, 1.0f64), (2, 2.0), (3, 3.0)];
+    assert_eq!(res, expected);
+    Ok(())
+}
+
+#[test]
 fn test_is_empty() {
     let sc = CONTEXT.clone();
     let v: Vec<usize> = Vec::new();

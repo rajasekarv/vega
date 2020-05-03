@@ -27,7 +27,7 @@ impl ShuffleFetcher {
                 source: Box::new(err),
             })?;
         log::debug!(
-            "server uris for shuffle id {:?} - {:?}",
+            "server uris for shuffle id #{}: {:?}",
             shuffle_id,
             server_uris
         );
@@ -44,7 +44,7 @@ impl ShuffleFetcher {
             server_queue.push((key, value));
         }
         log::debug!(
-            "servers for shuffle id {:?}, reduce id {:?} - {:?}",
+            "servers for shuffle id #{:?} & reduce id #{}: {:?}",
             shuffle_id,
             reduce_id,
             server_queue
@@ -98,7 +98,7 @@ impl ShuffleFetcher {
             };
             tasks.push(tokio::spawn(task));
         }
-        log::debug!("total_results {}", total_results);
+        log::debug!("total_results fetch results: {}", total_results);
         let task_results = future::join_all(tasks.into_iter()).await;
         let results = task_results.into_iter().fold(
             Ok(Vec::<(K, V)>::with_capacity(total_results)),
