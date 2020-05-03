@@ -1,4 +1,5 @@
 use std::cmp::Ordering;
+use std::cmp::Reverse;
 use std::fs;
 use std::hash::Hash;
 use std::io::{BufWriter, Write};
@@ -15,7 +16,7 @@ use crate::partitioner::{HashPartitioner, Partitioner};
 use crate::scheduler::TaskContext;
 use crate::serializable_traits::{AnyData, Data, Func, SerFunc};
 use crate::split::Split;
-use crate::utils::bounded_priority_queue::{BoundedMaxPriorityQueue, BoundedMinPriorityQueue};
+use crate::utils::bounded_priority_queue::BoundedPriorityQueue;
 use crate::utils::random::{BernoulliCellSampler, BernoulliSampler, PoissonSampler, RandomSampler};
 use crate::{utils, Fn, SerArc, SerBox};
 use fasthash::MetroHasher;
@@ -999,30 +1000,12 @@ pub trait Rdd: RddBase + 'static {
         Self: Sized,
         Self::Item: Data + Ord,
     {
-        if num == 0 {
-            Ok(vec![])
-        } else {
-            let first_k_func = Fn!(move |partition: Box<dyn Iterator<Item = Self::Item>>|
-                -> Box<dyn Iterator<Item = BoundedMinPriorityQueue<Self::Item>>>  {
-                    let mut queue = BoundedMinPriorityQueue::new(num);
-                    partition.for_each(|item: Self::Item| queue.append(item));
-                    Box::new(std::iter::once(queue))
-            });
-
-            let queue = self
-                .map_partitions(first_k_func)
-                .reduce(Fn!(
-                    move |mut queue1: BoundedMinPriorityQueue<Self::Item>,
-                          queue2: BoundedMinPriorityQueue<Self::Item>|
-                          -> BoundedMinPriorityQueue<Self::Item> {
-                        queue1.merge(queue2);
-                        queue1
-                    }
-                ))?
-                .unwrap() as BoundedMinPriorityQueue<Self::Item>;
-
-            Ok(queue.into_vec_sorted())
-        }
+        Ok(self
+            .map(Fn!(|x| Reverse(x)))
+            .take_ordered(num)?
+            .into_iter()
+            .map(|x| x.0)
+            .collect())
     }
 
     fn take_ordered(&self, num: usize) -> Result<Vec<Self::Item>>
@@ -1034,8 +1017,8 @@ pub trait Rdd: RddBase + 'static {
             Ok(vec![])
         } else {
             let first_k_func = Fn!(move |partition: Box<dyn Iterator<Item = Self::Item>>|
-                -> Box<dyn Iterator<Item = BoundedMaxPriorityQueue<Self::Item>>>  {
-                    let mut queue = BoundedMaxPriorityQueue::new(num);
+                -> Box<dyn Iterator<Item = BoundedPriorityQueue<Self::Item>>>  {
+                    let mut queue = BoundedPriorityQueue::new(num);
                     partition.for_each(|item: Self::Item| queue.append(item));
                     Box::new(std::iter::once(queue))
             });
@@ -1043,14 +1026,14 @@ pub trait Rdd: RddBase + 'static {
             let queue = self
                 .map_partitions(first_k_func)
                 .reduce(Fn!(
-                    move |mut queue1: BoundedMaxPriorityQueue<Self::Item>,
-                          queue2: BoundedMaxPriorityQueue<Self::Item>|
-                          -> BoundedMaxPriorityQueue<Self::Item> {
+                    move |mut queue1: BoundedPriorityQueue<Self::Item>,
+                          queue2: BoundedPriorityQueue<Self::Item>|
+                          -> BoundedPriorityQueue<Self::Item> {
                         queue1.merge(queue2);
                         queue1
                     }
                 ))?
-                .unwrap() as BoundedMaxPriorityQueue<Self::Item>;
+                .unwrap() as BoundedPriorityQueue<Self::Item>;
 
             Ok(queue.into_vec_sorted())
         }
