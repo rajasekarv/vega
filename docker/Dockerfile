@@ -46,16 +46,16 @@ RUN set -e; \
     # Locales
     locale-gen en_US.UTF-8; \
     # Set SSH user
-    groupadd ns && useradd -ms /bin/bash -g ns ns_user; \
+    groupadd ns && useradd -ms /bin/bash -g ns vega_user; \
     # Cleanup
     #apt-get purge -y --auto-remove $tempPkgs; \
     apt-get autoremove -q -y; \
     apt-get clean -yq; \
     rm -rf /var/lib/apt/lists/*
 COPY --from=building /home/release .
-COPY --chown=ns_user:ns ./docker/id_rsa.pub /home/ns_user/.ssh/authorized_keys
+COPY --chown=vega_user:ns ./docker/id_rsa.pub /home/vega_user/.ssh/authorized_keys
 COPY ./docker/id_rsa /root/.ssh/ 
-RUN chmod 600 /root/.ssh/id_rsa /home/ns_user/.ssh/authorized_keys
+RUN chmod 600 /root/.ssh/id_rsa /home/vega_user/.ssh/authorized_keys
 ENV LANG=en_US.UTF-8  \
     LANGUAGE=en_US:en \
     LC_ALL=en_US.UTF-8

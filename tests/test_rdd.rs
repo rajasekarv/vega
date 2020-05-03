@@ -2,16 +2,16 @@ use std::fs::{create_dir_all, File};
 use std::io::prelude::*;
 use std::sync::Arc;
 
+use once_cell::sync::Lazy;
 use vega::io::*;
 use vega::partitioner::HashPartitioner;
 use vega::rdd::CoGroupedRdd;
 use vega::*;
-use once_cell::sync::Lazy;
 
 static CONTEXT: Lazy<Arc<Context>> = Lazy::new(|| Context::new().unwrap());
 //static AGGREGATOR: Lazy<Arc<Aggregator<data,dat1,dat2>>> = Lazy::new(|| Aggregator::new().unwrap());
 static WORK_DIR: Lazy<std::path::PathBuf> = Lazy::new(std::env::temp_dir);
-const TEST_DIR: &str = "ns_test_dir";
+const TEST_DIR: &str = "vega_test_dir";
 
 #[allow(unused_must_use)]
 fn set_up(file_name: &str) {

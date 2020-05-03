@@ -49,7 +49,7 @@ impl LocalFsReaderConfig {
 
     /// Number of partitions to use per executor to perform the load tasks.
     /// One executor must be used per host with as many partitions as CPUs available (ideally).
-    pub fn num_partitions_per_executor(mut self, num: u64) -> Self {
+    pub fn num_partitiovega_per_executor(mut self, num: u64) -> Self {
         self.executor_partitions = Some(num);
         self
     }
