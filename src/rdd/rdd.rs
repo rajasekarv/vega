@@ -1029,8 +1029,7 @@ pub trait Rdd: RddBase + 'static {
                     move |mut queue1: BoundedPriorityQueue<Self::Item>,
                           queue2: BoundedPriorityQueue<Self::Item>|
                           -> BoundedPriorityQueue<Self::Item> {
-                        queue1.merge(queue2);
-                        queue1
+                        queue1.merge(queue2)
                     }
                 ))?
                 .unwrap() as BoundedPriorityQueue<Self::Item>;

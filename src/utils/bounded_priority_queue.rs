@@ -27,7 +27,7 @@ impl<T: Data + Ord> BoundedPriorityQueue<T> {
         }
     }
 
-    pub fn merge(&mut self, other: BoundedPriorityQueue<T>) -> &Self {
+    pub fn merge(mut self, other: BoundedPriorityQueue<T>) -> Self {
         other
             .underlying
             .into_iter()
@@ -43,7 +43,7 @@ impl<T: Data + Ord> BoundedPriorityQueue<T> {
         }
     }
 
-    pub(self) fn maybe_replace_lowest(&mut self, elem: T)
+    fn maybe_replace_lowest(&mut self, elem: T)
     where
         T: Data + Ord,
     {
