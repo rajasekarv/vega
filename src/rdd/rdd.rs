@@ -1,4 +1,5 @@
 use std::cmp::Ordering;
+use std::cmp::Reverse;
 use std::fs;
 use std::hash::Hash;
 use std::io::{BufWriter, Write};
@@ -15,6 +16,7 @@ use crate::partitioner::{HashPartitioner, Partitioner};
 use crate::scheduler::TaskContext;
 use crate::serializable_traits::{AnyData, Data, Func, SerFunc};
 use crate::split::Split;
+use crate::utils::bounded_priority_queue::BoundedPriorityQueue;
 use crate::utils::random::{BernoulliCellSampler, BernoulliSampler, PoissonSampler, RandomSampler};
 use crate::{utils, Fn, SerArc, SerBox};
 use fasthash::MetroHasher;
@@ -991,6 +993,49 @@ pub trait Rdd: RddBase + 'static {
     {
         let min_fn = Fn!(|x: Self::Item, y: Self::Item| x.min(y));
         self.reduce(min_fn)
+    }
+
+    fn top(&self, num: usize) -> Result<Vec<Self::Item>>
+    where
+        Self: Sized,
+        Self::Item: Data + Ord,
+    {
+        Ok(self
+            .map(Fn!(|x| Reverse(x)))
+            .take_ordered(num)?
+            .into_iter()
+            .map(|x| x.0)
+            .collect())
+    }
+
+    fn take_ordered(&self, num: usize) -> Result<Vec<Self::Item>>
+    where
+        Self: Sized,
+        Self::Item: Data + Ord,
+    {
+        if num == 0 {
+            Ok(vec![])
+        } else {
+            let first_k_func = Fn!(move |partition: Box<dyn Iterator<Item = Self::Item>>|
+                -> Box<dyn Iterator<Item = BoundedPriorityQueue<Self::Item>>>  {
+                    let mut queue = BoundedPriorityQueue::new(num);
+                    partition.for_each(|item: Self::Item| queue.append(item));
+                    Box::new(std::iter::once(queue))
+            });
+
+            let queue = self
+                .map_partitions(first_k_func)
+                .reduce(Fn!(
+                    move |queue1: BoundedPriorityQueue<Self::Item>,
+                          queue2: BoundedPriorityQueue<Self::Item>|
+                          -> BoundedPriorityQueue<Self::Item> {
+                        queue1.merge(queue2)
+                    }
+                ))?
+                .unwrap() as BoundedPriorityQueue<Self::Item>;
+
+            Ok(queue.into())
+        }
     }
 }
 
