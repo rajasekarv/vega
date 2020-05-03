@@ -1,4 +1,4 @@
-use native_spark::*;
+use vega::*;
 
 fn main() -> Result<()> {
     let sc = Context::new()?;

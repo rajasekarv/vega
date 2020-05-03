@@ -6,7 +6,7 @@ if [ -z $VERSION ]
 then
 VERSION='latest'
 fi
-PACKAGE="native_spark:${VERSION}"
+PACKAGE="vega:${VERSION}"
 
 
 cd $SCRIPT_PATH && cd ..

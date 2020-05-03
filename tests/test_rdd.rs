@@ -2,10 +2,10 @@ use std::fs::{create_dir_all, File};
 use std::io::prelude::*;
 use std::sync::Arc;
 
-use native_spark::io::*;
-use native_spark::partitioner::HashPartitioner;
-use native_spark::rdd::CoGroupedRdd;
-use native_spark::*;
+use vega::io::*;
+use vega::partitioner::HashPartitioner;
+use vega::rdd::CoGroupedRdd;
+use vega::*;
 use once_cell::sync::Lazy;
 
 static CONTEXT: Lazy<Arc<Context>> = Lazy::new(|| Context::new().unwrap());

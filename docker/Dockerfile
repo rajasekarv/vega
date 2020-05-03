@@ -20,8 +20,8 @@ RUN set -e; \
 # Install and set up rustup
 RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain $RUST_VERSION --no-modify-path; 
 WORKDIR /home
-COPY . native_spark
-RUN set -e; cd native_spark; \
+COPY . vega
+RUN set -e; cd vega; \
     echo "PATH: ${PATH}"; \
     # Build executables
     cargo build --release --examples; \

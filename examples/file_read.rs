@@ -1,6 +1,6 @@
 use chrono::prelude::*;
-use native_spark::io::*;
-use native_spark::*;
+use vega::io::*;
+use vega::*;
 
 fn main() -> Result<()> {
     let context = Context::new()?;

@@ -1,7 +1,7 @@
 #![allow(where_clauses_object_safety, clippy::single_component_path_imports)]
 use chrono::prelude::*;
 use itertools::izip;
-use native_spark::*;
+use vega::*;
 use parquet::column::reader::get_typed_column_reader;
 use parquet::data_type::{ByteArrayType, Int32Type, Int64Type};
 use parquet::file::reader::{FileReader, SerializedFileReader};

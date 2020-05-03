@@ -1,7 +1,7 @@
 //! Test whether the library can be used with different running async executors.
 use std::sync::Arc;
 
-use native_spark::*;
+use vega::*;
 use once_cell::sync::Lazy;
 
 static CONTEXT: Lazy<Arc<Context>> = Lazy::new(|| Context::new().unwrap());

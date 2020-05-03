@@ -1,5 +1,5 @@
 [package]
-name = "native_spark"
+name = "vega"
 version = "0.1.0"
 authors = ["raja <rajasekar3eg@gmail.com>"]
 edition = "2018"
@@ -7,7 +7,7 @@ edition = "2018"
 build = "build.rs"
 
 [lib]
-name = "native_spark"
+name = "vega"
 
 [features]
 aws_connectors = ["rusoto_core", "rusoto_s3"]

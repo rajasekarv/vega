@@ -1,6 +1,6 @@
 # Introduction
 
-`native_spark` is a distributed computing framework inspired by Apache Spark.
+`vega` is a distributed computing framework inspired by Apache Spark.
 
 ## Getting started
 
@@ -12,24 +12,24 @@ In order to use the framework you have to clone the repository and add the local
 
 ```doc
 [dependencies]
-native_spark = { path = "/path/to/local/git/repo" }
+vega = { path = "/path/to/local/git/repo" }
 # or
-native_spark = { git = "https://github.com/rajasekarv/native_spark", branch = "master }
+vega = { git = "https://github.com/rajasekarv/vega", branch = "master }
 ```
 
 Is not recommended to use the application for any sort of production code yet as it's under heavy development.
 
-Check [examples](https://github.com/rajasekarv/native_spark/tree/master/examples) and [tests](https://github.com/rajasekarv/native_spark/tree/master/tests) in the source code to get a basic idea of how the framework works.
+Check [examples](https://github.com/rajasekarv/vega/tree/master/examples) and [tests](https://github.com/rajasekarv/vega/tree/master/tests) in the source code to get a basic idea of how the framework works.
 
 ## Executing an application
 
 In order to execute application code some preliminary setup is required. (So far only tested on Linux.)
 
 * Install [Cap'n Proto](https://capnproto.org/install.html). Required for serialization/deserialziation and IPC between executors.
-* If you want to execute examples, tests or contribute to development, clone the repository `git clone https://github.com/rajasekarv/native_spark/`, if you want to use the library in your own application you can just add the depency as indicated in the installation paragraph.
-* You need to have [hosts.conf](https://github.com/rajasekarv/native_spark/blob/master/config_files/hosts.conf) in the format present inside config folder in the home directory of the user deploying executors in any of the machines.
+* If you want to execute examples, tests or contribute to development, clone the repository `git clone https://github.com/rajasekarv/vega/`, if you want to use the library in your own application you can just add the depency as indicated in the installation paragraph.
+* You need to have [hosts.conf](https://github.com/rajasekarv/vega/blob/master/config_files/hosts.conf) in the format present inside config folder in the home directory of the user deploying executors in any of the machines.
     * In `local` mode this means in your current user home, e.g.:
-    > $ cp native_spark/config_files/hosts.conf $HOME
+    > $ cp vega/config_files/hosts.conf $HOME
     * In `distributed` mode the same file is required in each host that may be deploying executors (the ones indicated in the `hosts.conf` file) and the master. E.g.:
     ```doc
     $ ssh remote_user@172.0.0.10 # this machine IP is in hosts.conf
@@ -79,7 +79,7 @@ In your application you can set the execution mode (`local` or `distributed`) in
 
 1. Set it explicitly while creating the context, e.g.:
 ```doc
-    use native_spark::DeploymentMode;
+    use vega::DeploymentMode;
 
     let context = Context::with_mode(DeploymentMode::Local)?;
 ```

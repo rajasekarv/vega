@@ -95,7 +95,7 @@ impl DistributedScheduler {
             shuffle_to_map_stage: Arc::new(DashMap::new()),
             cache_locs: Arc::new(DashMap::new()),
             master,
-            framework_name: "native_spark".to_string(),
+            framework_name: "vega".to_string(),
             is_registered: true, // TODO: check if it is necessary
             active_jobs: HashMap::new(),
             active_job_queue: Vec::new(),

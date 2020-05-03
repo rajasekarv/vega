@@ -5,7 +5,7 @@ networks:
 
 services:
   ns_master:
-    image: native_spark:latest
+    image: vega:latest
     ports:
       - "3000"
     tty: true
@@ -21,7 +21,7 @@ services:
       - ns_worker
 
   ns_worker:
-    image: native_spark:latest
+    image: vega:latest
     ports:
       - "10500"
       - "22"
