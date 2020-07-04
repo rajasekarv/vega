@@ -670,3 +670,18 @@ fn test_take_ordered() {
     let res: Vec<usize> = rdd.take_ordered(3).unwrap();
     assert_eq!(res, vec![3, 4, 12]);
 }
+
+#[test]
+fn test_subtract(){
+    let sc = CONTEXT.clone();
+    let col1 = vec![1, 2, 3, 4, 5, 10, 12, 13, 19, 0];
+
+    let col2 = vec![3, 4, 5, 6, 7, 8, 11, 13];
+
+    let first = sc.parallelize(col1, 4);
+    let second = sc.parallelize(col2, 4);
+    let ans = first.subtract(Arc::new(second));
+    assert_eq!(ans.collect().unwrap(),vec![19, 12, 10, 1, 0, 2])
+
+
+}
