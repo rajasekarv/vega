@@ -26,51 +26,29 @@ use serde_derive::{Deserialize, Serialize};
 use serde_traitobject::{Deserialize, Serialize};
 
 mod parallel_collection_rdd;
-
 pub use parallel_collection_rdd::*;
-
 mod cartesian_rdd;
-
 pub use cartesian_rdd::*;
-
 mod co_grouped_rdd;
-
 pub use co_grouped_rdd::*;
-
 mod coalesced_rdd;
-
 pub use coalesced_rdd::*;
-
 mod flatmapper_rdd;
 mod mapper_rdd;
-
 pub use flatmapper_rdd::*;
 pub use mapper_rdd::*;
-
 mod pair_rdd;
-
 pub use pair_rdd::*;
-
 mod partitionwise_sampled_rdd;
-
 pub use partitionwise_sampled_rdd::*;
-
 mod shuffled_rdd;
-
 pub use shuffled_rdd::*;
-
 mod map_partitions_rdd;
-
 pub use map_partitions_rdd::*;
-
 mod zip_rdd;
-
 pub use zip_rdd::*;
-
 mod union_rdd;
-
 pub use union_rdd::*;
-
 // Values which are needed for all RDDs
 #[derive(Serialize, Deserialize)]
 pub(crate) struct RddVals {
@@ -889,8 +867,7 @@ pub trait Rdd: RddBase + 'static {
             })))
             .cogroup(
                 other,
-                Box::new(HashPartitioner::<Self::Item>::new(num_splits))
-                    as Box<dyn Partitioner>,
+                Box::new(HashPartitioner::<Self::Item>::new(num_splits)) as Box<dyn Partitioner>,
             )
             .map(Box::new(Fn!(|(x, (v1, v2)): (
                 Self::Item,

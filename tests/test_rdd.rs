@@ -672,7 +672,7 @@ fn test_take_ordered() {
 }
 
 #[test]
-fn test_subtract(){
+fn test_subtract() {
     let sc = CONTEXT.clone();
     let col1 = vec![1, 2, 3, 4, 5, 10, 12, 13, 19, 0];
 
@@ -681,7 +681,5 @@ fn test_subtract(){
     let first = sc.parallelize(col1, 4);
     let second = sc.parallelize(col2, 4);
     let ans = first.subtract(Arc::new(second));
-    assert_eq!(ans.collect().unwrap(),vec![19, 12, 10, 1, 0, 2])
-
-
+    assert_eq!(ans.collect().unwrap(), vec![19, 12, 10, 1, 0, 2])
 }

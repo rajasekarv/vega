@@ -1,5 +1,5 @@
-use vega::*;
 use std::sync::Arc;
+use vega::*;
 
 fn main() -> Result<()> {
     let sc = Context::new()?;
@@ -12,10 +12,8 @@ fn main() -> Result<()> {
     let ans = first.subtract(Arc::new(second));
 
     for elem in ans.collect().iter() {
-        println!("{:?}",elem);
+        println!("{:?}", elem);
     }
 
     Ok(())
-    
-
 }
