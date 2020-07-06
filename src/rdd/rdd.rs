@@ -848,7 +848,7 @@ pub trait Rdd: RddBase + 'static {
     {
         self.subtract_with_num_partition(other, self.number_of_splits())
     }
-
+    
     fn subtract_with_num_partition<T>(
         &self,
         other: Arc<T>,

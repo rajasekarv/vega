@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 use std::fs::{create_dir_all, File};
 use std::io::prelude::*;
 use std::sync::Arc;
@@ -681,5 +682,18 @@ fn test_subtract() {
     let first = sc.parallelize(col1, 4);
     let second = sc.parallelize(col2, 4);
     let ans = first.subtract(Arc::new(second));
-    assert_eq!(ans.collect().unwrap(), vec![19, 12, 10, 1, 0, 2])
+    // assert_eq!(HashSet::from_iter(ans.collect().unwrap().iter().cloned()), HashSet::from_iter(vec![19, 12, 10, 1, 0, 2].iter().cloned()));
+
+    let mut expected_vec = vec![19, 12, 10, 1, 0, 2];
+    expected_vec.sort();
+    let mut actual = ans.collect().unwrap();
+    actual.sort();
+
+    
+
+    println!("{:?}",expected_vec);
+    println!("{:?}",actual);
+        
+    assert_eq!(actual,expected_vec)
+
 }
