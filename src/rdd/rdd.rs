@@ -49,7 +49,6 @@ mod zip_rdd;
 pub use zip_rdd::*;
 mod union_rdd;
 pub use union_rdd::*;
-
 // Values which are needed for all RDDs
 #[derive(Serialize, Deserialize)]
 pub(crate) struct RddVals {
@@ -836,6 +835,67 @@ pub trait Rdd: RddBase + 'static {
         T: Rdd<Item = Self::Item> + Sized,
     {
         self.intersection_with_num_partitions(other, self.number_of_splits())
+    }
+
+    /// subtract function, same as the one found in apache spark 
+    /// example of subtract can be found in subtract.rs
+    /// performs a full outer join followed by and intersection with self to get subtraction.
+    fn subtract<T>(&self, other: Arc<T>) -> SerArc<dyn Rdd<Item = Self::Item>>
+    where
+        Self: Clone,
+        Self::Item: Data + Eq + Hash,
+        T: Rdd<Item = Self::Item> + Sized,
+    {
+        self.subtract_with_num_partition(other, self.number_of_splits())
+    }
+    
+    fn subtract_with_num_partition<T>(
+        &self,
+        other: Arc<T>,
+        num_splits: usize,
+    ) -> SerArc<dyn Rdd<Item = Self::Item>>
+    where
+        Self: Clone,
+        Self::Item: Data + Eq + Hash,
+        T: Rdd<Item = Self::Item> + Sized,
+    {
+        let other = other
+            .map(Box::new(Fn!(
+                |x: Self::Item| -> (Self::Item, Option<Self::Item>) { (x, None) }
+            )))
+            .clone();
+        let rdd = self
+            .map(Box::new(Fn!(|x| -> (Self::Item, Option<Self::Item>) {
+                (x, None)
+            })))
+            .cogroup(
+                other,
+                Box::new(HashPartitioner::<Self::Item>::new(num_splits)) as Box<dyn Partitioner>,
+            )
+            .map(Box::new(Fn!(|(x, (v1, v2)): (
+                Self::Item,
+                (Vec::<Option<Self::Item>>, Vec::<Option<Self::Item>>)
+            )|
+             -> Option<Self::Item> {
+                if (v1.len() >= 1) ^ (v2.len() >= 1) {
+                    Some(x)
+                } else {
+                    None
+                }
+            })))
+            .map_partitions(Box::new(Fn!(|iter: Box<
+                dyn Iterator<Item = Option<Self::Item>>,
+            >|
+             -> Box<
+                dyn Iterator<Item = Self::Item>,
+            > {
+                Box::new(iter.filter(|x| x.is_some()).map(|x| x.unwrap()))
+                    as Box<dyn Iterator<Item = Self::Item>>
+            })));
+
+        let subtraction = self.intersection(Arc::new(rdd));
+        (&*subtraction).register_op_name("subtraction");
+        subtraction
     }
 
     fn intersection_with_num_partitions<T>(

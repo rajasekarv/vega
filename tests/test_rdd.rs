@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 use std::fs::{create_dir_all, File};
 use std::io::prelude::*;
 use std::sync::Arc;
@@ -669,4 +670,30 @@ fn test_take_ordered() {
 
     let res: Vec<usize> = rdd.take_ordered(3).unwrap();
     assert_eq!(res, vec![3, 4, 12]);
+}
+
+#[test]
+fn test_subtract() {
+    let sc = CONTEXT.clone();
+    let col1 = vec![1, 2, 3, 4, 5, 10, 12, 13, 19, 0];
+
+    let col2 = vec![3, 4, 5, 6, 7, 8, 11, 13];
+
+    let first = sc.parallelize(col1, 4);
+    let second = sc.parallelize(col2, 4);
+    let ans = first.subtract(Arc::new(second));
+    // assert_eq!(HashSet::from_iter(ans.collect().unwrap().iter().cloned()), HashSet::from_iter(vec![19, 12, 10, 1, 0, 2].iter().cloned()));
+
+    let mut expected_vec = vec![19, 12, 10, 1, 0, 2];
+    expected_vec.sort();
+    let mut actual = ans.collect().unwrap();
+    actual.sort();
+
+    
+
+    println!("{:?}",expected_vec);
+    println!("{:?}",actual);
+        
+    assert_eq!(actual,expected_vec)
+
 }
