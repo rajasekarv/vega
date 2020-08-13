@@ -10,11 +10,15 @@ Vega requires Rust Nightly channel because it depends on libraries that require 
 Ensure that you have and are using a Nightly toolchain when
 building examples.
 
-    rustup toolchain install nightly
+```doc
+$ rustup toolchain install nightly
+```
     
 Then set the default, or pass the toolchain in when invoking Cargo:
 
-    rustup default nightly
+```doc
+$ rustup default nightly
+```
 
 ### Installing Vega
 
