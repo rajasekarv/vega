@@ -1,4 +1,6 @@
 use std::cmp::Ordering;
+use std::cmp::Reverse;
+use std::collections::HashMap;
 use std::fs;
 use std::hash::Hash;
 use std::io::{BufWriter, Write};
@@ -10,11 +12,12 @@ use std::time::Duration;
 use crate::context::Context;
 use crate::dependency::Dependency;
 use crate::error::{Error, Result};
-use crate::partial::{BoundedDouble, CountEvaluator, PartialResult};
+use crate::partial::{BoundedDouble, CountEvaluator, GroupedCountEvaluator, PartialResult};
 use crate::partitioner::{HashPartitioner, Partitioner};
 use crate::scheduler::TaskContext;
 use crate::serializable_traits::{AnyData, Data, Func, SerFunc};
 use crate::split::Split;
+use crate::utils::bounded_priority_queue::BoundedPriorityQueue;
 use crate::utils::random::{BernoulliCellSampler, BernoulliSampler, PoissonSampler, RandomSampler};
 use crate::{utils, Fn, SerArc, SerBox};
 use fasthash::MetroHasher;
@@ -46,7 +49,6 @@ mod zip_rdd;
 pub use zip_rdd::*;
 mod union_rdd;
 pub use union_rdd::*;
-
 // Values which are needed for all RDDs
 #[derive(Serialize, Deserialize)]
 pub(crate) struct RddVals {
@@ -456,6 +458,46 @@ pub trait Rdd: RddBase + 'static {
         )
     }
 
+    /// Approximate version of `count_by_value`.
+    ///
+    /// # Arguments
+    /// * `timeout` - maximum time to wait for the job, in milliseconds
+    /// * `confidence` - the desired statistical confidence in the result
+    fn count_by_value_aprox(
+        &self,
+        timeout: Duration,
+        confidence: Option<f64>,
+    ) -> Result<PartialResult<HashMap<Self::Item, BoundedDouble>>>
+    where
+        Self: Sized,
+        Self::Item: Data + Eq + Hash,
+    {
+        let confidence = if let Some(confidence) = confidence {
+            confidence
+        } else {
+            0.95
+        };
+        assert!(0.0 <= confidence && confidence <= 1.0);
+
+        let count_partition = Fn!(|(_ctx, iter): (
+            TaskContext,
+            Box<dyn Iterator<Item = Self::Item>>,
+        )|
+         -> HashMap<Self::Item, usize> {
+            let mut map = HashMap::new();
+            iter.for_each(|e| {
+                *map.entry(e).or_insert(0) += 1;
+            });
+            map
+        });
+
+        let evaluator = GroupedCountEvaluator::new(self.number_of_splits(), confidence);
+        let rdd = self.get_rdd();
+        rdd.register_op_name("count_by_value_approx");
+        self.get_context()
+            .run_approximate_job(count_partition, rdd, evaluator, timeout)
+    }
+
     /// Return a new RDD containing the distinct elements in this RDD.
     fn distinct_with_num_partitions(
         &self,
@@ -795,6 +837,67 @@ pub trait Rdd: RddBase + 'static {
         self.intersection_with_num_partitions(other, self.number_of_splits())
     }
 
+    /// subtract function, same as the one found in apache spark 
+    /// example of subtract can be found in subtract.rs
+    /// performs a full outer join followed by and intersection with self to get subtraction.
+    fn subtract<T>(&self, other: Arc<T>) -> SerArc<dyn Rdd<Item = Self::Item>>
+    where
+        Self: Clone,
+        Self::Item: Data + Eq + Hash,
+        T: Rdd<Item = Self::Item> + Sized,
+    {
+        self.subtract_with_num_partition(other, self.number_of_splits())
+    }
+    
+    fn subtract_with_num_partition<T>(
+        &self,
+        other: Arc<T>,
+        num_splits: usize,
+    ) -> SerArc<dyn Rdd<Item = Self::Item>>
+    where
+        Self: Clone,
+        Self::Item: Data + Eq + Hash,
+        T: Rdd<Item = Self::Item> + Sized,
+    {
+        let other = other
+            .map(Box::new(Fn!(
+                |x: Self::Item| -> (Self::Item, Option<Self::Item>) { (x, None) }
+            )))
+            .clone();
+        let rdd = self
+            .map(Box::new(Fn!(|x| -> (Self::Item, Option<Self::Item>) {
+                (x, None)
+            })))
+            .cogroup(
+                other,
+                Box::new(HashPartitioner::<Self::Item>::new(num_splits)) as Box<dyn Partitioner>,
+            )
+            .map(Box::new(Fn!(|(x, (v1, v2)): (
+                Self::Item,
+                (Vec::<Option<Self::Item>>, Vec::<Option<Self::Item>>)
+            )|
+             -> Option<Self::Item> {
+                if (v1.len() >= 1) ^ (v2.len() >= 1) {
+                    Some(x)
+                } else {
+                    None
+                }
+            })))
+            .map_partitions(Box::new(Fn!(|iter: Box<
+                dyn Iterator<Item = Option<Self::Item>>,
+            >|
+             -> Box<
+                dyn Iterator<Item = Self::Item>,
+            > {
+                Box::new(iter.filter(|x| x.is_some()).map(|x| x.unwrap()))
+                    as Box<dyn Iterator<Item = Self::Item>>
+            })));
+
+        let subtraction = self.intersection(Arc::new(rdd));
+        (&*subtraction).register_op_name("subtraction");
+        subtraction
+    }
+
     fn intersection_with_num_partitions<T>(
         &self,
         other: Arc<T>,
@@ -937,6 +1040,8 @@ pub trait Rdd: RddBase + 'static {
         } else {
             0.95
         };
+        assert!(0.0 <= confidence && confidence <= 1.0);
+
         let count_elements = Fn!(|(_ctx, iter): (
             TaskContext,
             Box<dyn Iterator<Item = Self::Item>>
@@ -991,6 +1096,60 @@ pub trait Rdd: RddBase + 'static {
     {
         let min_fn = Fn!(|x: Self::Item, y: Self::Item| x.min(y));
         self.reduce(min_fn)
+    }
+
+    /// Returns the first k (largest) elements from this RDD as defined by the specified
+    /// Ord<T> and maintains ordering. This does the opposite of [take_ordered](#take_ordered).
+    /// # Notes
+    /// This method should only be used if the resulting array is expected to be small, as
+    /// all the data is loaded into the driver's memory.
+    fn top(&self, num: usize) -> Result<Vec<Self::Item>>
+    where
+        Self: Sized,
+        Self::Item: Data + Ord,
+    {
+        Ok(self
+            .map(Fn!(|x| Reverse(x)))
+            .take_ordered(num)?
+            .into_iter()
+            .map(|x| x.0)
+            .collect())
+    }
+
+    /// Returns the first k (smallest) elements from this RDD as defined by the specified
+    /// Ord<T> and maintains ordering. This does the opposite of [top()](#top).
+    /// # Notes
+    /// This method should only be used if the resulting array is expected to be small, as
+    /// all the data is loaded into the driver's memory.
+    fn take_ordered(&self, num: usize) -> Result<Vec<Self::Item>>
+    where
+        Self: Sized,
+        Self::Item: Data + Ord,
+    {
+        if num == 0 {
+            Ok(vec![])
+        } else {
+            let first_k_func = Fn!(move |partition: Box<dyn Iterator<Item = Self::Item>>|
+                -> Box<dyn Iterator<Item = BoundedPriorityQueue<Self::Item>>>  {
+                    let mut queue = BoundedPriorityQueue::new(num);
+                    partition.for_each(|item: Self::Item| queue.append(item));
+                    Box::new(std::iter::once(queue))
+            });
+
+            let queue = self
+                .map_partitions(first_k_func)
+                .reduce(Fn!(
+                    move |queue1: BoundedPriorityQueue<Self::Item>,
+                          queue2: BoundedPriorityQueue<Self::Item>|
+                          -> BoundedPriorityQueue<Self::Item> {
+                        queue1.merge(queue2)
+                    }
+                ))?
+                .ok_or_else(|| Error::Other)?
+                as BoundedPriorityQueue<Self::Item>;
+
+            Ok(queue.into())
+        }
     }
 }
 

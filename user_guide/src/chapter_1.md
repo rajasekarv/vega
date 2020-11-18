@@ -4,11 +4,27 @@
 
 ## Getting started
 
-### Installation
+### Setting up Rust
 
-Right now the framework lacks any sort of cluster manager of submit program/script.
+Vega requires Rust Nightly channel because it depends on libraries that require Nightly (`serde_traitobject` -> `metatype`).
+Ensure that you have and are using a Nightly toolchain when
+building examples.
 
-In order to use the framework you have to clone the repository and add the local dependency or add the upstream GitHub repository to your Rust project (the crate is not yet published on [crates.io](https://crates.io/)). E.g. add to your application Cargo.toml or:
+```doc
+$ rustup toolchain install nightly
+```
+    
+Then set the default, or pass the toolchain in when invoking Cargo:
+
+```doc
+$ rustup default nightly
+```
+
+### Installing Vega
+
+Right now, the framework lacks any sort of cluster manager of submit program/script.
+
+In order to use the framework, you have to clone the repository and add the local dependency or add the upstream GitHub repository to your Rust project (the crate is not yet published on [crates.io](https://crates.io/)). E.g. add to your application Cargo.toml or:
 
 ```doc
 [dependencies]
@@ -17,7 +33,7 @@ vega = { path = "/path/to/local/git/repo" }
 vega = { git = "https://github.com/rajasekarv/vega", branch = "master }
 ```
 
-Is not recommended to use the application for any sort of production code yet as it's under heavy development.
+It is _not recommended_ to use the application for any sort of production code yet as it's under heavy development.
 
 Check [examples](https://github.com/rajasekarv/vega/tree/master/examples) and [tests](https://github.com/rajasekarv/vega/tree/master/tests) in the source code to get a basic idea of how the framework works.
 
@@ -36,13 +52,13 @@ In order to execute application code some preliminary setup is required. (So far
     # create the same hosts.conf file in every machine:
     $ cd ~ && vim hosts.conf ...
     ```
-* The environment variable `NS_LOCAL_IP` must be set for the user executing application code.
+* The environment variable `VEGA_LOCAL_IP` must be set for the user executing application code.
     * In `local` it suffices to set up for the current user:
-    > $ export NS_LOCAL_IP=0.0.0.0
+    > $ export VEGA_LOCAL_IP=0.0.0.0
     * In `distributed` the variable is required, aditionally, to be set up for the users remotely connecting. Depending on the O.S. and ssh defaults this may require some additional configuration. E.g.:
     ```doc
     $ ssh remote_user@172.0.0.10
-    $ sudo echo "NS_LOCAL_IP=172.0.0.10" >> .ssh/environment
+    $ sudo echo "VEGA_LOCAL_IP=172.0.0.10" >> .ssh/environment
     $ sudo echo "PermitUserEnvironment yes" >> /etc/ssh/sshd_config
     $ service ssh restart 
     ```
@@ -52,7 +68,7 @@ examples just run them. In `local`:
 > cargo run --example make_rdd
 
 In `distributed`:
-> export NS_DEPLOYMENT_MODE=distributed
+> export VEGA_DEPLOYMENT_MODE=distributed
 >
 > cargo run --example make_rdd
 
@@ -69,7 +85,7 @@ and deploying distributed mode on your local host. In order to use them:
 
 This will execute all the necessary steeps to to deploy a working network of containers where you can execute the tests. When finished you can attach a shell to the master and run the examples:
 ```doc
-$ docker exec -it docker_ns_master_1 bash
+$ docker exec -it docker_vega_master_1 bash
 $ ./make_rdd
 ```
 

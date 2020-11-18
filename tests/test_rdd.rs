@@ -1,17 +1,18 @@
+use std::collections::HashSet;
 use std::fs::{create_dir_all, File};
 use std::io::prelude::*;
 use std::sync::Arc;
 
+use once_cell::sync::Lazy;
 use vega::io::*;
 use vega::partitioner::HashPartitioner;
 use vega::rdd::CoGroupedRdd;
 use vega::*;
-use once_cell::sync::Lazy;
 
 static CONTEXT: Lazy<Arc<Context>> = Lazy::new(|| Context::new().unwrap());
 //static AGGREGATOR: Lazy<Arc<Aggregator<data,dat1,dat2>>> = Lazy::new(|| Aggregator::new().unwrap());
 static WORK_DIR: Lazy<std::path::PathBuf> = Lazy::new(std::env::temp_dir);
-const TEST_DIR: &str = "ns_test_dir";
+const TEST_DIR: &str = "vega_test_dir";
 
 #[allow(unused_must_use)]
 fn set_up(file_name: &str) {
@@ -566,6 +567,26 @@ fn count_aprox() -> Result<()> {
 }
 
 #[test]
+fn count_by_value_aprox() -> Result<()> {
+    let sc = CONTEXT.clone();
+
+    // this should complete  and return the final value, so confidence should be 100%
+    let time_out = std::time::Duration::from_nanos(100);
+    let mut res: Vec<_> = sc
+        .make_rdd(vec![1i32, 2, 2, 3, 3, 3], 6)
+        .count_by_value_aprox(time_out, Some(0.9))?
+        .get_final_value()?
+        .into_iter()
+        .map(|(k, v)| (k, v.mean))
+        .collect();
+    res.sort_by(|e1, e2| e1.0.cmp(&e2.0));
+
+    let expected = vec![(1i32, 1.0f64), (2, 2.0), (3, 3.0)];
+    assert_eq!(res, expected);
+    Ok(())
+}
+
+#[test]
 fn test_is_empty() {
     let sc = CONTEXT.clone();
     let v: Vec<usize> = Vec::new();
@@ -628,4 +649,51 @@ fn test_random_split() {
     assert!(rdds[0].iter().all(|i| !rdds[1].contains(i)));
     assert!(rdds[0].iter().all(|i| !rdds[2].contains(i)));
     assert!(rdds[1].iter().all(|i| !rdds[2].contains(i)));
+}
+
+#[test]
+fn test_top() {
+    let sc = CONTEXT.clone();
+
+    let col1 = vec![13, 28, 3, 4, 51, 108, 12, 113, 19];
+    let rdd = sc.parallelize(col1, 4);
+    let res: Vec<usize> = rdd.top(3).unwrap();
+    assert_eq!(res, vec![113, 108, 51]);
+}
+
+#[test]
+fn test_take_ordered() {
+    let sc = CONTEXT.clone();
+
+    let col1 = vec![13, 28, 3, 4, 51, 108, 12, 113, 19];
+    let rdd = sc.parallelize(col1, 4);
+
+    let res: Vec<usize> = rdd.take_ordered(3).unwrap();
+    assert_eq!(res, vec![3, 4, 12]);
+}
+
+#[test]
+fn test_subtract() {
+    let sc = CONTEXT.clone();
+    let col1 = vec![1, 2, 3, 4, 5, 10, 12, 13, 19, 0];
+
+    let col2 = vec![3, 4, 5, 6, 7, 8, 11, 13];
+
+    let first = sc.parallelize(col1, 4);
+    let second = sc.parallelize(col2, 4);
+    let ans = first.subtract(Arc::new(second));
+    // assert_eq!(HashSet::from_iter(ans.collect().unwrap().iter().cloned()), HashSet::from_iter(vec![19, 12, 10, 1, 0, 2].iter().cloned()));
+
+    let mut expected_vec = vec![19, 12, 10, 1, 0, 2];
+    expected_vec.sort();
+    let mut actual = ans.collect().unwrap();
+    actual.sort();
+
+    
+
+    println!("{:?}",expected_vec);
+    println!("{:?}",actual);
+        
+    assert_eq!(actual,expected_vec)
+
 }
