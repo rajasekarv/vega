@@ -53,7 +53,7 @@ pub use union_rdd::*;
 #[derive(Serialize, Deserialize)]
 pub(crate) struct RddVals {
     pub id: usize,
-    pub dependencies: Vec<Dependency>,
+    pub shuffle_ids: Vec<usize>,
     should_cache: bool,
     #[serde(skip_serializing, skip_deserializing)]
     pub context: Weak<Context>,
@@ -63,7 +63,7 @@ impl RddVals {
     pub fn new(sc: Arc<Context>) -> Self {
         RddVals {
             id: sc.new_rdd_id(),
-            dependencies: Vec::new(),
+            shuffle_ids: Vec::new(),
             should_cache: false,
             context: Arc::downgrade(&sc),
         }

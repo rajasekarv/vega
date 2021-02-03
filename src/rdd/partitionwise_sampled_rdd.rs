@@ -27,11 +27,7 @@ impl<T: Data> PartitionwiseSampledRdd<T> {
         sampler: Arc<dyn RandomSampler<T>>,
         preserves_partitioning: bool,
     ) -> Self {
-        let mut vals = RddVals::new(prev.get_context());
-        vals.dependencies
-            .push(Dependency::NarrowDependency(Arc::new(
-                OneToOneDependency::new(prev.get_rdd_base()),
-            )));
+        let vals = RddVals::new(prev.get_context());
         let vals = Arc::new(vals);
 
         PartitionwiseSampledRdd {
@@ -66,7 +62,9 @@ impl<T: Data> RddBase for PartitionwiseSampledRdd<T> {
     }
 
     fn get_dependencies(&self) -> Vec<Dependency> {
-        self.vals.dependencies.clone()
+        vec![Dependency::NarrowDependency(Arc::new(
+            OneToOneDependency::new(self.prev.get_rdd_base()),
+        ))]
     }
 
     fn splits(&self) -> Vec<Box<dyn Split>> {

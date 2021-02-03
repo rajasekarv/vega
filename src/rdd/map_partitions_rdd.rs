@@ -48,11 +48,7 @@ where
     F: SerFunc(usize, Box<dyn Iterator<Item = T>>) -> Box<dyn Iterator<Item = U>>,
 {
     pub(crate) fn new(prev: Arc<dyn Rdd<Item = T>>, f: F) -> Self {
-        let mut vals = RddVals::new(prev.get_context());
-        vals.dependencies
-            .push(Dependency::NarrowDependency(Arc::new(
-                OneToOneDependency::new(prev.get_rdd_base()),
-            )));
+        let vals = RddVals::new(prev.get_context());
         let vals = Arc::new(vals);
         MapPartitionsRdd {
             name: Mutex::new("map_partitions".to_owned()),
@@ -92,7 +88,9 @@ where
     }
 
     fn get_dependencies(&self) -> Vec<Dependency> {
-        self.vals.dependencies.clone()
+        vec![Dependency::NarrowDependency(Arc::new(
+            OneToOneDependency::new(self.prev.get_rdd_base()),
+        ))]
     }
 
     fn preferred_locations(&self, split: Box<dyn Split>) -> Vec<Ipv4Addr> {

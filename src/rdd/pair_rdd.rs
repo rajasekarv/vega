@@ -210,11 +210,7 @@ where
     F: Func(V) -> U + Clone,
 {
     fn new(prev: Arc<dyn Rdd<Item = (K, V)>>, f: F) -> Self {
-        let mut vals = RddVals::new(prev.get_context());
-        vals.dependencies
-            .push(Dependency::NarrowDependency(Arc::new(
-                OneToOneDependency::new(prev.get_rdd_base()),
-            )));
+        let vals = RddVals::new(prev.get_context());
         let vals = Arc::new(vals);
         MappedValuesRdd {
             prev,
@@ -238,7 +234,9 @@ where
         self.vals.context.upgrade().unwrap()
     }
     fn get_dependencies(&self) -> Vec<Dependency> {
-        self.vals.dependencies.clone()
+        vec![Dependency::NarrowDependency(Arc::new(
+            OneToOneDependency::new(self.prev.get_rdd_base()),
+        ))]
     }
     fn splits(&self) -> Vec<Box<dyn Split>> {
         self.prev.splits()
@@ -322,11 +320,7 @@ where
     F: Func(V) -> Box<dyn Iterator<Item = U>> + Clone,
 {
     fn new(prev: Arc<dyn Rdd<Item = (K, V)>>, f: F) -> Self {
-        let mut vals = RddVals::new(prev.get_context());
-        vals.dependencies
-            .push(Dependency::NarrowDependency(Arc::new(
-                OneToOneDependency::new(prev.get_rdd_base()),
-            )));
+        let vals = RddVals::new(prev.get_context());
         let vals = Arc::new(vals);
         FlatMappedValuesRdd {
             prev,
@@ -350,7 +344,9 @@ where
         self.vals.context.upgrade().unwrap()
     }
     fn get_dependencies(&self) -> Vec<Dependency> {
-        self.vals.dependencies.clone()
+        vec![Dependency::NarrowDependency(Arc::new(
+            OneToOneDependency::new(self.prev.get_rdd_base()),
+        ))]
     }
     fn splits(&self) -> Vec<Box<dyn Split>> {
         self.prev.splits()

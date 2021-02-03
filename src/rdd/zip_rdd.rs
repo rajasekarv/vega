@@ -59,7 +59,9 @@ impl<F: Data, S: Data> RddBase for ZippedPartitionsRdd<F, S> {
     }
 
     fn get_dependencies(&self) -> Vec<Dependency> {
-        self.vals.dependencies.clone()
+        vec![Dependency::NarrowDependency(Arc::new(
+            OneToOneDependency::new(self.first.get_rdd_base()),
+        ))]
     }
 
     fn splits(&self) -> Vec<Box<dyn Split>> {
@@ -134,10 +136,6 @@ impl<F: Data, S: Data> Rdd for ZippedPartitionsRdd<F, S> {
 impl<F: Data, S: Data> ZippedPartitionsRdd<F, S> {
     pub fn new(first: Arc<dyn Rdd<Item = F>>, second: Arc<dyn Rdd<Item = S>>) -> Self {
         let mut vals = RddVals::new(first.get_context());
-        vals.dependencies
-            .push(Dependency::NarrowDependency(Arc::new(
-                OneToOneDependency::new(first.get_rdd_base()),
-            )));
         let vals = Arc::new(vals);
 
         ZippedPartitionsRdd {

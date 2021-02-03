@@ -176,7 +176,7 @@ impl<T: Data> RddBase for ParallelCollection<T> {
     }
 
     fn get_dependencies(&self) -> Vec<Dependency> {
-        self.rdd_vals.vals.dependencies.clone()
+        Vec::new()
     }
 
     fn splits(&self) -> Vec<Box<dyn Split>> {
