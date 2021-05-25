@@ -837,7 +837,7 @@ pub trait Rdd: RddBase + 'static {
         self.intersection_with_num_partitions(other, self.number_of_splits())
     }
 
-    /// subtract function, same as the one found in apache spark 
+    /// subtract function, same as the one found in apache spark
     /// example of subtract can be found in subtract.rs
     /// performs a full outer join followed by and intersection with self to get subtraction.
     fn subtract<T>(&self, other: Arc<T>) -> SerArc<dyn Rdd<Item = Self::Item>>
@@ -848,7 +848,7 @@ pub trait Rdd: RddBase + 'static {
     {
         self.subtract_with_num_partition(other, self.number_of_splits())
     }
-    
+
     fn subtract_with_num_partition<T>(
         &self,
         other: Arc<T>,
@@ -1158,18 +1158,4 @@ pub trait Reduce<T> {
     where
         Self: Sized,
         F: FnMut(T, T) -> T;
-}
-
-impl<T, I> Reduce<T> for I
-where
-    I: Iterator<Item = T>,
-{
-    #[inline]
-    fn reduce<F>(mut self, f: F) -> Option<T>
-    where
-        Self: Sized,
-        F: FnMut(T, T) -> T,
-    {
-        self.next().map(|first| self.fold(first, f))
-    }
 }
