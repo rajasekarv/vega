@@ -28,7 +28,7 @@ fn main() -> Result<()> {
 fn read(file: PathBuf) -> Vec<((i32, String, i64), (i64, f64))> {
     let file = File::open(file).unwrap();
     let reader = SerializedFileReader::new(file).unwrap();
-    let metadata = reader.metadata();
+    let metadata = reader.metadata().clone();
     let batch_size = 500_000 as usize;
     let iter = (0..metadata.num_row_groups()).flat_map(move |i| {
         let row_group_reader = reader.get_row_group(i).unwrap();

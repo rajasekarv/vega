@@ -66,5 +66,5 @@ capnpc = "0.12.1"
 [dev-dependencies]
 async-std = { version = "1.5.0", features = ["attributes"] } 
 chrono = "0.4.11"
-parquet = "0.15.1"
+parquet = "5.0.0"
 tempfile = "3"
