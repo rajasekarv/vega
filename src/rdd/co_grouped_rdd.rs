@@ -75,6 +75,35 @@ impl<K: Data + Eq + Hash> CoGroupedRdd<K> {
     pub fn new(rdds: Vec<SerArc<dyn RddBase>>, part: Box<dyn Partitioner>) -> Self {
         let context = rdds[0].get_context();
         let mut vals = RddVals::new(context.clone());
+        for (_index, rdd) in rdds.iter().enumerate() {
+            if !rdd
+                .partitioner()
+                .map_or(false, |p| p.equals(&part as &dyn Any))
+            {
+                vals.shuffle_ids.push(context.new_shuffle_id());
+            }
+        }
+        let vals = Arc::new(vals);
+        CoGroupedRdd {
+            vals,
+            rdds,
+            part,
+            _marker: PhantomData,
+        }
+    }
+}
+
+impl<K: Data + Eq + Hash> RddBase for CoGroupedRdd<K> {
+    fn get_rdd_id(&self) -> usize {
+        self.vals.id
+    }
+
+    fn get_context(&self) -> Arc<Context> {
+        self.vals.context.upgrade().unwrap()
+    }
+
+    fn get_dependencies(&self) -> Vec<Dependency> {
+        let mut shuffle_ids = self.vals.shuffle_ids.clone();
         let create_combiner = Box::new(Fn!(|v: Box<dyn AnyData>| vec![v]));
         fn merge_value(
             mut buf: Vec<Box<dyn AnyData>>,
@@ -100,7 +129,8 @@ impl<K: Data + Eq + Hash> CoGroupedRdd<K> {
             ),
         );
         let mut deps = Vec::new();
-        for (_index, rdd) in rdds.iter().enumerate() {
+        let part = self.part.clone();
+        for (_index, rdd) in self.rdds.iter().enumerate() {
             let part = part.clone();
             if rdd
                 .partitioner()
@@ -112,10 +142,9 @@ impl<K: Data + Eq + Hash> CoGroupedRdd<K> {
                 ))
             } else {
                 let rdd_base = rdd.clone().into();
-                log::debug!("creating aggregator inside cogrouprdd");
                 deps.push(Dependency::ShuffleDependency(
                     Arc::new(ShuffleDependency::new(
-                        context.new_shuffle_id(),
+                        shuffle_ids.remove(0),
                         true,
                         rdd_base,
                         aggr.clone(),
@@ -124,28 +153,7 @@ impl<K: Data + Eq + Hash> CoGroupedRdd<K> {
                 ))
             }
         }
-        vals.dependencies = deps;
-        let vals = Arc::new(vals);
-        CoGroupedRdd {
-            vals,
-            rdds,
-            part,
-            _marker: PhantomData,
-        }
-    }
-}
-
-impl<K: Data + Eq + Hash> RddBase for CoGroupedRdd<K> {
-    fn get_rdd_id(&self) -> usize {
-        self.vals.id
-    }
-
-    fn get_context(&self) -> Arc<Context> {
-        self.vals.context.upgrade().unwrap()
-    }
-
-    fn get_dependencies(&self) -> Vec<Dependency> {
-        self.vals.dependencies.clone()
+        deps
     }
 
     fn splits(&self) -> Vec<Box<dyn Split>> {

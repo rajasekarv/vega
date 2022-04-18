@@ -64,17 +64,7 @@ impl<K: Data + Eq + Hash, V: Data, C: Data> ShuffledRdd<K, V, C> {
         let ctx = parent.get_context();
         let shuffle_id = ctx.new_shuffle_id();
         let mut vals = RddVals::new(ctx);
-
-        vals.dependencies
-            .push(Dependency::ShuffleDependency(Arc::new(
-                ShuffleDependency::new(
-                    shuffle_id,
-                    false,
-                    parent.get_rdd_base(),
-                    aggregator.clone(),
-                    part.clone(),
-                ),
-            )));
+        vals.shuffle_ids.push(shuffle_id);
         let vals = Arc::new(vals);
         ShuffledRdd {
             parent,
@@ -96,7 +86,15 @@ impl<K: Data + Eq + Hash, V: Data, C: Data> RddBase for ShuffledRdd<K, V, C> {
     }
 
     fn get_dependencies(&self) -> Vec<Dependency> {
-        self.vals.dependencies.clone()
+        vec![Dependency::ShuffleDependency(Arc::new(
+                ShuffleDependency::new(
+                    self.shuffle_id,
+                    false,
+                    self.parent.get_rdd_base(),
+                    self.aggregator.clone(),
+                    self.part.clone(),
+                ),
+            ))]
     }
 
     fn splits(&self) -> Vec<Box<dyn Split>> {

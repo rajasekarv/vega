@@ -20,7 +20,7 @@ use crate::split::Split;
 use crate::utils::bounded_priority_queue::BoundedPriorityQueue;
 use crate::utils::random::{BernoulliCellSampler, BernoulliSampler, PoissonSampler, RandomSampler};
 use crate::{utils, Fn, SerArc, SerBox};
-use fasthash::MetroHasher;
+use metrohash::MetroHash;
 use rand::{Rng, SeedableRng};
 use serde_derive::{Deserialize, Serialize};
 use serde_traitobject::{Deserialize, Serialize};
@@ -53,7 +53,7 @@ pub use union_rdd::*;
 #[derive(Serialize, Deserialize)]
 pub(crate) struct RddVals {
     pub id: usize,
-    pub dependencies: Vec<Dependency>,
+    pub shuffle_ids: Vec<usize>,
     should_cache: bool,
     #[serde(skip_serializing, skip_deserializing)]
     pub context: Weak<Context>,
@@ -63,7 +63,7 @@ impl RddVals {
     pub fn new(sc: Arc<Context>) -> Self {
         RddVals {
             id: sc.new_rdd_id(),
-            dependencies: Vec::new(),
+            shuffle_ids: Vec::new(),
             should_cache: false,
             context: Arc::downgrade(&sc),
         }
@@ -392,7 +392,7 @@ pub trait Rdd: RddBase + 'static {
             use std::hash::Hasher;
             let distributed_partition = Fn!(
                 move |index: usize, items: Box<dyn Iterator<Item = Self::Item>>| {
-                    let mut hasher = MetroHasher::default();
+                    let mut hasher = MetroHash::default();
                     index.hash(&mut hasher);
                     let mut rand = utils::random::get_default_rng_from_seed(hasher.finish());
                     let mut position = rand.gen_range(0, num_partitions);
@@ -1056,15 +1056,15 @@ pub trait Rdd: RddBase + 'static {
     }
 
     /// Creates tuples of the elements in this RDD by applying `f`.
-    fn key_by<T, F>(&self, func: F) -> SerArc<dyn Rdd<Item = (Self::Item, T)>>
+    fn key_by<T, F>(&self, func: F) -> SerArc<dyn Rdd<Item = (T, Self::Item)>>
     where
         Self: Sized,
         T: Data,
         F: SerFunc(&Self::Item) -> T,
     {
-        self.map(Fn!(move |k: Self::Item| -> (Self::Item, T) {
+        self.map(Fn!(move |k: Self::Item| -> (T, Self::Item) {
             let t = (func)(&k);
-            (k, t)
+            (t, k)
         }))
     }
 

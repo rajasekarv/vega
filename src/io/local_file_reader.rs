@@ -3,7 +3,7 @@ use std::io::{BufReader, Read};
 use std::marker::PhantomData;
 use std::net::{Ipv4Addr, SocketAddrV4};
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::sync::{Arc, Weak};
 
 use crate::context::Context;
 use crate::dependency::Dependency;
@@ -110,7 +110,7 @@ pub struct LocalFsReader<T> {
     expect_dir: bool,
     executor_partitions: Option<u64>,
     #[serde(skip_serializing, skip_deserializing)]
-    context: Arc<Context>,
+    context: Weak<Context>,
     // explicitly copy the address map as the map under context is not
     // deserialized in tasks and this is required:
     splits: Vec<SocketAddrV4>,
@@ -139,7 +139,7 @@ impl<T: Data> LocalFsReader<T> {
             expect_dir,
             executor_partitions,
             splits: context.address_map.clone(),
-            context,
+            context: Arc::downgrade(&context),
             _marker_reader_data: PhantomData,
         }
     }
@@ -310,7 +310,7 @@ macro_rules! impl_common_lfs_rddb_funcs {
         }
 
         fn get_context(&self) -> Arc<Context> {
-            self.context.clone()
+            self.context.upgrade().unwrap()
         }
 
         fn get_dependencies(&self) -> Vec<Dependency> {

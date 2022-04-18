@@ -15,8 +15,6 @@ pub(crate) struct ShuffleMapTask {
     pub task_id: usize,
     pub run_id: usize,
     pub stage_id: usize,
-    #[serde(with = "serde_traitobject")]
-    pub rdd: Arc<dyn RddBase>,
     pinned: bool,
     #[serde(with = "serde_traitobject")]
     pub dep: Arc<dyn ShuffleDependencyTrait>,
@@ -29,7 +27,6 @@ impl ShuffleMapTask {
         task_id: usize,
         run_id: usize,
         stage_id: usize,
-        rdd: Arc<dyn RddBase>,
         dep: Arc<dyn ShuffleDependencyTrait>,
         partition: usize,
         locs: Vec<Ipv4Addr>,
@@ -38,8 +35,7 @@ impl ShuffleMapTask {
             task_id,
             run_id,
             stage_id,
-            pinned: rdd.is_pinned(),
-            rdd,
+            pinned: dep.get_rdd_base().is_pinned(),
             dep,
             partition,
             locs,
@@ -85,7 +81,7 @@ impl TaskBase for ShuffleMapTask {
 
 impl Task for ShuffleMapTask {
     fn run(&self, _id: usize) -> SerBox<dyn AnyData> {
-        SerBox::new(self.dep.do_shuffle_task(self.rdd.clone(), self.partition))
+        SerBox::new(self.dep.do_shuffle_task(self.dep.get_rdd_base(), self.partition))
             as SerBox<dyn AnyData>
     }
 }

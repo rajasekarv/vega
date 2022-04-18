@@ -426,7 +426,6 @@ pub(crate) trait NativeScheduler: Send + Sync {
                         self.get_next_task_id(),
                         jt.run_id,
                         stage.id,
-                        stage.rdd.clone(),
                         stage
                             .shuffle_dependency
                             .clone()

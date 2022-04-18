@@ -80,7 +80,7 @@ impl<T: Data, U: Data> RddBase for CartesianRdd<T, U> {
     }
 
     fn get_dependencies(&self) -> Vec<Dependency> {
-        self.vals.dependencies.clone()
+        Vec::new()
     }
 
     fn splits(&self) -> Vec<Box<dyn Split>> {
