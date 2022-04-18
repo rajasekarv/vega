@@ -20,7 +20,7 @@ use crate::split::Split;
 use crate::utils::bounded_priority_queue::BoundedPriorityQueue;
 use crate::utils::random::{BernoulliCellSampler, BernoulliSampler, PoissonSampler, RandomSampler};
 use crate::{utils, Fn, SerArc, SerBox};
-use fasthash::MetroHasher;
+use metrohash::MetroHash;
 use rand::{Rng, SeedableRng};
 use serde_derive::{Deserialize, Serialize};
 use serde_traitobject::{Deserialize, Serialize};
@@ -392,7 +392,7 @@ pub trait Rdd: RddBase + 'static {
             use std::hash::Hasher;
             let distributed_partition = Fn!(
                 move |index: usize, items: Box<dyn Iterator<Item = Self::Item>>| {
-                    let mut hasher = MetroHasher::default();
+                    let mut hasher = MetroHash::default();
                     index.hash(&mut hasher);
                     let mut rand = utils::random::get_default_rng_from_seed(hasher.finish());
                     let mut position = rand.gen_range(0, num_partitions);
