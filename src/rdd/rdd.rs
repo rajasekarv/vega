@@ -1056,15 +1056,15 @@ pub trait Rdd: RddBase + 'static {
     }
 
     /// Creates tuples of the elements in this RDD by applying `f`.
-    fn key_by<T, F>(&self, func: F) -> SerArc<dyn Rdd<Item = (Self::Item, T)>>
+    fn key_by<T, F>(&self, func: F) -> SerArc<dyn Rdd<Item = (T, Self::Item)>>
     where
         Self: Sized,
         T: Data,
         F: SerFunc(&Self::Item) -> T,
     {
-        self.map(Fn!(move |k: Self::Item| -> (Self::Item, T) {
+        self.map(Fn!(move |k: Self::Item| -> (T, Self::Item) {
             let t = (func)(&k);
-            (k, t)
+            (t, k)
         }))
     }
 
